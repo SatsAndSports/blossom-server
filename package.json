@@ -23,6 +23,7 @@
   "dependencies": {
     "@koa/cors": "^5.0.0",
     "@koa/router": "^13.1.0",
+    "@noble/secp256k1": "^3.0.0",
     "@nostr-dev-kit/ndk": "^2.10.7",
     "better-sqlite3": "^11.7.0",
     "blossom-server-sdk": "^0.8.0",
