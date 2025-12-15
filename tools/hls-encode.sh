@@ -7,6 +7,8 @@
 # Creates in current directory:
 #   720p/, 480p/, 360p/     - quality directories with segments
 #   master.m3u8             - master playlist (references quality playlists by hash)
+#   master.m3u8.txt         - contains the master playlist hash
+#   duration.txt            - video duration in seconds
 #   hashed/                 - flat directory of hash symlinks for Blossom upload
 #     <sha256> -> ../720p/seg000.ts
 #     <sha256> -> ../720p/playlist-hashed.m3u8
@@ -27,6 +29,11 @@ if [ ! -f "$SOURCE" ]; then
     echo "Error: File not found: $SOURCE" >&2
     exit 1
 fi
+
+# Get video duration in seconds (rounded to integer)
+DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$SOURCE" | cut -d. -f1)
+echo "Video duration: ${DURATION}s" >&2
+echo "$DURATION" > duration.txt
 
 # Quality levels: name resolution bitrate
 QUALITIES=(
@@ -56,7 +63,7 @@ mkdir -p hashed
 for quality in "${QUALITIES[@]}"; do
     read -r NAME RES BITRATE <<< "$quality"
 
-    echo "Encoding $NAME ($RES @ $BITRATE)..." >&2
+    echo -n "Encoding $NAME ($RES @ $BITRATE) " >&2
     mkdir -p "$NAME"
 
     ffmpeg -i "$SOURCE" -y \
@@ -68,21 +75,22 @@ for quality in "${QUALITIES[@]}"; do
         -hls_time "$SEGMENT_DURATION" \
         -hls_list_size 0 \
         -hls_segment_filename "$NAME/seg%03d.ts" \
+        -progress pipe:1 \
         "$NAME/playlist.m3u8" \
-        2>/dev/null
+        2>/dev/null | grep --line-buffered "^progress=" | while read -r line; do
+            echo -n "." >&2
+        done
+    echo " done" >&2
 
     # Step 2: Create hash symlinks for segments in hashed/
-    echo -n "Hashing $NAME segments " >&2
     for seg in "$NAME"/seg*.ts; do
         if [ -f "$seg" ]; then
             hash=$(hash_file "$seg")
             segname=$(basename "$seg")
             ln -sf "../$NAME/$segname" "hashed/$hash"
             SEG_TO_HASH["$NAME/$segname"]="$hash"
-            echo -n "." >&2
         fi
     done
-    echo " done" >&2
 done
 
 # Step 3: Rewrite quality playlists to use hash-based segment names
