@@ -140,3 +140,17 @@ list:
 tor:
   enabled: false
   proxy: ""
+
+# Cashu payment channel config for pay-per-view video streaming
+channel:
+  # enable or disable payment channels
+  enabled: false
+  # server's secret key (hex) for deriving receiver pubkey
+  # secretKey: "your-64-char-hex-secret-key-here"
+  # You can also use environment variables:
+  # secretKey: "${CHANNEL_SECRET_KEY}"
+  # list of approved Cashu mints
+  approvedMints:
+    - http://localhost:3338
+  # price per video segment in sats
+  pricePerSegment: 1
