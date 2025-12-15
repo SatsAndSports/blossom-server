@@ -18,4 +18,13 @@ db.prepare(
 
 db.prepare("CREATE INDEX IF NOT EXISTS accessed_timestamp ON accessed (timestamp)").run();
 
+db.prepare(
+  `CREATE TABLE IF NOT EXISTS videos (
+    title TEXT PRIMARY KEY,
+    master_hash TEXT NOT NULL,
+    duration INTEGER NOT NULL,
+    uploaded INTEGER NOT NULL
+  )`,
+).run();
+
 export default db;

@@ -8,3 +8,4 @@ import "./fetch.js";
 import "./mirror.js";
 import "./media.js";
 import "./channel.js";
+import "./videos.js";
