@@ -30,7 +30,7 @@ router.get("/:hash", range, async (ctx, next) => {
   const paymentHeader = ctx.headers["x-cashu-payment"] as string | undefined;
   if (paymentHeader) {
     try {
-      const payment = JSON.parse(atob(paymentHeader));
+      const payment = JSON.parse(paymentHeader);
       paymentLog("hash=%s channel=%s balance=%d sig=%s",
         hash.substring(0, 8),
         payment.channel_id?.substring(0, 8),
@@ -38,7 +38,7 @@ router.get("/:hash", range, async (ctx, next) => {
         payment.signature?.substring(0, 16) + "..."
       );
       paymentLog("raw: %s", paymentHeader);
-      paymentLog("decoded: %O", payment);
+      paymentLog("parsed: %O", payment);
     } catch (e) {
       paymentLog("hash=%s invalid payment header: %s", hash.substring(0, 8), paymentHeader);
     }

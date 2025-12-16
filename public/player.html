@@ -341,12 +341,12 @@
                 this.incrementBalance();
                 // TODO: Generate real Schnorr signature via WASM
                 const fakeSignature = '0'.repeat(128);  // 64 bytes = 128 hex chars
-                return btoa(JSON.stringify({
+                return JSON.stringify({
                     channel_id: this.id,
                     balance: this.balance,
                     signature: fakeSignature,
                     params: this.params
-                }));
+                });
             }
 
             // Convert to IndexedDB record
