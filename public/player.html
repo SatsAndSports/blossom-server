@@ -402,7 +402,7 @@
             }
 
             // Static: Create new pending channel
-            static async createPending(aliceSecretHex, alicePubkeyHex, charliePubkeyHex, mint) {
+            static async createPending(aliceSecretHex, alicePubkeyHex, charliePubkeyHex, mint, unit, keysetId) {
                 const sharedSecretHex = compute_shared_secret(aliceSecretHex, charliePubkeyHex);
                 const setupTimestamp = Math.floor(Date.now() / 1000);
                 const expiry = setupTimestamp + 3600;
@@ -410,9 +410,9 @@
 
                 const params = {
                     mint: mint,
-                    unit: 'sat',
+                    unit: unit,
                     capacity: 1000,
-                    keyset_id: '00000000deadbeef',
+                    keyset_id: keysetId,
                     input_fee_ppk: 0,
                     maximum_amount: 64,
                     setup_timestamp: setupTimestamp,
@@ -636,14 +636,28 @@
                 const data = await response.json();
                 charlie = {
                     pubkeyHex: data.receiver_pubkey,
-                    approvedMints: data.approved_mints,
+                    mintsUnitsKeysets: data.mints_units_keysets,
                     pricePerSegment: data.price_per_segment
                 };
+                log(`Charlie accepts: ${JSON.stringify(charlie.mintsUnitsKeysets)}`);
                 return charlie;
             } catch (e) {
                 log(`Failed to fetch channel params: ${e}`, 'error');
                 return null;
             }
+        }
+
+        // Get first approved mint, unit, and keyset from Charlie's params
+        function getFirstMintUnitKeyset() {
+            if (!charlie || !charlie.mintsUnitsKeysets) return null;
+            for (const [mint, units] of Object.entries(charlie.mintsUnitsKeysets)) {
+                for (const [unit, keysetIds] of Object.entries(units)) {
+                    if (keysetIds.length > 0) {
+                        return { mint, unit, keysetId: keysetIds[0] };
+                    }
+                }
+            }
+            return null;
         }
 
         // Load video list
@@ -714,15 +728,21 @@
                 if (currentChannel) {
                     log(`Existing channel: ${currentChannel.id} (balance: ${currentChannel.balance})`);
                 } else {
-                    log(`No existing channel, creating pending channel...`);
-                    const mint = charlie.approvedMints[0];
-                    currentChannel = await Channel.createPending(
-                        alice.secretHex,
-                        alice.pubkeyHex,
-                        charlie.pubkeyHex,
-                        mint
-                    );
-                    log(`Created pending channel: ${currentChannel.id}`);
+                    const mintInfo = getFirstMintUnitKeyset();
+                    if (mintInfo) {
+                        log(`Creating channel with mint=${mintInfo.mint} unit=${mintInfo.unit} keyset=${mintInfo.keysetId}`);
+                        currentChannel = await Channel.createPending(
+                            alice.secretHex,
+                            alice.pubkeyHex,
+                            charlie.pubkeyHex,
+                            mintInfo.mint,
+                            mintInfo.unit,
+                            mintInfo.keysetId
+                        );
+                        log(`Created pending channel: ${currentChannel.id}`);
+                    } else {
+                        log(`No approved mints/keysets available from server`, 'error');
+                    }
                 }
             }
 

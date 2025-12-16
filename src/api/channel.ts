@@ -3,7 +3,7 @@ import { config } from "../config.js";
 import { router } from "./router.js";
 import logger from "../logger.js";
 
-const log = logger.extend("channel");
+const log = logger.extend("channel-mint-setup");
 
 // Type for keyset info from mint
 interface MintKeyset {
@@ -30,23 +30,20 @@ function getReceiverPubkey(): string {
 // Fetch active keysets from a mint for specific units
 async function fetchKeysetsFromMint(mintUrl: string, units: string[]): Promise<Record<string, string[]>> {
   const url = `${mintUrl}/v1/keysets`;
-  console.log(`[channel] GET ${url}`);
+  log(`GET ${url}`);
 
   try {
     const response = await fetch(url);
-    console.log(`[channel] Response status: ${response.status}`);
-
     if (!response.ok) {
-      console.log(`[channel] Failed to fetch keysets from ${mintUrl}: ${response.status}`);
+      log(`Failed: ${response.status}`);
       return {};
     }
 
     const data = await response.json() as { keysets: MintKeyset[] };
-    console.log(`[channel] Mint returned ${data.keysets?.length ?? 0} keysets`);
+    log(`Mint returned ${data.keysets?.length ?? 0} keysets`);
 
-    // Log all keysets for debugging
     for (const k of data.keysets || []) {
-      console.log(`[channel]   keyset: id=${k.id} unit=${k.unit} active=${k.active}`);
+      log(`  keyset: id=${k.id} unit=${k.unit} active=${k.active}`);
     }
 
     const result: Record<string, string[]> = {};
@@ -56,7 +53,7 @@ async function fetchKeysetsFromMint(mintUrl: string, units: string[]): Promise<R
         .filter(k => k.unit === unit && k.active)
         .map(k => k.id);
 
-      console.log(`[channel] Filtering for unit="${unit}": found ${activeKeysets.length} active keysets`);
+      log(`Filtering for unit="${unit}": found ${activeKeysets.length} active`);
 
       if (activeKeysets.length > 0) {
         result[unit] = activeKeysets;
@@ -65,25 +62,19 @@ async function fetchKeysetsFromMint(mintUrl: string, units: string[]): Promise<R
 
     return result;
   } catch (e) {
-    console.log(`[channel] Error fetching keysets from ${mintUrl}: ${e}`);
+    log(`Error fetching from ${mintUrl}: ${e}`);
     return {};
   }
 }
 
 // Initialize keysets from all configured mints
 export async function initializeChannelKeysets(): Promise<void> {
-  console.log("[channel] initializeChannelKeysets called");
-  console.log("[channel] config.channel.enabled:", config.channel.enabled);
-
   if (!config.channel.enabled) {
-    console.log("[channel] Channel not enabled, skipping keyset init");
     return;
   }
 
   const approvedMintsAndUnits = config.channel.approvedMintsAndUnits || {};
-  console.log("[channel] approvedMintsAndUnits:", JSON.stringify(approvedMintsAndUnits));
-
-  log("Fetching keysets from configured mints...");
+  log("approvedMintsAndUnits: %O", approvedMintsAndUnits);
 
   for (const [mintUrl, units] of Object.entries(approvedMintsAndUnits)) {
     log(`Fetching keysets from ${mintUrl} for units: ${units.join(", ")}`);
@@ -103,10 +94,6 @@ export async function initializeChannelKeysets(): Promise<void> {
 }
 
 router.get("/channel/params", async (ctx) => {
-  console.log("[channel/params] Route hit");
-  console.log("[channel/params] config.channel.enabled:", config.channel.enabled);
-  console.log("[channel/params] mintsUnitsKeysets:", JSON.stringify(mintsUnitsKeysets));
-
   if (!config.channel.enabled) {
     ctx.status = 404;
     ctx.body = { error: "Channel payments not enabled" };
@@ -114,7 +101,6 @@ router.get("/channel/params", async (ctx) => {
   }
 
   const receiverPubkey = getReceiverPubkey();
-  console.log("[channel/params] receiverPubkey:", receiverPubkey);
 
   ctx.body = {
     receiver_pubkey: receiverPubkey,
