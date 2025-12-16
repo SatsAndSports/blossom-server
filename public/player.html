@@ -137,7 +137,7 @@
 
     <script type="module">
         import * as secp from 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm';
-        import initWasm, { compute_channel_id_from_json, compute_shared_secret } from '/wasm/cdk_wasm.js';
+        import initWasm, { compute_channel_id_from_json, compute_shared_secret, create_funding_outputs } from '/wasm/cdk_wasm.js';
 
         // Helper: bytes to hex
         function bytesToHex(bytes) {
@@ -798,6 +798,21 @@
                         keysetInfo.inputFeePpk
                     );
                     log(`Created pending channel: ${currentChannel.id}`);
+                }
+
+                // Generate funding outputs using WASM
+                try {
+                    const fundingOutputsJson = create_funding_outputs(
+                        currentChannel.paramsJson,
+                        alice.secretHex,
+                        JSON.stringify(keysetInfo)
+                    );
+                    const fundingOutputs = JSON.parse(fundingOutputsJson);
+                    log(`Funding outputs: nominal=${fundingOutputs.funding_token_nominal}, ${fundingOutputs.blinded_messages.length} blinded messages`);
+                    console.log('Funding outputs:', fundingOutputs);
+                } catch (e) {
+                    log(`Failed to create funding outputs: ${e}`, 'error');
+                    console.error('Funding outputs error:', e);
                 }
             } else if (!mintInfo) {
                 log(`No approved mints/keysets available from server`, 'error');
