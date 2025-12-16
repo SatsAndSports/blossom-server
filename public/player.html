@@ -85,6 +85,24 @@
         #log .error {
             color: #e55;
         }
+        #quality-control {
+            padding: 10px;
+            background: #222;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #quality-control label {
+            color: #888;
+        }
+        #quality-select {
+            background: #333;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -105,6 +123,12 @@
 
     <div id="video-container">
         <video id="video" controls></video>
+        <div id="quality-control">
+            <label for="quality-select">Quality:</label>
+            <select id="quality-select">
+                <option value="-1">Auto</option>
+            </select>
+        </div>
     </div>
 
     <div id="video-list">
@@ -496,9 +520,33 @@
             return payment;
         }
 
+        // Current HLS instance
+        let currentHls = null;
+
+        // Update quality selector with current level
+        function updateQualityLabel(levelIndex) {
+            const select = document.getElementById('quality-select');
+            if (select.value === '-1' && currentHls) {
+                const level = currentHls.levels[levelIndex];
+                if (level) {
+                    select.options[0].text = `Auto (${level.height}p)`;
+                }
+            }
+        }
+
         // Initialize HLS player with payment injection
         function playVideo(manifestUrl) {
             const video = document.getElementById('video');
+            const qualitySelect = document.getElementById('quality-select');
+
+            // Clean up previous instance
+            if (currentHls) {
+                currentHls.destroy();
+                currentHls = null;
+            }
+
+            // Reset quality selector
+            qualitySelect.innerHTML = '<option value="-1">Auto</option>';
 
             if (Hls.isSupported()) {
                 const hls = new Hls({
@@ -516,9 +564,26 @@
                     }
                 });
 
-                hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                    log('Manifest loaded, starting playback');
+                currentHls = hls;
+
+                hls.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
+                    log(`Manifest loaded, ${data.levels.length} quality levels`);
+
+                    // Populate quality selector
+                    data.levels.forEach((level, index) => {
+                        const option = document.createElement('option');
+                        option.value = index;
+                        option.text = `${level.height}p`;
+                        qualitySelect.appendChild(option);
+                    });
+
                     video.play();
+                });
+
+                hls.on(Hls.Events.LEVEL_SWITCHED, function(event, data) {
+                    const level = hls.levels[data.level];
+                    log(`Quality: ${level.height}p`);
+                    updateQualityLabel(data.level);
                 });
 
                 hls.on(Hls.Events.ERROR, function(event, data) {
@@ -536,6 +601,19 @@
                         }
                     } else {
                         log(`Error: ${data.type} - ${data.details}`, 'error');
+                    }
+                });
+
+                // Handle quality selection
+                qualitySelect.addEventListener('change', function() {
+                    const level = parseInt(this.value);
+                    if (level === -1) {
+                        hls.currentLevel = -1;  // Auto
+                        this.options[0].text = 'Auto';
+                        log('Quality: Auto');
+                    } else {
+                        hls.currentLevel = level;
+                        log(`Quality: ${hls.levels[level].height}p (manual)`);
                     }
                 });
 
