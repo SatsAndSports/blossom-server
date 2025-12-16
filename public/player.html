@@ -304,9 +304,9 @@
             });
         }
 
-        // Find a channel by Alice's and Charlie's pubkeys
+        // Find a channel matching pubkeys, unit, keyset_id, and fee
         // Returns the first matching channel_id, or null if none exists
-        async function findChannelByPubkeys(alicePubkey, charliePubkey) {
+        async function findChannelByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk) {
             const channels = await new Promise((resolve, reject) => {
                 const tx = db.transaction(STORE_NAME, 'readonly');
                 const store = tx.objectStore(STORE_NAME);
@@ -316,11 +316,14 @@
                 request.onerror = () => reject(request.error);
             });
 
-            // Filter by alice_pubkey from params_json
+            // Filter by params
             for (const channel of channels) {
                 try {
                     const params = JSON.parse(channel.params_json);
-                    if (params.alice_pubkey === alicePubkey) {
+                    if (params.alice_pubkey === alicePubkey &&
+                        params.unit === unit &&
+                        params.keyset_id === keysetId &&
+                        params.input_fee_ppk === inputFeePpk) {
                         return channel.channel_id;
                     }
                 } catch (e) {
@@ -402,7 +405,7 @@
             }
 
             // Static: Create new pending channel
-            static async createPending(aliceSecretHex, alicePubkeyHex, charliePubkeyHex, mint, unit, keysetId) {
+            static async createPending(aliceSecretHex, alicePubkeyHex, charliePubkeyHex, mint, unit, keysetId, inputFeePpk) {
                 const sharedSecretHex = compute_shared_secret(aliceSecretHex, charliePubkeyHex);
                 const setupTimestamp = Math.floor(Date.now() / 1000);
                 const expiry = setupTimestamp + 3600;
@@ -413,7 +416,7 @@
                     unit: unit,
                     capacity: 1000,
                     keyset_id: keysetId,
-                    input_fee_ppk: 0,
+                    input_fee_ppk: inputFeePpk,
                     maximum_amount: 64,
                     setup_timestamp: setupTimestamp,
                     alice_pubkey: alicePubkeyHex,
@@ -448,9 +451,9 @@
                 return record ? new Channel(record) : null;
             }
 
-            // Static: Find by pubkey pair
-            static async findByPubkeys(alicePubkey, charliePubkey) {
-                const channelId = await findChannelByPubkeys(alicePubkey, charliePubkey);
+            // Static: Find by pubkeys and keyset params
+            static async findByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk) {
+                const channelId = await findChannelByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk);
                 return channelId ? await Channel.load(channelId) : null;
             }
         }
@@ -771,27 +774,35 @@
                 }
             }
 
-            // Check for existing channel with this pair, create if none exists
-            if (charlie) {
-                currentChannel = await Channel.findByPubkeys(alice.pubkeyHex, charlie.pubkeyHex);
+            // Check for existing channel with matching params, create if none exists
+            if (charlie && mintInfo && keysetInfo) {
+                currentChannel = await Channel.findByParams(
+                    alice.pubkeyHex,
+                    charlie.pubkeyHex,
+                    mintInfo.unit,
+                    mintInfo.keysetId,
+                    keysetInfo.inputFeePpk
+                );
                 if (currentChannel) {
                     log(`Existing channel: ${currentChannel.id} (balance: ${currentChannel.balance})`);
+                    console.log('Channel params:', JSON.parse(currentChannel.paramsJson));
                 } else {
-                    if (mintInfo) {
-                        log(`Creating channel with mint=${mintInfo.mint} unit=${mintInfo.unit} keyset=${mintInfo.keysetId}`);
-                        currentChannel = await Channel.createPending(
-                            alice.secretHex,
-                            alice.pubkeyHex,
-                            charlie.pubkeyHex,
-                            mintInfo.mint,
-                            mintInfo.unit,
-                            mintInfo.keysetId
-                        );
-                        log(`Created pending channel: ${currentChannel.id}`);
-                    } else {
-                        log(`No approved mints/keysets available from server`, 'error');
-                    }
+                    log(`Creating channel with mint=${mintInfo.mint} unit=${mintInfo.unit} keyset=${mintInfo.keysetId} fee=${keysetInfo.inputFeePpk}ppk`);
+                    currentChannel = await Channel.createPending(
+                        alice.secretHex,
+                        alice.pubkeyHex,
+                        charlie.pubkeyHex,
+                        mintInfo.mint,
+                        mintInfo.unit,
+                        mintInfo.keysetId,
+                        keysetInfo.inputFeePpk
+                    );
+                    log(`Created pending channel: ${currentChannel.id}`);
                 }
+            } else if (!mintInfo) {
+                log(`No approved mints/keysets available from server`, 'error');
+            } else if (!keysetInfo) {
+                log(`Failed to fetch keyset info from mint`, 'error');
             }
 
             updateStatus();
