@@ -17,6 +17,7 @@ import { updateBlobAccess } from "../db/methods.js";
 import { blobDB } from "../db/db.js";
 import logger from "../logger.js";
 import { log, router } from "./router.js";
+import { compute_channel_id_from_json } from "../wasm/cdk_wasm.js";
 
 const paymentLog = logger.extend("payments");
 
@@ -39,6 +40,18 @@ router.get("/:hash", range, async (ctx, next) => {
       );
       paymentLog("raw: %s", paymentHeader);
       paymentLog("parsed: %O", payment);
+
+      // Verify channel_id using WASM
+      if (payment.params && config.channel?.secretKey) {
+        const paramsJson = JSON.stringify(payment.params);
+        const computedChannelId = compute_channel_id_from_json(paramsJson, config.channel.secretKey);
+        const match = computedChannelId === payment.channel_id;
+        paymentLog("channel_id verify: computed=%s provided=%s match=%s",
+          computedChannelId.substring(0, 8),
+          payment.channel_id?.substring(0, 8),
+          match ? "YES" : "NO"
+        );
+      }
     } catch (e) {
       paymentLog("hash=%s invalid payment header: %s", hash.substring(0, 8), paymentHeader);
     }

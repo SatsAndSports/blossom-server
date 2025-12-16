@@ -9,7 +9,7 @@
   "scripts": {
     "prepublish": "pnpm build",
     "start": "node build/index.js",
-    "build": "tsc",
+    "build": "tsc && cp -r src/wasm build/",
     "postbuild": "cd admin && pnpm install && pnpm build",
     "dev": "nodemon -i '**/data/**' -i '**/database.json' -i '**/database.old.json' --exec 'node' --loader @swc-node/register/esm src/index.ts",
     "format": "prettier -w ."
