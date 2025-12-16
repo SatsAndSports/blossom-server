@@ -138,6 +138,7 @@
     <script type="module">
         import * as secp from 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm';
         import initWasm, { compute_channel_id_from_json, compute_shared_secret, create_funding_outputs } from '/wasm/cdk_wasm.js';
+        import { Mint, Wallet, OutputData } from 'https://esm.sh/@cashu/cashu-ts@3.1.1';
 
         // Helper: bytes to hex
         function bytesToHex(bytes) {
@@ -151,6 +152,60 @@
                 bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
             }
             return bytes;
+        }
+
+        // Convert WASM funding outputs to cashu-ts OutputData objects
+        function wasmOutputsToOutputData(fundingOutputs) {
+            return fundingOutputs.blinded_messages.map((bm, i) => {
+                const swb = fundingOutputs.secrets_with_blinding[i];
+                // OutputData constructor: (blindedMessage, blindingFactor, secret)
+                return new OutputData(
+                    { amount: bm.amount, B_: bm.B_, id: bm.id },
+                    BigInt('0x' + swb.blinding_factor),
+                    new TextEncoder().encode(swb.secret)
+                );
+            });
+        }
+
+        // Mint funding token with custom outputs
+        async function mintFundingToken(mintUrl, amount, outputData) {
+            const mint = new Mint(mintUrl);
+            const wallet = new Wallet(mint);
+            await wallet.loadMint();
+
+            // Get mint quote
+            log(`Requesting mint quote for ${amount} sats...`);
+            const quote = await wallet.createMintQuote(amount);
+            log(`Quote: ${quote.quote.substring(0, 16)}...`);
+            console.log('Mint quote:', quote);
+
+            // Poll for payment (testnut should auto-pay)
+            log(`Waiting for payment...`);
+            let paid = false;
+            for (let i = 0; i < 30; i++) {
+                const status = await wallet.checkMintQuote(quote.quote);
+                if (status.state === 'PAID') {
+                    paid = true;
+                    log(`Payment confirmed!`);
+                    break;
+                }
+                await new Promise(r => setTimeout(r, 1000));
+            }
+
+            if (!paid) {
+                throw new Error('Payment not received within timeout');
+            }
+
+            // Mint with custom outputs using builder pattern
+            log(`Minting ${outputData.length} outputs...`);
+            const proofs = await wallet.ops
+                .mintBolt11(amount, quote)
+                .asCustom(outputData)
+                .run();
+
+            log(`Minted ${proofs.length} proofs!`, 'payment');
+            console.log('Minted proofs:', proofs);
+            return proofs;
         }
 
         // Check if URL is a hash-based blob request (64 hex chars)
@@ -810,8 +865,20 @@
                     const fundingOutputs = JSON.parse(fundingOutputsJson);
                     log(`Funding outputs: nominal=${fundingOutputs.funding_token_nominal}, ${fundingOutputs.blinded_messages.length} blinded messages`);
                     console.log('Funding outputs:', fundingOutputs);
+
+                    // Convert to cashu-ts OutputData and mint
+                    const outputData = wasmOutputsToOutputData(fundingOutputs);
+                    console.log('OutputData for minting:', outputData);
+
+                    // Mint the funding token
+                    const proofs = await mintFundingToken(
+                        mintInfo.mint,
+                        fundingOutputs.funding_token_nominal,
+                        outputData
+                    );
+                    console.log('Funding proofs:', proofs);
                 } catch (e) {
-                    log(`Failed to create funding outputs: ${e}`, 'error');
+                    log(`Failed to create/mint funding outputs: ${e}`, 'error');
                     console.error('Funding outputs error:', e);
                 }
             } else if (!mintInfo) {
