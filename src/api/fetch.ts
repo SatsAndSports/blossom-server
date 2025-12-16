@@ -15,13 +15,34 @@ import { getFileRule } from "../rules/index.js";
 import storage, { getStorageRedirect, readStoragePointer, searchStorage } from "../storage/index.js";
 import { updateBlobAccess } from "../db/methods.js";
 import { blobDB } from "../db/db.js";
+import logger from "../logger.js";
 import { log, router } from "./router.js";
+
+const paymentLog = logger.extend("payments");
 
 router.get("/:hash", range, async (ctx, next) => {
   const match = ctx.path.match(/([0-9a-f]{64})/);
   if (!match) return next();
 
   const hash = match[1];
+
+  // Log payment header if present
+  const paymentHeader = ctx.headers["x-cashu-payment"] as string | undefined;
+  if (paymentHeader) {
+    try {
+      const payment = JSON.parse(atob(paymentHeader));
+      paymentLog("hash=%s channel=%s balance=%d sig=%s",
+        hash.substring(0, 8),
+        payment.channel_id?.substring(0, 8),
+        payment.balance,
+        payment.signature?.substring(0, 16) + "..."
+      );
+      paymentLog("raw: %s", paymentHeader);
+      paymentLog("decoded: %O", payment);
+    } catch (e) {
+      paymentLog("hash=%s invalid payment header: %s", hash.substring(0, 8), paymentHeader);
+    }
+  }
   const ext = extname(ctx.path) ?? undefined;
 
   const search: BlobSearch = {
