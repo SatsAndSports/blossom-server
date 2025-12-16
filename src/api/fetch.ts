@@ -27,7 +27,7 @@ router.get("/:hash", range, async (ctx, next) => {
   const hash = match[1];
 
   // Log payment header if present
-  const paymentHeader = ctx.headers["x-cashu-payment"] as string | undefined;
+  const paymentHeader = ctx.headers["x-cashu-channel"] as string | undefined;
   if (paymentHeader) {
     try {
       const payment = JSON.parse(paymentHeader);

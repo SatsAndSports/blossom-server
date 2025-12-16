@@ -509,7 +509,7 @@
                         // Add payment header for hash-based blob requests
                         if (isHashUrl(url)) {
                             const payment = createPayment();
-                            xhr.setRequestHeader('X-Cashu-Payment', payment);
+                            xhr.setRequestHeader('X-Cashu-Channel', payment);
                             const hash = url.split('/').pop().substring(0, 8);
                             log(`Payment: balance=${currentChannel.balance} for ${hash}...`, 'payment');
                         }
