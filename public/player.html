@@ -408,7 +408,7 @@
             static async createPending(aliceSecretHex, alicePubkeyHex, charliePubkeyHex, mint, unit, keysetId, inputFeePpk) {
                 const sharedSecretHex = compute_shared_secret(aliceSecretHex, charliePubkeyHex);
                 const setupTimestamp = Math.floor(Date.now() / 1000);
-                const expiry = setupTimestamp + 3600;
+                const expiry = setupTimestamp + 7 * 24 * 60 * 60; // 1 week
                 const senderNonce = Channel.generateNonce();
 
                 const params = {
