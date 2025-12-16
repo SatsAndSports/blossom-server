@@ -138,7 +138,7 @@
     <script type="module">
         import * as secp from 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm';
         import initWasm, { compute_channel_id_from_json, compute_shared_secret, create_funding_outputs } from '/wasm/cdk_wasm.js';
-        import { Mint, Wallet, OutputData } from 'https://esm.sh/@cashu/cashu-ts@3.1.1';
+        import { Mint, Wallet, OutputData, hasValidDleq } from 'https://esm.sh/@cashu/cashu-ts@3.1.1';
 
         // Helper: bytes to hex
         function bytesToHex(bytes) {
@@ -168,7 +168,7 @@
         }
 
         // Mint funding token with custom outputs
-        async function mintFundingToken(mintUrl, amount, outputData) {
+        async function mintFundingToken(mintUrl, amount, outputData, keysetInfo) {
             const mint = new Mint(mintUrl);
             const wallet = new Wallet(mint);
             await wallet.loadMint();
@@ -205,6 +205,17 @@
 
             log(`Minted ${proofs.length} proofs!`, 'payment');
             console.log('Minted proofs:', proofs);
+
+            // Verify DLEQ proofs using our keysetInfo
+            const keyset = { keys: keysetInfo.keys, id: keysetInfo.keysetId };
+            let validCount = 0;
+            for (const proof of proofs) {
+                if (proof.dleq && hasValidDleq(proof, keyset)) {
+                    validCount++;
+                }
+            }
+            log(`DLEQ verified: ${validCount}/${proofs.length}`, validCount === proofs.length ? 'payment' : 'error');
+
             return proofs;
         }
 
@@ -874,7 +885,8 @@
                     const proofs = await mintFundingToken(
                         mintInfo.mint,
                         fundingOutputs.funding_token_nominal,
-                        outputData
+                        outputData,
+                        keysetInfo
                     );
                     console.log('Funding proofs:', proofs);
                 } catch (e) {
