@@ -660,6 +660,42 @@
             return null;
         }
 
+        // Fetch full keyset info from a mint
+        async function fetchKeysetInfo(mintUrl, keysetId) {
+            // Fetch keys for specific keyset
+            const keysResponse = await fetch(`${mintUrl}/v1/keys/${keysetId}`);
+            if (!keysResponse.ok) {
+                throw new Error(`Failed to fetch keys: ${keysResponse.status}`);
+            }
+            const keysData = await keysResponse.json();
+
+            // Find our keyset in the response
+            const keyset = keysData.keysets?.find(k => k.id === keysetId);
+            if (!keyset) {
+                throw new Error(`Keyset ${keysetId} not found in keys response`);
+            }
+
+            // Fetch keyset metadata (for input_fee_ppk)
+            const keysetsResponse = await fetch(`${mintUrl}/v1/keysets`);
+            if (!keysetsResponse.ok) {
+                throw new Error(`Failed to fetch keysets: ${keysetsResponse.status}`);
+            }
+            const keysetsData = await keysetsResponse.json();
+
+            const keysetMeta = keysetsData.keysets?.find(k => k.id === keysetId);
+            if (!keysetMeta) {
+                throw new Error(`Keyset metadata for ${keysetId} not found`);
+            }
+
+            return {
+                keysetId: keysetId,
+                unit: keyset.unit,
+                keys: keyset.keys,
+                inputFeePpk: keysetMeta.input_fee_ppk || 0,
+                amounts: Object.keys(keyset.keys).map(a => parseInt(a)).sort((a, b) => b - a)
+            };
+        }
+
         // Load video list
         async function loadVideos() {
             try {
@@ -722,13 +758,25 @@
             log(`Alice pubkey:   ${alice.pubkeyHex}`);
             log(`Charlie pubkey: ${charlie ? charlie.pubkeyHex : 'unavailable'}`);
 
+            // Fetch keyset info from the selected mint
+            const mintInfo = getFirstMintUnitKeyset();
+            let keysetInfo = null;
+            if (mintInfo) {
+                try {
+                    keysetInfo = await fetchKeysetInfo(mintInfo.mint, mintInfo.keysetId);
+                    log(`Keyset ${keysetInfo.keysetId}: ${keysetInfo.amounts.length} denominations, fee=${keysetInfo.inputFeePpk} ppk`);
+                    console.log('Full KeysetInfo:', keysetInfo);
+                } catch (e) {
+                    log(`Failed to fetch keyset info: ${e}`, 'error');
+                }
+            }
+
             // Check for existing channel with this pair, create if none exists
             if (charlie) {
                 currentChannel = await Channel.findByPubkeys(alice.pubkeyHex, charlie.pubkeyHex);
                 if (currentChannel) {
                     log(`Existing channel: ${currentChannel.id} (balance: ${currentChannel.balance})`);
                 } else {
-                    const mintInfo = getFirstMintUnitKeyset();
                     if (mintInfo) {
                         log(`Creating channel with mint=${mintInfo.mint} unit=${mintInfo.unit} keyset=${mintInfo.keysetId}`);
                         currentChannel = await Channel.createPending(
