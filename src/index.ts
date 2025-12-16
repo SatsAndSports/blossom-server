@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import router from "./api/index.js";
 import logger from "./logger.js";
 import { config } from "./config.js";
+import { initializeChannelKeysets } from "./api/channel.js";
 import { isHttpError } from "./helpers/error.js";
 import db from "./db/db.js";
 import { pruneStorage } from "./storage/index.js";
@@ -76,6 +77,9 @@ try {
   const www = path.resolve(__dirname, "../public");
   app.use(serve(www));
 }
+
+// Initialize channel keysets from configured mints
+await initializeChannelKeysets();
 
 app.listen(process.env.PORT || 3000);
 logger("Started app on port", process.env.PORT || 3000);

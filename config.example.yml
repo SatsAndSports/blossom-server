@@ -149,8 +149,10 @@ channel:
   # secretKey: "your-64-char-hex-secret-key-here"
   # You can also use environment variables:
   # secretKey: "${CHANNEL_SECRET_KEY}"
-  # list of approved Cashu mints
-  approvedMints:
-    - http://localhost:3338
+  # approved mints and their units (mint URL -> list of units)
+  # at startup, active keysets are fetched from each mint
+  approvedMintsAndUnits:
+    http://localhost:3338:
+      - sat
   # price per video segment in sats
   pricePerSegment: 1

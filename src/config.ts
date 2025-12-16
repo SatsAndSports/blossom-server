@@ -67,7 +67,7 @@ export type Config = {
   channel: {
     enabled: boolean;
     secretKey: string;
-    approvedMints: string[];
+    approvedMintsAndUnits: Record<string, string[]>;  // mint URL -> list of units
     pricePerSegment: number;
   };
 };
@@ -123,7 +123,7 @@ const defaultConfig: Config = {
   media: { enabled: false, requireAuth: true, requirePubkeyInRule: false },
   list: { requireAuth: false, allowListOthers: false },
   tor: { enabled: false, proxy: "" },
-  channel: { enabled: false, secretKey: "", approvedMints: [], pricePerSegment: 1 },
+  channel: { enabled: false, secretKey: "", approvedMintsAndUnits: {}, pricePerSegment: 1 },
 };
 
 const searchPlaces = ["config.yaml", "config.yml", "config.json"];
