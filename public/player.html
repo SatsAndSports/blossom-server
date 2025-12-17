@@ -154,6 +154,124 @@
             return bytes;
         }
 
+        // ============================================
+        // ChannelParameters - JS representation
+        // ============================================
+        // Mirrors the Rust ChannelParameters struct (without secret key)
+        class ChannelParameters {
+            constructor(paramsJson, sharedSecretHex, keysetInfo) {
+                this.paramsJson = paramsJson;           // JSON string with basic params
+                this.sharedSecretHex = sharedSecretHex; // 32-byte shared secret (hex)
+                this.keysetInfo = keysetInfo;           // KeysetInfo object {keysetId, keys, inputFeePpk, amounts}
+            }
+
+            // Serialize for storage/WASM
+            toJSON() {
+                return {
+                    params_json: this.paramsJson,
+                    shared_secret_hex: this.sharedSecretHex,
+                    keyset_info: this.keysetInfo
+                };
+            }
+
+            // Deserialize from storage
+            static fromJSON(json) {
+                return new ChannelParameters(
+                    json.params_json,
+                    json.shared_secret_hex,
+                    json.keyset_info
+                );
+            }
+
+            // Create from components (computes shared secret via WASM)
+            static create(paramsJson, aliceSecretHex, keysetInfo) {
+                const params = JSON.parse(paramsJson);
+                const sharedSecretHex = compute_shared_secret(aliceSecretHex, params.charlie_pubkey);
+                return new ChannelParameters(paramsJson, sharedSecretHex, keysetInfo);
+            }
+
+            // Get channel ID (computed from params + shared secret)
+            getChannelId() {
+                return compute_channel_id_from_json(this.paramsJson, this.sharedSecretHex);
+            }
+
+            // Get parsed params
+            getParams() {
+                return JSON.parse(this.paramsJson);
+            }
+
+            // Convenience getters
+            get capacity() { return this.getParams().capacity; }
+            get mint() { return this.getParams().mint; }
+            get unit() { return this.getParams().unit; }
+            get locktime() { return this.getParams().locktime; }
+            get alicePubkey() { return this.getParams().alice_pubkey; }
+            get charliePubkey() { return this.getParams().charlie_pubkey; }
+        }
+
+        // ============================================
+        // SpilmanChannelSender - JS representation
+        // ============================================
+        // Holds the data needed to reconstruct the Rust SpilmanChannelSender
+        class SpilmanChannelSender {
+            constructor(channelParams, aliceSecretHex, fundingProofs, channelId) {
+                this.channelParams = channelParams;     // ChannelParameters object
+                this.aliceSecretHex = aliceSecretHex;   // Alice's secret key (hex)
+                this.fundingProofs = fundingProofs;     // Array of funding proofs from mint
+                this.channelId = channelId;             // Pre-computed channel ID
+            }
+
+            // Serialize for storage
+            toJSON() {
+                return {
+                    channel_params: this.channelParams.toJSON(),
+                    alice_secret_hex: this.aliceSecretHex,
+                    funding_proofs: this.fundingProofs,
+                    channel_id: this.channelId
+                };
+            }
+
+            // Deserialize from storage
+            static fromJSON(json) {
+                return new SpilmanChannelSender(
+                    ChannelParameters.fromJSON(json.channel_params),
+                    json.alice_secret_hex,
+                    json.funding_proofs,
+                    json.channel_id
+                );
+            }
+
+            // Create from components
+            static create(paramsJson, keysetInfo, aliceSecretHex, sharedSecretHex, fundingProofs) {
+                const channelParams = new ChannelParameters(paramsJson, sharedSecretHex, keysetInfo);
+                const channelId = compute_channel_id_from_json(paramsJson, sharedSecretHex);
+                log(`ChannelParameters created - Channel ID: ${channelId}`);
+                return new SpilmanChannelSender(channelParams, aliceSecretHex, fundingProofs, channelId);
+            }
+
+            // Get channel ID
+            getChannelId() {
+                return this.channelId;
+            }
+
+            // Get channel params (parsed)
+            getParams() {
+                return this.channelParams.getParams();
+            }
+
+            // Total funding amount
+            getFundingAmount() {
+                return this.fundingProofs.reduce((sum, p) => sum + p.amount, 0);
+            }
+
+            // Create signed balance update (calls WASM)
+            // Returns { balance_update, swap_request } or throws
+            createSignedBalanceUpdate(charlieBalance) {
+                // TODO: Call WASM function that takes this data and returns signed balance update
+                throw new Error('Not yet implemented - needs WASM function');
+            }
+        }
+
         // Convert WASM funding outputs to cashu-ts OutputData objects
         function wasmOutputsToOutputData(fundingOutputs) {
             return fundingOutputs.blinded_messages.map((bm, i) => {
@@ -406,7 +524,6 @@
             constructor(record) {
                 this.id = record.channel_id;
                 this.paramsJson = record.params_json;
-                this.aliceSecretHex = record.alice_secret_hex;
                 this.sharedSecretHex = record.shared_secret_hex;
                 this.status = record.status;
                 this.balance = record.current_balance;
@@ -447,7 +564,6 @@
                 return {
                     channel_id: this.id,
                     params_json: this.paramsJson,
-                    alice_secret_hex: this.aliceSecretHex,
                     shared_secret_hex: this.sharedSecretHex,
                     status: this.status,
                     current_balance: this.balance,
@@ -492,12 +608,11 @@
                 };
 
                 const paramsJson = JSON.stringify(params);
-                const channelId = compute_channel_id_from_json(paramsJson, aliceSecretHex);
+                const channelId = compute_channel_id_from_json(paramsJson, sharedSecretHex);
 
                 const channel = new Channel({
                     channel_id: channelId,
                     params_json: paramsJson,
-                    alice_secret_hex: aliceSecretHex,
                     shared_secret_hex: sharedSecretHex,
                     status: 'pending',
                     current_balance: 0,
@@ -827,6 +942,13 @@
             log(`Alice pubkey:   ${alice.pubkeyHex}`);
             log(`Charlie pubkey: ${charlie ? charlie.pubkeyHex : 'unavailable'}`);
 
+            // Compute shared secret now that we have both pubkeys
+            let sharedSecretHex = null;
+            if (charlie) {
+                sharedSecretHex = compute_shared_secret(alice.secretHex, charlie.pubkeyHex);
+                log(`Shared secret:  ${sharedSecretHex.substring(0, 16)}...`);
+            }
+
             // Fetch keyset info from the selected mint
             const mintInfo = getFirstMintUnitKeyset();
             let keysetInfo = null;
@@ -889,6 +1011,21 @@
                         keysetInfo
                     );
                     console.log('Funding proofs:', proofs);
+
+                    // Create SpilmanChannelSender with all the data needed for balance updates
+                    const sender = SpilmanChannelSender.create(
+                        currentChannel.paramsJson,
+                        keysetInfo,
+                        alice.secretHex,
+                        sharedSecretHex,
+                        proofs
+                    );
+                    log(`SpilmanChannelSender created: channel=${sender.getChannelId().substring(0, 16)}... ${sender.getFundingAmount()} sats funded`);
+                    console.log('SpilmanChannelSender:', sender);
+                    console.log('SpilmanChannelSender JSON:', sender.toJSON());
+
+                    // Store the sender for later use
+                    window.spilmanSender = sender;
                 } catch (e) {
                     log(`Failed to create/mint funding outputs: ${e}`, 'error');
                     console.error('Funding outputs error:', e);
