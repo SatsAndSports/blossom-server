@@ -17,7 +17,7 @@ import { updateBlobAccess } from "../db/methods.js";
 import { blobDB } from "../db/db.js";
 import logger from "../logger.js";
 import { log, router } from "./router.js";
-import { compute_channel_id_from_json } from "../wasm/cdk_wasm.js";
+import { channel_parameters_get_channel_id, compute_shared_secret } from "../wasm/cdk_wasm.js";
 
 const paymentLog = logger.extend("payments");
 
@@ -44,7 +44,9 @@ router.get("/:hash", range, async (ctx, next) => {
       // Verify channel_id using WASM
       if (payment.params && config.channel?.secretKey) {
         const paramsJson = JSON.stringify(payment.params);
-        const computedChannelId = compute_channel_id_from_json(paramsJson, config.channel.secretKey);
+        const alicePubkey = payment.params.alice_pubkey;
+        const sharedSecret = compute_shared_secret(config.channel.secretKey, alicePubkey);
+        const computedChannelId = channel_parameters_get_channel_id(paramsJson, sharedSecret);
         const match = computedChannelId === payment.channel_id;
         paymentLog("channel_id verify: computed=%s provided=%s match=%s",
           computedChannelId.substring(0, 8),

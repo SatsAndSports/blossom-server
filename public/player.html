@@ -137,7 +137,7 @@
 
     <script type="module">
         import * as secp from 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm';
-        import initWasm, { compute_channel_id_from_json, compute_shared_secret, create_funding_outputs } from '/wasm/cdk_wasm.js';
+        import initWasm, { channel_parameters_get_channel_id, compute_shared_secret, create_funding_outputs } from '/wasm/cdk_wasm.js';
         import { Mint, Wallet, OutputData, hasValidDleq } from 'https://esm.sh/@cashu/cashu-ts@3.1.1';
 
         // Helper: bytes to hex
@@ -192,7 +192,7 @@
 
             // Get channel ID (computed from params + shared secret)
             getChannelId() {
-                return compute_channel_id_from_json(this.paramsJson, this.sharedSecretHex);
+                return channel_parameters_get_channel_id(this.paramsJson, this.sharedSecretHex);
             }
 
             // Get parsed params
@@ -244,7 +244,7 @@
             // Create from components
             static create(paramsJson, keysetInfo, aliceSecretHex, sharedSecretHex, fundingProofs) {
                 const channelParams = new ChannelParameters(paramsJson, sharedSecretHex, keysetInfo);
-                const channelId = compute_channel_id_from_json(paramsJson, sharedSecretHex);
+                const channelId = channel_parameters_get_channel_id(paramsJson, sharedSecretHex);
                 log(`ChannelParameters created - Channel ID: ${channelId}`);
                 return new SpilmanChannelSender(channelParams, aliceSecretHex, fundingProofs, channelId);
             }
@@ -608,7 +608,7 @@
                 };
 
                 const paramsJson = JSON.stringify(params);
-                const channelId = compute_channel_id_from_json(paramsJson, sharedSecretHex);
+                const channelId = channel_parameters_get_channel_id(paramsJson, sharedSecretHex);
 
                 const channel = new Channel({
                     channel_id: channelId,
