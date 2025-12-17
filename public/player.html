@@ -343,7 +343,7 @@
         // IndexedDB Channel Storage
         // ============================================
         const DB_NAME = 'cashu_channels';
-        const DB_VERSION = 1;
+        const DB_VERSION = 2;  // Bumped for ActiveChannel schema change
         const STORE_NAME = 'channels';
 
         let db = null;
@@ -373,12 +373,15 @@
                 request.onupgradeneeded = (event) => {
                     const database = event.target.result;
 
+                    // Delete old store if upgrading (schema changed)
+                    if (database.objectStoreNames.contains(STORE_NAME)) {
+                        database.deleteObjectStore(STORE_NAME);
+                    }
+
                     // Create channels object store
                     const store = database.createObjectStore(STORE_NAME, { keyPath: 'channel_id' });
 
                     // Create indexes for querying
-                    store.createIndex('status', 'status', { unique: false });
-                    store.createIndex('expiry', 'expiry', { unique: false });
                     store.createIndex('charlie_pubkey', 'charlie_pubkey', { unique: false });
                     store.createIndex('mint', 'mint', { unique: false });
                 };
@@ -494,10 +497,11 @@
                 request.onerror = () => reject(request.error);
             });
 
-            // Filter by params
+            // Filter by params (params are nested in sender_json.channel_params.params_json)
             for (const channel of channels) {
                 try {
-                    const params = JSON.parse(channel.params_json);
+                    const senderData = JSON.parse(channel.sender_json);
+                    const params = JSON.parse(senderData.channel_params.params_json);
                     if (params.alice_pubkey === alicePubkey &&
                         params.unit === unit &&
                         params.keyset_id === keysetId &&
@@ -505,48 +509,39 @@
                         return channel.channel_id;
                     }
                 } catch (e) {
-                    // Skip channels with invalid params_json
+                    // Skip channels with invalid sender_json
                 }
             }
             return null;
         }
 
         // ============================================
-        // Channel Class
+        // ActiveChannel - combines SpilmanChannelSender with current balance
         // ============================================
-        class Channel {
-            constructor(record) {
-                this.id = record.channel_id;
-                this.paramsJson = record.params_json;
-                this.sharedSecretHex = record.shared_secret_hex;
-                this.status = record.status;
-                this.balance = record.current_balance;
-                this.fundingTokenJson = record.funding_token_json;
-                this.expiry = record.expiry;
-                this.charliePubkey = record.charlie_pubkey;
-                this.mint = record.mint;
-                this.segments = 0;  // Session counter (not persisted)
+        class ActiveChannel {
+            constructor(sender, balance = 0) {
+                this.sender = sender;       // SpilmanChannelSender
+                this.balance = balance;     // Current balance (sats sent to Charlie)
             }
 
-            get params() {
-                return JSON.parse(this.paramsJson);
-            }
+            // Convenience getters delegated to sender
+            get channelId() { return this.sender.getChannelId(); }
+            get params() { return this.sender.getParams(); }
+            get fundingAmount() { return this.sender.getFundingAmount(); }
 
             // Increment balance (sync) and persist in background
             incrementBalance() {
                 this.balance += 1;
-                this.segments += 1;
-                updateChannelBalance(this.id, this.balance);
+                updateChannelBalance(this.channelId, this.balance);
             }
 
             // Create payment header for a segment (sync for HLS.js xhrSetup)
-            // TODO: Later, only send params on first payment of a session to save bandwidth
             createPayment() {
                 this.incrementBalance();
                 // TODO: Generate real Schnorr signature via WASM
                 const fakeSignature = '0'.repeat(128);  // 64 bytes = 128 hex chars
                 return JSON.stringify({
-                    channel_id: this.id,
+                    channel_id: this.channelId,
                     balance: this.balance,
                     signature: fakeSignature,
                     params: this.params
@@ -555,22 +550,34 @@
 
             // Convert to IndexedDB record
             toRecord() {
+                const params = this.params;
                 return {
-                    channel_id: this.id,
-                    params_json: this.paramsJson,
-                    shared_secret_hex: this.sharedSecretHex,
-                    status: this.status,
+                    channel_id: this.channelId,
+                    sender_json: JSON.stringify(this.sender.toJSON()),
                     current_balance: this.balance,
-                    funding_token_json: this.fundingTokenJson,
-                    expiry: this.expiry,
-                    charlie_pubkey: this.charliePubkey,
-                    mint: this.mint
+                    // Indexed fields for queries
+                    charlie_pubkey: params.charlie_pubkey,
+                    mint: params.mint
                 };
             }
 
-            // Save full record to IndexedDB
+            // Save to IndexedDB
             async save() {
                 await saveChannel(this.toRecord());
+            }
+
+            // Static: Load by ID
+            static async load(channelId) {
+                const record = await getChannel(channelId);
+                if (!record) return null;
+                const sender = SpilmanChannelSender.fromJSON(JSON.parse(record.sender_json));
+                return new ActiveChannel(sender, record.current_balance);
+            }
+
+            // Static: Find by pubkeys and keyset params
+            static async findByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk) {
+                const channelId = await findChannelByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk);
+                return channelId ? await ActiveChannel.load(channelId) : null;
             }
 
             // Static: Generate random nonce
@@ -578,58 +585,6 @@
                 const bytes = new Uint8Array(16);
                 crypto.getRandomValues(bytes);
                 return bytesToHex(bytes);
-            }
-
-            // Static: Create new pending channel
-            static async createPending(aliceSecretHex, alicePubkeyHex, charliePubkeyHex, mint, unit, keysetId, inputFeePpk) {
-                const sharedSecretHex = compute_shared_secret(aliceSecretHex, charliePubkeyHex);
-                const setupTimestamp = Math.floor(Date.now() / 1000);
-                const expiry = setupTimestamp + 7 * 24 * 60 * 60; // 1 week
-                const senderNonce = Channel.generateNonce();
-
-                const params = {
-                    mint: mint,
-                    unit: unit,
-                    capacity: 1000,
-                    keyset_id: keysetId,
-                    input_fee_ppk: inputFeePpk,
-                    maximum_amount: 64,
-                    setup_timestamp: setupTimestamp,
-                    alice_pubkey: alicePubkeyHex,
-                    charlie_pubkey: charliePubkeyHex,
-                    locktime: expiry,
-                    sender_nonce: senderNonce
-                };
-
-                const paramsJson = JSON.stringify(params);
-                const channelId = channel_parameters_get_channel_id(paramsJson, sharedSecretHex);
-
-                const channel = new Channel({
-                    channel_id: channelId,
-                    params_json: paramsJson,
-                    shared_secret_hex: sharedSecretHex,
-                    status: 'pending',
-                    current_balance: 0,
-                    funding_token_json: null,
-                    expiry: expiry,
-                    charlie_pubkey: charliePubkeyHex,
-                    mint: mint
-                });
-
-                await channel.save();
-                return channel;
-            }
-
-            // Static: Load by ID
-            static async load(channelId) {
-                const record = await getChannel(channelId);
-                return record ? new Channel(record) : null;
-            }
-
-            // Static: Find by pubkeys and keyset params
-            static async findByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk) {
-                const channelId = await findChannelByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk);
-                return channelId ? await Channel.load(channelId) : null;
             }
         }
 
@@ -669,9 +624,9 @@
 
         // Update status display
         function updateStatus() {
-            document.getElementById('channel-id').textContent = currentChannel ? currentChannel.id : '-';
+            document.getElementById('channel-id').textContent = currentChannel ? currentChannel.channelId.substring(0, 16) + '...' : '-';
             document.getElementById('balance').textContent = currentChannel ? currentChannel.balance : 0;
-            document.getElementById('segments').textContent = currentChannel ? currentChannel.segments : 0;
+            document.getElementById('segments').textContent = currentChannel ? currentChannel.fundingAmount : 0;
         }
 
         // Logging
@@ -958,7 +913,7 @@
 
             // Check for existing channel with matching params, create if none exists
             if (charlie && mintInfo && keysetInfo) {
-                currentChannel = await Channel.findByParams(
+                currentChannel = await ActiveChannel.findByParams(
                     alice.pubkeyHex,
                     charlie.pubkeyHex,
                     mintInfo.unit,
@@ -966,62 +921,71 @@
                     keysetInfo.inputFeePpk
                 );
                 if (currentChannel) {
-                    log(`Existing channel: ${currentChannel.id} (balance: ${currentChannel.balance})`);
-                    console.log('Channel params:', JSON.parse(currentChannel.paramsJson));
+                    log(`Existing channel: ${currentChannel.channelId.substring(0, 16)}... (balance: ${currentChannel.balance}, ${currentChannel.sender.fundingProofs.length} proofs)`);
+                    console.log('Channel params:', currentChannel.params);
                 } else {
+                    // Create and fund new channel
                     log(`Creating channel with mint=${mintInfo.mint} unit=${mintInfo.unit} keyset=${mintInfo.keysetId} fee=${keysetInfo.inputFeePpk}ppk`);
-                    currentChannel = await Channel.createPending(
-                        alice.secretHex,
-                        alice.pubkeyHex,
-                        charlie.pubkeyHex,
-                        mintInfo.mint,
-                        mintInfo.unit,
-                        mintInfo.keysetId,
-                        keysetInfo.inputFeePpk
-                    );
-                    log(`Created pending channel: ${currentChannel.id}`);
-                }
 
-                // Generate funding outputs using WASM
-                try {
-                    const fundingOutputsJson = create_funding_outputs(
-                        currentChannel.paramsJson,
-                        alice.secretHex,
-                        JSON.stringify(keysetInfo)
-                    );
-                    const fundingOutputs = JSON.parse(fundingOutputsJson);
-                    log(`Funding outputs: nominal=${fundingOutputs.funding_token_nominal}, ${fundingOutputs.blinded_messages.length} blinded messages`);
-                    console.log('Funding outputs:', fundingOutputs);
+                    // Build params JSON
+                    const setupTimestamp = Math.floor(Date.now() / 1000);
+                    const expiry = setupTimestamp + 7 * 24 * 60 * 60; // 1 week
+                    const senderNonce = ActiveChannel.generateNonce();
+                    const paramsJson = JSON.stringify({
+                        mint: mintInfo.mint,
+                        unit: mintInfo.unit,
+                        capacity: 1000,
+                        keyset_id: mintInfo.keysetId,
+                        input_fee_ppk: keysetInfo.inputFeePpk,
+                        maximum_amount: 64,
+                        setup_timestamp: setupTimestamp,
+                        alice_pubkey: alice.pubkeyHex,
+                        charlie_pubkey: charlie.pubkeyHex,
+                        locktime: expiry,
+                        sender_nonce: senderNonce
+                    });
 
-                    // Convert to cashu-ts OutputData and mint
-                    const outputData = wasmOutputsToOutputData(fundingOutputs);
-                    console.log('OutputData for minting:', outputData);
+                    try {
+                        // Generate funding outputs using WASM
+                        const fundingOutputsJson = create_funding_outputs(
+                            paramsJson,
+                            alice.secretHex,
+                            JSON.stringify(keysetInfo)
+                        );
+                        const fundingOutputs = JSON.parse(fundingOutputsJson);
+                        log(`Funding outputs: nominal=${fundingOutputs.funding_token_nominal}, ${fundingOutputs.blinded_messages.length} blinded messages`);
+                        console.log('Funding outputs:', fundingOutputs);
 
-                    // Mint the funding token
-                    const proofs = await mintFundingToken(
-                        mintInfo.mint,
-                        fundingOutputs.funding_token_nominal,
-                        outputData,
-                        keysetInfo
-                    );
-                    console.log('Funding proofs:', proofs);
+                        // Convert to cashu-ts OutputData and mint
+                        const outputData = wasmOutputsToOutputData(fundingOutputs);
+                        console.log('OutputData for minting:', outputData);
 
-                    // Create SpilmanChannelSender with all the data needed for balance updates
-                    const sender = SpilmanChannelSender.create(
-                        currentChannel.paramsJson,
-                        keysetInfo,
-                        sharedSecretHex,
-                        proofs
-                    );
-                    log(`SpilmanChannelSender created: channel=${sender.getChannelId().substring(0, 16)}... ${sender.getFundingAmount()} sats funded`);
-                    console.log('SpilmanChannelSender:', sender);
-                    console.log('SpilmanChannelSender JSON:', sender.toJSON());
+                        // Mint the funding token
+                        const proofs = await mintFundingToken(
+                            mintInfo.mint,
+                            fundingOutputs.funding_token_nominal,
+                            outputData,
+                            keysetInfo
+                        );
+                        console.log('Funding proofs:', proofs);
 
-                    // Store the sender for later use
-                    window.spilmanSender = sender;
-                } catch (e) {
-                    log(`Failed to create/mint funding outputs: ${e}`, 'error');
-                    console.error('Funding outputs error:', e);
+                        // Create SpilmanChannelSender
+                        const sender = SpilmanChannelSender.create(
+                            paramsJson,
+                            keysetInfo,
+                            sharedSecretHex,
+                            proofs
+                        );
+                        log(`SpilmanChannelSender created: channel=${sender.getChannelId().substring(0, 16)}... ${sender.getFundingAmount()} sats funded`);
+
+                        // Wrap in ActiveChannel and save
+                        currentChannel = new ActiveChannel(sender, 0);
+                        await currentChannel.save();
+                        log(`ActiveChannel saved to IndexedDB`);
+                    } catch (e) {
+                        log(`Failed to create/mint funding outputs: ${e}`, 'error');
+                        console.error('Funding outputs error:', e);
+                    }
                 }
             } else if (!mintInfo) {
                 log(`No approved mints/keysets available from server`, 'error');
