@@ -103,6 +103,93 @@
             border-radius: 4px;
             cursor: pointer;
         }
+        #share-btn {
+            background: #444;
+            color: #e0e0e0;
+            border: 1px solid #555;
+            padding: 5px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: auto;
+        }
+        #share-btn:hover {
+            background: #555;
+            border-color: #f7931a;
+        }
+        #share-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        #share-modal.visible {
+            display: flex;
+        }
+        #share-modal-content {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+        }
+        #share-modal h3 {
+            margin-top: 0;
+            color: #f7931a;
+        }
+        #share-url {
+            width: 100%;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+        #share-modal label {
+            color: #888;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 15px;
+            cursor: pointer;
+        }
+        #share-modal button {
+            background: #f7931a;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        #share-modal button:hover {
+            background: #ffaa33;
+        }
+        #share-modal button.secondary {
+            background: #444;
+            color: #e0e0e0;
+        }
+        #share-modal button.secondary:hover {
+            background: #555;
+        }
+        #share-copied {
+            color: #4a9;
+            margin-left: 10px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        #share-copied.visible {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -128,6 +215,23 @@
             <select id="quality-select">
                 <option value="-1">Auto</option>
             </select>
+            <button id="share-btn">Share</button>
+        </div>
+    </div>
+
+    <div id="share-modal">
+        <div id="share-modal-content">
+            <h3>Share Video</h3>
+            <input type="text" id="share-url" readonly>
+            <label>
+                <input type="checkbox" id="share-timestamp">
+                Include current timestamp
+            </label>
+            <div>
+                <button id="share-copy">Copy URL</button>
+                <button id="share-close" class="secondary">Close</button>
+                <span id="share-copied">Copied!</span>
+            </div>
         </div>
     </div>
 
@@ -720,6 +824,9 @@
         // Current HLS instance
         let currentHls = null;
 
+        // Current master hash (for sharing)
+        let currentMasterHash = null;
+
         // Update quality selector with current level
         function updateQualityLabel(levelIndex) {
             const select = document.getElementById('quality-select');
@@ -735,6 +842,12 @@
         function playVideo(manifestUrl, startTime = null) {
             const video = document.getElementById('video');
             const qualitySelect = document.getElementById('quality-select');
+
+            // Extract master hash from URL for sharing
+            const hashMatch = manifestUrl.match(/([0-9a-f]{64})/);
+            if (hashMatch) {
+                currentMasterHash = hashMatch[1];
+            }
 
             // Clean up previous instance
             if (currentHls) {
@@ -1089,6 +1202,49 @@
         document.getElementById('reset-alice').onclick = () => {
             localStorage.removeItem(ALICE_KEY_STORAGE);
             log('Alice key deleted. Refresh to generate new keypair.');
+        };
+
+        // Share modal
+        function updateShareUrl() {
+            const video = document.getElementById('video');
+            const includeTime = document.getElementById('share-timestamp').checked;
+            const baseUrl = window.location.origin + window.location.pathname;
+
+            let url = baseUrl + '#' + currentMasterHash;
+            if (includeTime && video.currentTime > 0) {
+                url += '&t=' + Math.floor(video.currentTime);
+            }
+            document.getElementById('share-url').value = url;
+        }
+
+        document.getElementById('share-btn').onclick = () => {
+            if (!currentMasterHash) {
+                log('No video playing', 'error');
+                return;
+            }
+            updateShareUrl();
+            document.getElementById('share-modal').classList.add('visible');
+        };
+
+        document.getElementById('share-timestamp').onchange = updateShareUrl;
+
+        document.getElementById('share-copy').onclick = () => {
+            const urlInput = document.getElementById('share-url');
+            urlInput.select();
+            navigator.clipboard.writeText(urlInput.value);
+            const copied = document.getElementById('share-copied');
+            copied.classList.add('visible');
+            setTimeout(() => copied.classList.remove('visible'), 2000);
+        };
+
+        document.getElementById('share-close').onclick = () => {
+            document.getElementById('share-modal').classList.remove('visible');
+        };
+
+        document.getElementById('share-modal').onclick = (e) => {
+            if (e.target.id === 'share-modal') {
+                document.getElementById('share-modal').classList.remove('visible');
+            }
         };
     </script>
 </body>
