@@ -17,7 +17,7 @@ import { updateBlobAccess } from "../db/methods.js";
 import { blobDB } from "../db/db.js";
 import logger from "../logger.js";
 import { log, router } from "./router.js";
-import { channel_parameters_get_channel_id, compute_shared_secret } from "../wasm/cdk_wasm.js";
+import { channel_parameters_get_channel_id, compute_shared_secret, verify_balance_update_signature } from "../wasm/cdk_wasm.js";
 
 const paymentLog = logger.extend("payments");
 
@@ -100,6 +100,28 @@ router.get("/:hash", range, async (ctx, next) => {
         numProofs,
         payment.signature?.substring(0, 16) + "..."
       );
+
+      // Verify signature if we have params and funding proofs (either from header or cache)
+      const paramsJsonForVerify = payment.params ? JSON.stringify(payment.params) : getChannelParams(payment.channel_id);
+      const fundingProofsForVerify = payment.funding_proofs ? JSON.stringify(payment.funding_proofs) : getChannelFundingProofs(payment.channel_id);
+
+      if (paramsJsonForVerify && fundingProofsForVerify && config.channel?.secretKey) {
+        try {
+          const params = JSON.parse(paramsJsonForVerify);
+          const sharedSecret = compute_shared_secret(config.channel.secretKey, params.alice_pubkey);
+          const valid = verify_balance_update_signature(
+            paramsJsonForVerify,
+            sharedSecret,
+            fundingProofsForVerify,
+            payment.channel_id,
+            BigInt(payment.balance),
+            payment.signature
+          );
+          paymentLog("signature verify: %s", valid ? "VALID" : "INVALID");
+        } catch (e) {
+          paymentLog("signature verify: ERROR - %s", (e as Error).message);
+        }
+      }
 
       // Verify channel_id and store params if provided
       if (payment.params && config.channel?.secretKey) {
