@@ -25,6 +25,10 @@ const paymentLog = logger.extend("payments");
 // Map of channel_id -> current balance
 const channelBalances: Map<string, number> = new Map();
 
+// In-memory channel params storage
+// Map of channel_id -> params JSON string
+const channelParams: Map<string, string> = new Map();
+
 // Get the current balance for a channel (0 if unknown)
 function getChannelBalance(channelId: string): number {
   return channelBalances.get(channelId) ?? 0;
@@ -38,14 +42,32 @@ function updateChannelBalance(channelId: string, newBalance: number): void {
   }
 }
 
+// Get params for a channel (null if unknown)
+function getChannelParams(channelId: string): string | null {
+  return channelParams.get(channelId) ?? null;
+}
+
+// Store params for a channel (only if not already stored)
+function storeChannelParams(channelId: string, paramsJson: string): void {
+  if (!channelParams.has(channelId)) {
+    channelParams.set(channelId, paramsJson);
+    paymentLog("channel=%s params stored", channelId.substring(0, 8));
+  }
+}
+
 router.get("/:hash", range, async (ctx, next) => {
+  const paymentHeader = ctx.headers["x-cashu-channel"] as string | undefined;
+  paymentLog("request path=%s hasPayment=%s", ctx.path, !!paymentHeader);
+  if (paymentHeader) {
+    paymentLog("raw: %s", paymentHeader);
+  }
+
   const match = ctx.path.match(/([0-9a-f]{64})/);
   if (!match) return next();
 
   const hash = match[1];
 
-  // Log payment header if present
-  const paymentHeader = ctx.headers["x-cashu-channel"] as string | undefined;
+  // Process payment header if present
   if (paymentHeader) {
     try {
       const payment = JSON.parse(paymentHeader);
@@ -57,7 +79,7 @@ router.get("/:hash", range, async (ctx, next) => {
         payment.signature?.substring(0, 16) + "..."
       );
 
-      // Verify channel_id using WASM
+      // Verify channel_id and store params if provided
       if (payment.params && config.channel?.secretKey) {
         const paramsJson = JSON.stringify(payment.params);
         const alicePubkey = payment.params.alice_pubkey;
@@ -70,10 +92,14 @@ router.get("/:hash", range, async (ctx, next) => {
           match ? "YES" : "NO"
         );
 
-        // Update balance if channel_id is valid
+        // Update balance and store params if channel_id is valid
         if (match) {
           updateChannelBalance(payment.channel_id, payment.balance);
+          storeChannelParams(payment.channel_id, paramsJson);
         }
+      } else if (payment.channel_id && getChannelParams(payment.channel_id)) {
+        // Params not in header, but we have them stored - update balance
+        updateChannelBalance(payment.channel_id, payment.balance);
       }
     } catch (e) {
       paymentLog("hash=%s invalid payment header: %s", hash.substring(0, 8), paymentHeader);
