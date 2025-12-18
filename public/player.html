@@ -137,7 +137,7 @@
 
     <script type="module">
         import * as secp from 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm';
-        import initWasm, { channel_parameters_get_channel_id, compute_shared_secret, create_funding_outputs } from '/wasm/cdk_wasm.js';
+        import initWasm, { channel_parameters_get_channel_id, compute_shared_secret, create_funding_outputs, spilman_channel_sender_create_signed_balance_update } from '/wasm/cdk_wasm.js';
         import { Mint, Wallet, OutputData, hasValidDleq } from 'https://esm.sh/@cashu/cashu-ts@3.1.1';
 
         // Helper: bytes to hex
@@ -263,10 +263,16 @@
             }
 
             // Create signed balance update (calls WASM)
-            // Returns { balance_update, swap_request } or throws
+            // Returns { channel_id, amount, signature }
             createSignedBalanceUpdate(charlieBalance) {
-                // TODO: Call WASM function that takes this data and returns signed balance update
-                throw new Error('Not yet implemented - needs WASM function');
+                const resultJson = spilman_channel_sender_create_signed_balance_update(
+                    this.channelParams.paramsJson,
+                    JSON.stringify(this.channelParams.keysetInfo),
+                    this.aliceSecretHex,
+                    JSON.stringify(this.fundingProofs),
+                    BigInt(charlieBalance)
+                );
+                return JSON.parse(resultJson);
             }
         }
 
@@ -542,12 +548,11 @@
             // Create payment header for a segment (sync for HLS.js xhrSetup)
             createPayment() {
                 this.incrementBalance();
-                // TODO: Generate real Schnorr signature via WASM
-                const fakeSignature = '0'.repeat(128);  // 64 bytes = 128 hex chars
+                const balanceUpdate = this.sender.createSignedBalanceUpdate(this.balance);
                 return JSON.stringify({
-                    channel_id: this.channelId,
-                    balance: this.balance,
-                    signature: fakeSignature,
+                    channel_id: balanceUpdate.channel_id,
+                    balance: balanceUpdate.amount,
+                    signature: balanceUpdate.signature,
                     params: this.params
                 });
             }
