@@ -29,6 +29,10 @@ const channelBalances: Map<string, number> = new Map();
 // Map of channel_id -> params JSON string
 const channelParams: Map<string, string> = new Map();
 
+// In-memory channel funding proofs storage
+// Map of channel_id -> funding proofs JSON string
+const channelFundingProofs: Map<string, string> = new Map();
+
 // Get the current balance for a channel (0 if unknown)
 function getChannelBalance(channelId: string): number {
   return channelBalances.get(channelId) ?? 0;
@@ -55,6 +59,19 @@ function storeChannelParams(channelId: string, paramsJson: string): void {
   }
 }
 
+// Get funding proofs for a channel (null if unknown)
+function getChannelFundingProofs(channelId: string): string | null {
+  return channelFundingProofs.get(channelId) ?? null;
+}
+
+// Store funding proofs for a channel (only if not already stored)
+function storeChannelFundingProofs(channelId: string, fundingProofsJson: string): void {
+  if (!channelFundingProofs.has(channelId)) {
+    channelFundingProofs.set(channelId, fundingProofsJson);
+    paymentLog("channel=%s funding proofs stored", channelId.substring(0, 8));
+  }
+}
+
 router.get("/:hash", range, async (ctx, next) => {
   const paymentHeader = ctx.headers["x-cashu-channel"] as string | undefined;
   paymentLog("request path=%s hasPayment=%s", ctx.path, !!paymentHeader);
@@ -72,10 +89,15 @@ router.get("/:hash", range, async (ctx, next) => {
     try {
       const payment = JSON.parse(paymentHeader);
       const currentBalance = getChannelBalance(payment.channel_id);
-      paymentLog("channel=%s balance: %d -> %d (client) sig=%s",
+      const hasParams = !!getChannelParams(payment.channel_id);
+      const fundingProofsJson = getChannelFundingProofs(payment.channel_id);
+      const numProofs = fundingProofsJson ? JSON.parse(fundingProofsJson).length : 0;
+      paymentLog("channel=%s balance: %d -> %d (client) hasParams=%s proofs=%d sig=%s",
         payment.channel_id?.substring(0, 8),
         currentBalance,
         payment.balance,
+        hasParams,
+        numProofs,
         payment.signature?.substring(0, 16) + "..."
       );
 
@@ -92,10 +114,13 @@ router.get("/:hash", range, async (ctx, next) => {
           match ? "YES" : "NO"
         );
 
-        // Update balance and store params if channel_id is valid
+        // Update balance and store params/funding proofs if channel_id is valid
         if (match) {
           updateChannelBalance(payment.channel_id, payment.balance);
           storeChannelParams(payment.channel_id, paramsJson);
+          if (payment.funding_proofs) {
+            storeChannelFundingProofs(payment.channel_id, JSON.stringify(payment.funding_proofs));
+          }
         }
       } else if (payment.channel_id && getChannelParams(payment.channel_id)) {
         // Params not in header, but we have them stored - update balance
