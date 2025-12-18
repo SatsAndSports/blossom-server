@@ -214,8 +214,9 @@
         // ============================================
         // Holds the data needed to reconstruct the Rust SpilmanChannelSender
         class SpilmanChannelSender {
-            constructor(channelParams, fundingProofs) {
+            constructor(channelParams, aliceSecretHex, fundingProofs) {
                 this.channelParams = channelParams;     // ChannelParameters object
+                this.aliceSecretHex = aliceSecretHex;   // Alice's secret key for signing
                 this.fundingProofs = fundingProofs;     // Array of funding proofs from mint
             }
 
@@ -223,6 +224,7 @@
             toJSON() {
                 return {
                     channel_params: this.channelParams.toJSON(),
+                    alice_secret_hex: this.aliceSecretHex,
                     funding_proofs: this.fundingProofs
                 };
             }
@@ -231,16 +233,18 @@
             static fromJSON(json) {
                 return new SpilmanChannelSender(
                     ChannelParameters.fromJSON(json.channel_params),
+                    json.alice_secret_hex,
                     json.funding_proofs
                 );
             }
 
             // Create from components
-            static create(paramsJson, keysetInfo, sharedSecretHex, fundingProofs) {
+            static create(paramsJson, keysetInfo, aliceSecretHex, fundingProofs) {
+                const sharedSecretHex = compute_shared_secret(aliceSecretHex, JSON.parse(paramsJson).charlie_pubkey);
                 const channelParams = new ChannelParameters(paramsJson, sharedSecretHex, keysetInfo);
                 const channelId = channelParams.getChannelId();
                 log(`ChannelParameters created - Channel ID: ${channelId}`);
-                return new SpilmanChannelSender(channelParams, fundingProofs);
+                return new SpilmanChannelSender(channelParams, aliceSecretHex, fundingProofs);
             }
 
             // Get channel ID (delegated to channelParams)
@@ -973,7 +977,7 @@
                         const sender = SpilmanChannelSender.create(
                             paramsJson,
                             keysetInfo,
-                            sharedSecretHex,
+                            alice.secretHex,
                             proofs
                         );
                         log(`SpilmanChannelSender created: channel=${sender.getChannelId().substring(0, 16)}... ${sender.getFundingAmount()} sats funded`);
