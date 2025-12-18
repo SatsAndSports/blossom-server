@@ -21,6 +21,23 @@ import { channel_parameters_get_channel_id, compute_shared_secret } from "../was
 
 const paymentLog = logger.extend("payments");
 
+// In-memory channel balance tracking
+// Map of channel_id -> current balance
+const channelBalances: Map<string, number> = new Map();
+
+// Get the current balance for a channel (0 if unknown)
+function getChannelBalance(channelId: string): number {
+  return channelBalances.get(channelId) ?? 0;
+}
+
+// Update the balance for a channel (only if higher than current)
+function updateChannelBalance(channelId: string, newBalance: number): void {
+  const current = getChannelBalance(channelId);
+  if (newBalance > current) {
+    channelBalances.set(channelId, newBalance);
+  }
+}
+
 router.get("/:hash", range, async (ctx, next) => {
   const match = ctx.path.match(/([0-9a-f]{64})/);
   if (!match) return next();
@@ -32,14 +49,13 @@ router.get("/:hash", range, async (ctx, next) => {
   if (paymentHeader) {
     try {
       const payment = JSON.parse(paymentHeader);
-      paymentLog("hash=%s channel=%s balance=%d sig=%s",
-        hash.substring(0, 8),
+      const currentBalance = getChannelBalance(payment.channel_id);
+      paymentLog("channel=%s balance: %d -> %d (client) sig=%s",
         payment.channel_id?.substring(0, 8),
+        currentBalance,
         payment.balance,
         payment.signature?.substring(0, 16) + "..."
       );
-      paymentLog("raw: %s", paymentHeader);
-      paymentLog("parsed: %O", payment);
 
       // Verify channel_id using WASM
       if (payment.params && config.channel?.secretKey) {
@@ -53,6 +69,11 @@ router.get("/:hash", range, async (ctx, next) => {
           payment.channel_id?.substring(0, 8),
           match ? "YES" : "NO"
         );
+
+        // Update balance if channel_id is valid
+        if (match) {
+          updateChannelBalance(payment.channel_id, payment.balance);
+        }
       }
     } catch (e) {
       paymentLog("hash=%s invalid payment header: %s", hash.substring(0, 8), paymentHeader);
