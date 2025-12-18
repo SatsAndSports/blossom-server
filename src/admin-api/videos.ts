@@ -4,10 +4,12 @@ import router from "./router.js";
 
 // POST /api/videos - Register a video (requires admin auth)
 router.post("/videos", async (ctx) => {
-  const { title, master_hash, duration } = ctx.request.body as {
+  const { title, master_hash, duration, description, source } = ctx.request.body as {
     title?: string;
     master_hash?: string;
     duration?: number;
+    description?: string;
+    source?: string;
   };
 
   if (!title || !master_hash || duration === undefined) {
@@ -18,11 +20,11 @@ router.post("/videos", async (ctx) => {
 
   const uploaded = dayjs().unix();
 
-  db.prepare(
-    `INSERT OR REPLACE INTO videos (title, master_hash, duration, uploaded) VALUES (?, ?, ?, ?)`
-  ).run(title, master_hash, duration, uploaded);
+  const result = db.prepare(
+    `INSERT INTO videos (title, master_hash, duration, uploaded, description, source) VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(title, master_hash, duration, uploaded, description ?? null, source ?? null);
 
-  ctx.body = { title, master_hash, duration, uploaded };
+  ctx.body = { id: result.lastInsertRowid, title, master_hash, duration, uploaded, description, source };
 });
 
 // GET /api/videos - List all videos (also available here for admin)
@@ -31,10 +33,10 @@ router.get("/videos", async (ctx) => {
   ctx.body = { videos };
 });
 
-// DELETE /api/videos/:title - Remove a video
-router.delete("/videos/:title", async (ctx) => {
-  const { title } = ctx.params;
-  const result = db.prepare("DELETE FROM videos WHERE title = ?").run(title);
+// DELETE /api/videos/:id - Remove a video
+router.delete("/videos/:id", async (ctx) => {
+  const { id } = ctx.params;
+  const result = db.prepare("DELETE FROM videos WHERE id = ?").run(id);
 
   if (result.changes === 0) {
     ctx.status = 404;
@@ -42,5 +44,5 @@ router.delete("/videos/:title", async (ctx) => {
     return;
   }
 
-  ctx.body = { deleted: title };
+  ctx.body = { deleted: id };
 });

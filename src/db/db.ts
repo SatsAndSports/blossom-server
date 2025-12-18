@@ -20,10 +20,13 @@ db.prepare("CREATE INDEX IF NOT EXISTS accessed_timestamp ON accessed (timestamp
 
 db.prepare(
   `CREATE TABLE IF NOT EXISTS videos (
-    title TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
     master_hash TEXT NOT NULL,
     duration INTEGER NOT NULL,
-    uploaded INTEGER NOT NULL
+    uploaded INTEGER NOT NULL,
+    description TEXT,
+    source TEXT
   )`,
 ).run();
 
