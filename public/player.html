@@ -528,6 +528,10 @@
         // ============================================
         // ActiveChannel - combines SpilmanChannelSender with current balance
         // ============================================
+
+        // Track which channels have sent params to server this session
+        const channelsSentParams = new Set();
+
         class ActiveChannel {
             constructor(sender, balance = 0) {
                 this.sender = sender;       // SpilmanChannelSender
@@ -549,12 +553,16 @@
             createPayment() {
                 this.incrementBalance();
                 const balanceUpdate = this.sender.createSignedBalanceUpdate(this.balance);
-                return JSON.stringify({
+                const payload = {
                     channel_id: balanceUpdate.channel_id,
                     balance: balanceUpdate.amount,
-                    signature: balanceUpdate.signature,
-                    params: this.params
-                });
+                    signature: balanceUpdate.signature
+                };
+                // Only include params if not yet successfully sent this session
+                if (!channelsSentParams.has(this.channelId)) {
+                    payload.params = this.params;
+                }
+                return JSON.stringify(payload);
             }
 
             // Convert to IndexedDB record
@@ -702,6 +710,14 @@
                             xhr.setRequestHeader('X-Cashu-Channel', payment);
                             const hash = url.split('/').pop().substring(0, 8);
                             log(`Payment: balance=${currentChannel.balance} for ${hash}...`, 'payment');
+
+                            // Mark params as sent only after successful response
+                            const channelId = currentChannel.channelId;
+                            xhr.addEventListener('load', function() {
+                                if (xhr.status >= 200 && xhr.status < 300) {
+                                    channelsSentParams.add(channelId);
+                                }
+                            });
                         }
                     }
                 });
