@@ -11,6 +11,7 @@
 # Creates <title>.hash.txt in the current directory containing the master hash.
 
 set -e
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ORIG_DIR="$(pwd)"
@@ -35,13 +36,21 @@ if [ -z "$BLOSSOM_ADMIN_PASS" ]; then
     exit 1
 fi
 
-# Check if video with this title already exists
-echo "Checking if '$TITLE' already exists..."
-existing=$(curl -s "$SERVER/videos" | jq -r --arg title "$TITLE" '.videos[] | select(.title == $title)')
-if [ -n "$existing" ]; then
-    echo "Error: Video with title '$TITLE' already exists:"
-    echo "$existing" | jq .
-    exit 1
+# Check if video with this source already exists (also verifies server is online)
+echo "Checking server at $SERVER..."
+{ curl -s "$SERVER/videos" | jq .videos > /dev/null; } || { echo "Error: Cannot connect to $SERVER"; exit 1; }
+echo "Checking for existing video with source '$SOURCE'..."
+existing_source=$(curl -s "$SERVER/videos" | jq -r --arg source "$SOURCE" '.videos[] | select(.source == $source)')
+if [ -n "$existing_source" ]; then
+    echo ""
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo "!! WARNING: Video with same source already exists!    !!"
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo "$existing_source" | jq .
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo ""
+    echo "Proceeding anyway..."
+    echo ""
 fi
 
 # Create temporary directory
@@ -64,7 +73,7 @@ echo "=== Encoding ==="
 # Upload and register
 echo ""
 echo "=== Uploading ==="
-"$SCRIPT_DIR/hls-upload.sh" "$SERVER" "$TITLE"
+"$SCRIPT_DIR/hls-upload.sh" "$SERVER" "$TITLE" "$SOURCE"
 
 # Save hash to original directory
 MASTER_HASH=$(cat master.m3u8.txt)
@@ -72,8 +81,16 @@ HASH_FILE="$ORIG_DIR/$TITLE.hash.txt"
 echo "$MASTER_HASH" > "$HASH_FILE"
 
 echo ""
-echo "=== Done ==="
-echo "Video '$TITLE' published successfully!"
-echo "Master hash: $MASTER_HASH"
-echo "Hash saved to: $HASH_FILE"
-echo "URL: $SERVER/$MASTER_HASH"
+echo ""
+echo "=========================================================="
+echo "                    PUBLISH COMPLETE                      "
+echo "=========================================================="
+echo ""
+echo "  Title:       $TITLE"
+echo "  Source:      $SOURCE"
+echo "  Master hash: $MASTER_HASH"
+echo "  Hash file:   $HASH_FILE"
+echo "  URL:         $SERVER/$MASTER_HASH"
+echo ""
+echo "=========================================================="
+echo ""

@@ -2,7 +2,7 @@
 #
 # hls-upload.sh - Upload HLS content to Blossom server
 #
-# Usage: hls-upload.sh <blossom-url> <video-title>
+# Usage: hls-upload.sh <blossom-url> <video-title> [source]
 #
 # Expects to be run from a directory created by hls-encode.sh containing:
 #   hashed/          - directory of hash symlinks
@@ -15,13 +15,14 @@
 set -e
 
 if [ -z "$1" ] || [ -z "$2" ]; then
-    echo "Usage: $0 <blossom-url> <video-title>" >&2
-    echo "Example: $0 http://localhost:3000 'My Cool Video'" >&2
+    echo "Usage: $0 <blossom-url> <video-title> [source]" >&2
+    echo "Example: $0 http://localhost:3000 'My Cool Video' '/path/to/video.mp4'" >&2
     exit 1
 fi
 
 SERVER="$1"
 TITLE="$2"
+SOURCE="$3"
 HASHED_DIR="hashed"
 
 if [ ! -d "$HASHED_DIR" ]; then
@@ -46,14 +47,6 @@ DURATION=$(cat duration.txt)
 echo "Video title: $TITLE" >&2
 echo "Master hash: $MASTER_HASH" >&2
 echo "Duration: ${DURATION}s" >&2
-
-# Check if video with this title already exists
-existing=$(curl -s "$SERVER/videos" | jq -r --arg title "$TITLE" '.videos[] | select(.title == $title)')
-if [ -n "$existing" ]; then
-    echo "Error: Video with title '$TITLE' already exists:" >&2
-    echo "$existing" | jq . >&2
-    exit 1
-fi
 
 # Count files
 total=$(find "$HASHED_DIR" -maxdepth 1 -type l | wc -l)
@@ -107,7 +100,7 @@ http_code=$(curl -s -o /tmp/blossom_response.json -w "%{http_code}" \
     -u "$ADMIN_USER:$ADMIN_PASS" \
     -X POST \
     -H "Content-Type: application/json" \
-    -d "{\"title\": \"$TITLE\", \"master_hash\": \"$MASTER_HASH\", \"duration\": $DURATION}" \
+    -d "{\"title\": \"$TITLE\", \"master_hash\": \"$MASTER_HASH\", \"duration\": $DURATION, \"source\": \"$SOURCE\"}" \
     "$SERVER/api/videos")
 
 response=$(cat /tmp/blossom_response.json)
