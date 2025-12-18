@@ -664,6 +664,52 @@
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
+        // Parse timestamp string to seconds
+        // Supports: "90", "1m30s", "1:30", "1m", "30s"
+        function parseTimestamp(str) {
+            if (!str) return null;
+
+            // Plain number (seconds)
+            if (/^\d+$/.test(str)) {
+                return parseInt(str, 10);
+            }
+
+            // Format: 1m30s, 1m, 30s
+            const msMatch = str.match(/^(?:(\d+)m)?(?:(\d+)s)?$/);
+            if (msMatch && (msMatch[1] || msMatch[2])) {
+                const mins = parseInt(msMatch[1] || 0, 10);
+                const secs = parseInt(msMatch[2] || 0, 10);
+                return mins * 60 + secs;
+            }
+
+            // Format: 1:30
+            const colonMatch = str.match(/^(\d+):(\d+)$/);
+            if (colonMatch) {
+                return parseInt(colonMatch[1], 10) * 60 + parseInt(colonMatch[2], 10);
+            }
+
+            return null;
+        }
+
+        // Parse URL hash for master_hash and optional timestamp
+        // Formats: #hash, #hash&t=90, #hash&t=1m30s
+        function parseUrlHash() {
+            const hash = window.location.hash.slice(1);
+            if (!hash) return { masterHash: null, startTime: null };
+
+            const parts = hash.split('&');
+            const masterHash = parts[0];
+            let startTime = null;
+
+            for (const part of parts.slice(1)) {
+                if (part.startsWith('t=')) {
+                    startTime = parseTimestamp(part.slice(2));
+                }
+            }
+
+            return { masterHash, startTime };
+        }
+
         // Create payment header (sync, persistence happens in background)
         function createPayment() {
             const payment = currentChannel.createPayment();
@@ -686,7 +732,7 @@
         }
 
         // Initialize HLS player with payment injection
-        function playVideo(manifestUrl) {
+        function playVideo(manifestUrl, startTime = null) {
             const video = document.getElementById('video');
             const qualitySelect = document.getElementById('quality-select');
 
@@ -735,6 +781,12 @@
                         option.text = `${level.height}p`;
                         qualitySelect.appendChild(option);
                     });
+
+                    // Seek to start time if specified
+                    if (startTime !== null && startTime > 0) {
+                        video.currentTime = startTime;
+                        log(`Seeking to ${startTime}s`);
+                    }
 
                     video.play();
                 });
@@ -885,17 +937,10 @@
                 log(`Found ${data.videos.length} videos`);
 
                 // Auto-play video from URL hash if present
-                const hashVideo = window.location.hash.slice(1);
-                if (hashVideo) {
-                    const video = data.videos.find(v => v.master_hash === hashVideo);
-                    if (video) {
-                        log(`Auto-playing from URL: ${video.title}`);
-                        playVideo('/' + video.master_hash);
-                    } else {
-                        // Hash not in video list - try playing it directly (might be from another server)
-                        log(`Playing hash from URL: ${hashVideo.substring(0, 8)}...`);
-                        playVideo('/' + hashVideo);
-                    }
+                const { masterHash, startTime } = parseUrlHash();
+                if (masterHash) {
+                    log(`Auto-playing from URL: ${masterHash.substring(0, 8)}...` + (startTime ? ` @ ${startTime}s` : ''));
+                    playVideo('/' + masterHash, startTime);
                 }
             } catch (e) {
                 log(`Failed to load videos: ${e}`, 'error');
