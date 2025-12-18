@@ -875,13 +875,28 @@
                     btn.textContent = video.title;
                     btn.onclick = () => {
                         log(`Selected: ${video.title}`);
-                        // Use hash-based URL for Blossom
+                        // Update URL hash and play video
+                        window.location.hash = video.master_hash;
                         playVideo('/' + video.master_hash);
                     };
                     listDiv.appendChild(btn);
                 });
 
                 log(`Found ${data.videos.length} videos`);
+
+                // Auto-play video from URL hash if present
+                const hashVideo = window.location.hash.slice(1);
+                if (hashVideo) {
+                    const video = data.videos.find(v => v.master_hash === hashVideo);
+                    if (video) {
+                        log(`Auto-playing from URL: ${video.title}`);
+                        playVideo('/' + video.master_hash);
+                    } else {
+                        // Hash not in video list - try playing it directly (might be from another server)
+                        log(`Playing hash from URL: ${hashVideo.substring(0, 8)}...`);
+                        playVideo('/' + hashVideo);
+                    }
+                }
             } catch (e) {
                 log(`Failed to load videos: ${e}`, 'error');
             }
