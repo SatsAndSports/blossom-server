@@ -558,9 +558,10 @@
                     balance: balanceUpdate.amount,
                     signature: balanceUpdate.signature
                 };
-                // Only include params if not yet successfully sent this session
+                // Only include params and funding proofs if not yet successfully sent this session
                 if (!channelsSentParams.has(this.channelId)) {
                     payload.params = this.params;
+                    payload.funding_proofs = this.sender.fundingProofs;
                 }
                 return JSON.stringify(payload);
             }
