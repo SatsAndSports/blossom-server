@@ -76,7 +76,7 @@ router.get("/:hash", range, async (ctx, next) => {
   const paymentHeader = ctx.headers["x-cashu-channel"] as string | undefined;
   paymentLog("request path=%s hasPayment=%s", ctx.path, !!paymentHeader);
   if (paymentHeader) {
-    paymentLog("raw: %s", paymentHeader);
+    paymentLog("X-Cashu-Channel: %s", paymentHeader);
   }
 
   const match = ctx.path.match(/([0-9a-f]{64})/);
