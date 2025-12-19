@@ -692,6 +692,18 @@
         // Track which channels have sent params to server this session
         const channelsSentParams = new Set();
 
+        // In-memory request count per channel - tracks how much we owe for payment
+        const channelRequestCounts = new Map();
+
+        // url parameter is only used for logging
+        function incrementChannelRequestCount(channelId, url) {
+            const count = (channelRequestCounts.get(channelId) || 0) + 1;
+            channelRequestCounts.set(channelId, count);
+            const path = '/' + url.split('/').pop();
+            console.log('channelRequestCount:', count, 'channel_id:', channelId, 'url_path:', path);
+            return count;
+        }
+
         class ActiveChannel {
             constructor(sender, balance = 0) {
                 this.sender = sender;       // SpilmanChannelSender
@@ -928,13 +940,16 @@
                             if (xhr.readyState === XMLHttpRequest.UNSENT) {
                                 xhr.open('GET', url, true);
                             }
+
+                            const channelId = currentChannel.channelId;
+                            incrementChannelRequestCount(channelId, url);
+
                             const payment = createPayment();
                             xhr.setRequestHeader('X-Cashu-Channel', payment);
                             const hash = url.split('/').pop().substring(0, 8);
                             log(`Payment: balance=${currentChannel.balance} for ${hash}...`, 'payment');
 
                             // Mark params as sent only after successful response
-                            const channelId = currentChannel.channelId;
                             xhr.addEventListener('load', function() {
                                 if (xhr.status >= 200 && xhr.status < 300) {
                                     channelsSentParams.add(channelId);
