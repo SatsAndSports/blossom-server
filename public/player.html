@@ -820,6 +820,9 @@
         // Current FundedChannel instance - null until a funded channel is ready
         let currentChannel = null;
 
+        // Balance at start of current viewing session (for showing spend delta)
+        let sessionStartBalance = 0;
+
         // Alice's identity
         let alice = null;
 
@@ -1133,6 +1136,11 @@
                     btn.textContent = video.title;
                     btn.onclick = () => {
                         log(`Selected: ${video.title}`);
+                        // Reset session balance when starting a new video
+                        if (currentChannel) {
+                            sessionStartBalance = currentChannel.balance;
+                            log(`Session start balance: ${sessionStartBalance}`);
+                        }
                         // Update URL hash and play video
                         window.location.hash = video.master_hash;
                         playVideo('/' + video.master_hash);
@@ -1284,6 +1292,12 @@
                 log(`No approved mints/keysets available from server`, 'error');
             } else if (!keysetInfo) {
                 log(`Failed to fetch keyset info from mint`, 'error');
+            }
+
+            // Record starting balance for this session
+            if (currentChannel) {
+                sessionStartBalance = currentChannel.balance;
+                log(`Session start balance: ${sessionStartBalance}`);
             }
 
             updateStatus();
