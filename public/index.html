@@ -738,9 +738,10 @@
         // IndexedDB Channel Storage
         // ============================================
         const DB_NAME = 'cashu_channels';
-        const DB_VERSION = 3;  // Bumped to add request_counts store
+        const DB_VERSION = 4;  // Bumped to add video_positions store
         const STORE_NAME = 'channels';
         const REQUEST_COUNTS_STORE = 'request_counts';
+        const VIDEO_POSITIONS_STORE = 'video_positions';
 
         let db = null;
 
@@ -784,6 +785,12 @@
                     // Create request_counts object store
                     if (!database.objectStoreNames.contains(REQUEST_COUNTS_STORE)) {
                         database.createObjectStore(REQUEST_COUNTS_STORE, { keyPath: 'channel_id' });
+                    }
+
+                    // Create video_positions object store
+                    if (!database.objectStoreNames.contains(VIDEO_POSITIONS_STORE)) {
+                        const posStore = database.createObjectStore(VIDEO_POSITIONS_STORE, { keyPath: 'master_hash' });
+                        posStore.createIndex('timestamp', 'timestamp', { unique: false });
                     }
                 };
             });
@@ -932,6 +939,62 @@
             const path = '/' + url.split('/').pop();
             console.log('channelRequestCount:', count, 'channel_id:', channelId, 'url_path:', path);
             return count;
+        }
+
+        // ============================================
+        // Video Position Storage
+        // ============================================
+        const POSITION_SAVE_THRESHOLD = 5; // Only save if > 5 seconds into video
+        const POSITION_MAX_AGE_DAYS = 30;  // Cleanup positions older than 30 days
+
+        // Save video position to IndexedDB
+        function saveVideoPosition(masterHash, position) {
+            if (!masterHash || !db || position < POSITION_SAVE_THRESHOLD) return;
+            const tx = db.transaction(VIDEO_POSITIONS_STORE, 'readwrite');
+            const store = tx.objectStore(VIDEO_POSITIONS_STORE);
+            store.put({ master_hash: masterHash, position, timestamp: Date.now() });
+        }
+
+        // Get video position from IndexedDB
+        async function getVideoPosition(masterHash) {
+            if (!masterHash || !db) return null;
+            return new Promise((resolve) => {
+                const tx = db.transaction(VIDEO_POSITIONS_STORE, 'readonly');
+                const store = tx.objectStore(VIDEO_POSITIONS_STORE);
+                const request = store.get(masterHash);
+                request.onsuccess = () => resolve(request.result?.position || null);
+                request.onerror = () => resolve(null);
+            });
+        }
+
+        // Clear video position (e.g., when video ends)
+        function clearVideoPosition(masterHash) {
+            if (!masterHash || !db) return;
+            const tx = db.transaction(VIDEO_POSITIONS_STORE, 'readwrite');
+            const store = tx.objectStore(VIDEO_POSITIONS_STORE);
+            store.delete(masterHash);
+        }
+
+        // Cleanup old positions (called on init)
+        async function cleanupOldPositions() {
+            if (!db) return;
+            const maxAge = Date.now() - (POSITION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
+            const tx = db.transaction(VIDEO_POSITIONS_STORE, 'readwrite');
+            const store = tx.objectStore(VIDEO_POSITIONS_STORE);
+            const index = store.index('timestamp');
+            const range = IDBKeyRange.upperBound(maxAge);
+            const request = index.openCursor(range);
+            let deleted = 0;
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    store.delete(cursor.primaryKey);
+                    deleted++;
+                    cursor.continue();
+                } else if (deleted > 0) {
+                    console.log(`Cleaned up ${deleted} old video positions`);
+                }
+            };
         }
 
         // ============================================
@@ -1221,7 +1284,7 @@
 
                 currentHls = hls;
 
-                hls.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
+                hls.on(Hls.Events.MANIFEST_PARSED, async function(event, data) {
                     log(`Manifest loaded, ${data.levels.length} quality levels`);
 
                     // Populate quality selector
@@ -1232,10 +1295,16 @@
                         qualitySelect.appendChild(option);
                     });
 
-                    // Seek to start time if specified
+                    // Seek to start time if specified, otherwise check for saved position
                     if (startTime !== null && startTime > 0) {
                         video.currentTime = startTime;
-                        log(`Seeking to ${startTime}s`);
+                        log(`Seeking to ${startTime}s (from URL)`);
+                    } else {
+                        const savedPosition = await getVideoPosition(currentMasterHash);
+                        if (savedPosition && savedPosition > 5) {
+                            video.currentTime = savedPosition;
+                            log(`Resuming from ${Math.floor(savedPosition)}s`);
+                        }
                     }
 
                     video.play();
@@ -1496,6 +1565,7 @@
                 await initDB();
                 const channels = await getAllChannels();
                 await loadRequestCounts();
+                cleanupOldPositions(); // Async, no need to await
                 log(`IndexedDB initialized (${channels.length} channels, ${channelRequestCounts.size} request counts)`);
             } catch (e) {
                 log(`Failed to initialize IndexedDB: ${e}`, 'error');
@@ -1748,6 +1818,23 @@
             video.addEventListener('timeupdate', updateProgress);
             video.addEventListener('progress', updateBuffered);
             video.addEventListener('loadedmetadata', updateProgress);
+
+            // Save playback position periodically
+            let lastSavedPosition = 0;
+            video.addEventListener('timeupdate', () => {
+                const now = video.currentTime;
+                if (currentMasterHash && Math.abs(now - lastSavedPosition) >= 5) {
+                    saveVideoPosition(currentMasterHash, now);
+                    lastSavedPosition = now;
+                }
+            });
+
+            // Clear position when video ends
+            video.addEventListener('ended', () => {
+                if (currentMasterHash) {
+                    clearVideoPosition(currentMasterHash);
+                }
+            });
 
             // Seek on progress bar click/drag
             let isSeeking = false;
