@@ -955,6 +955,8 @@
                                 xhr.open('GET', url, true);
                             }
 
+                            // Increment request count - this increases the balance owed,
+                            // which will be included in the payment header below
                             const channelId = currentChannel.channelId;
                             incrementChannelRequestCount(channelId, url);
 
