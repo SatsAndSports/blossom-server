@@ -245,6 +245,38 @@
         #progress-container:hover #progress-handle {
             opacity: 1;
         }
+        #progress-preview {
+            position: absolute;
+            bottom: 30px;
+            width: 160px;
+            height: 90px;
+            background-color: #000;
+            background-size: cover;
+            border: 2px solid #fff;
+            border-radius: 4px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.1s;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+        #progress-preview.visible {
+            opacity: 1;
+        }
+        #progress-preview-time {
+            position: absolute;
+            bottom: -22px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: #fff;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-family: monospace;
+            white-space: nowrap;
+        }
         #controls-row {
             display: flex;
             align-items: center;
@@ -434,6 +466,9 @@
                     <div id="progress-played"></div>
                 </div>
                 <div id="progress-handle"></div>
+                <div id="progress-preview">
+                    <div id="progress-preview-time"></div>
+                </div>
             </div>
             <div id="controls-row">
                 <button id="play-btn" class="ctrl-btn" title="Play/Pause">
@@ -1092,6 +1127,10 @@
         // Current master hash (for sharing)
         let currentMasterHash = null;
 
+        // Current video's sprite metadata (for progress bar preview)
+        let currentSpriteMetaHash = null;
+        let currentSpriteMeta = null;
+
         // Update quality selector with current level
         function updateQualityLabel(levelIndex) {
             const select = document.getElementById('quality-select');
@@ -1104,7 +1143,7 @@
         }
 
         // Initialize HLS player with payment injection
-        function playVideo(manifestUrl, startTime = null) {
+        function playVideo(manifestUrl, startTime = null, spriteMetaHash = null) {
             const video = document.getElementById('video');
             const qualitySelect = document.getElementById('quality-select');
 
@@ -1116,6 +1155,10 @@
             if (hashMatch) {
                 currentMasterHash = hashMatch[1];
             }
+
+            // Store sprite meta hash for progress bar preview
+            currentSpriteMetaHash = spriteMetaHash;
+            currentSpriteMeta = null; // Will be fetched on demand
 
             // Clean up previous instance
             if (currentHls) {
@@ -1410,7 +1453,7 @@
                         }
                         // Update URL hash and play video
                         window.location.hash = video.master_hash;
-                        playVideo('/' + video.master_hash);
+                        playVideo('/' + video.master_hash, null, video.sprite_meta_hash);
                     };
 
                     listDiv.appendChild(card);
@@ -1421,8 +1464,11 @@
                 // Auto-play video from URL hash if present
                 const { masterHash, startTime } = parseUrlHash();
                 if (masterHash) {
+                    // Find matching video to get sprite_meta_hash
+                    const matchingVideo = data.videos.find(v => v.master_hash === masterHash);
+                    const spriteMetaHash = matchingVideo?.sprite_meta_hash || null;
                     log(`Auto-playing from URL: ${masterHash.substring(0, 8)}...` + (startTime ? ` @ ${startTime}s` : ''));
-                    playVideo('/' + masterHash, startTime);
+                    playVideo('/' + masterHash, startTime, spriteMetaHash);
                 }
             } catch (e) {
                 log(`Failed to load videos: ${e}`, 'error');
@@ -1722,6 +1768,88 @@
 
             document.addEventListener('mouseup', () => isSeeking = false);
             document.addEventListener('touchend', () => isSeeking = false);
+
+            // Progress bar sprite preview
+            const progressPreview = document.getElementById('progress-preview');
+            const progressPreviewTime = document.getElementById('progress-preview-time');
+            let isTouchDevice = false;
+
+            async function showProgressPreview(clientX) {
+                // Don't show preview if no sprite meta or no duration
+                if (!currentSpriteMetaHash || !video.duration) {
+                    progressPreview.classList.remove('visible');
+                    return;
+                }
+
+                // Fetch sprite meta if needed
+                if (!currentSpriteMeta) {
+                    try {
+                        const res = await fetch('/' + currentSpriteMetaHash);
+                        currentSpriteMeta = await res.json();
+                    } catch (err) {
+                        return;
+                    }
+                }
+
+                const rect = progressContainer.getBoundingClientRect();
+                const x = clientX - rect.left;
+                const percent = Math.max(0, Math.min(1, x / rect.width));
+                const timestamp = percent * video.duration;
+
+                // Calculate which frame to show
+                const frame = Math.min(
+                    Math.floor(timestamp / currentSpriteMeta.interval),
+                    currentSpriteMeta.frames - 1
+                );
+                const col = frame % currentSpriteMeta.columns;
+                const row = Math.floor(frame / currentSpriteMeta.columns);
+
+                // Update preview image and position
+                progressPreview.style.backgroundImage = `url(/${currentSpriteMeta.sprite_hash})`;
+                progressPreview.style.backgroundSize = `${currentSpriteMeta.columns * 160}px ${currentSpriteMeta.rows * 90}px`;
+                progressPreview.style.backgroundPosition = `-${col * 160}px -${row * 90}px`;
+
+                // Position horizontally (clamped to container edges)
+                const previewWidth = 160;
+                const minLeft = previewWidth / 2;
+                const maxLeft = rect.width - previewWidth / 2;
+                const left = Math.max(minLeft, Math.min(maxLeft, x));
+                progressPreview.style.left = left + 'px';
+
+                // Update time display
+                progressPreviewTime.textContent = formatTime(timestamp);
+
+                progressPreview.classList.add('visible');
+            }
+
+            function hideProgressPreview() {
+                progressPreview.classList.remove('visible');
+            }
+
+            // Desktop: show on hover
+            progressContainer.addEventListener('mousemove', (e) => {
+                if (!isTouchDevice) {
+                    showProgressPreview(e.clientX);
+                }
+            });
+            progressContainer.addEventListener('mouseleave', () => {
+                if (!isTouchDevice) {
+                    hideProgressPreview();
+                }
+            });
+
+            // Mobile: show only while dragging
+            progressContainer.addEventListener('touchstart', () => {
+                isTouchDevice = true;
+            });
+            document.addEventListener('touchmove', (e) => {
+                if (isSeeking && e.touches.length > 0) {
+                    showProgressPreview(e.touches[0].clientX);
+                }
+            });
+            document.addEventListener('touchend', () => {
+                hideProgressPreview();
+            });
 
             // Volume
             muteBtn.onclick = () => {
