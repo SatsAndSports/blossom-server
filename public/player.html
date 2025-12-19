@@ -1730,62 +1730,35 @@
                 if (video.readyState > 0) showIndicator('play');
             });
 
-            // Double-tap to skip ±10 seconds
-            let lastTap = 0;
-            let lastTapX = 0;
-            const doubleTapDelay = 300; // ms
-
             function showSkipIndicator(side, seconds) {
                 indicator.className = 'show ' + side;
                 indicator.innerHTML = `<div class="skip-icon">${seconds > 0 ? '+' : ''}${seconds}s</div>`;
             }
 
-            // Timer for detecting single vs double tap
-            let singleTapTimer = null;
-
             function handleTap(e) {
                 // Ignore taps on control elements
                 if (e.target.closest('#video-controls')) return;
 
-                const now = Date.now();
                 const rect = video.getBoundingClientRect();
-                // Support both mouse (clientX) and touch (changedTouches[0].clientX)
                 const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX;
                 if (clientX === undefined) return;
                 const x = clientX - rect.left;
                 const width = rect.width;
 
-                if (now - lastTap < doubleTapDelay && Math.abs(x - lastTapX) < 100) {
-                    // Double tap detected - cancel single tap action
-                    clearTimeout(singleTapTimer);
-                    singleTapTimer = null;
-                    e.preventDefault();
-
-                    if (x < width / 3) {
-                        // Left third - skip back
-                        video.currentTime = Math.max(0, video.currentTime - 10);
-                        showSkipIndicator('left', -10);
-                    } else if (x > width * 2 / 3) {
-                        // Right third - skip forward
-                        video.currentTime = Math.min(video.duration, video.currentTime + 10);
-                        showSkipIndicator('right', 10);
-                    }
-                    lastTap = 0; // Reset to prevent triple-tap
+                if (x < width / 3) {
+                    // Left third - skip back
+                    video.currentTime = Math.max(0, video.currentTime - 10);
+                    showSkipIndicator('left', -10);
+                } else if (x > width * 2 / 3) {
+                    // Right third - skip forward
+                    video.currentTime = Math.min(video.duration, video.currentTime + 10);
+                    showSkipIndicator('right', 10);
                 } else {
-                    lastTap = now;
-                    lastTapX = x;
-
-                    // Single tap in center toggles play/pause (with delay to detect double-tap)
-                    if (x >= width / 3 && x <= width * 2 / 3) {
-                        clearTimeout(singleTapTimer);
-                        singleTapTimer = setTimeout(() => {
-                            if (video.paused) {
-                                video.play();
-                            } else {
-                                video.pause();
-                            }
-                            singleTapTimer = null;
-                        }, doubleTapDelay);
+                    // Center - toggle play/pause
+                    if (video.paused) {
+                        video.play();
+                    } else {
+                        video.pause();
                     }
                 }
             }
@@ -1794,19 +1767,7 @@
             // Once a touch is detected, disable click handling permanently
             let useTouchEvents = false;
 
-            function handleClick(e) {
-                if (!useTouchEvents) handleTap(e);
-            }
-
-            function handleTouch(e) {
-                useTouchEvents = true;
-                handleTap(e);
-            }
-
-            video.addEventListener('click', handleClick);
-            video.addEventListener('touchend', handleTouch);
-
-            // Also listen on the container for taps (e.g., in fullscreen)
+            // Listen on container only (events bubble up from video)
             const container = document.getElementById('video-container');
             container.addEventListener('click', (e) => {
                 if (!useTouchEvents && (e.target === video || e.target === container)) {
