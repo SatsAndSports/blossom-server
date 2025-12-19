@@ -123,20 +123,39 @@
         #video-list {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 15px;
         }
-        .video-btn {
-            background: #333;
+        .video-card {
+            background: #2a2a2a;
             border: 1px solid #444;
-            color: #e0e0e0;
-            padding: 10px 20px;
-            border-radius: 4px;
+            border-radius: 8px;
             cursor: pointer;
-            font-size: 14px;
+            overflow: hidden;
+            width: 200px;
+            transition: border-color 0.2s;
         }
-        .video-btn:hover {
-            background: #444;
+        .video-card:hover {
             border-color: #f7931a;
+        }
+        .video-card-thumb {
+            width: 200px;
+            height: 113px;
+            background-color: #1a1a1a;
+            background-size: cover;
+            background-position: center;
+        }
+        .video-card-title {
+            padding: 10px;
+            font-size: 14px;
+            color: #e0e0e0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .video-card-duration {
+            padding: 0 10px 10px;
+            font-size: 12px;
+            color: #888;
         }
         #log {
             background: #0a0a0a;
@@ -1285,6 +1304,17 @@
             };
         }
 
+        // Format duration as M:SS or H:MM:SS
+        function formatDuration(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            if (h > 0) {
+                return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            }
+            return `${m}:${s.toString().padStart(2, '0')}`;
+        }
+
         // Load video list
         async function loadVideos() {
             try {
@@ -1299,11 +1329,79 @@
                     return;
                 }
 
-                data.videos.forEach(video => {
-                    const btn = document.createElement('button');
-                    btn.className = 'video-btn';
-                    btn.textContent = video.title;
-                    btn.onclick = () => {
+                for (const video of data.videos) {
+                    const card = document.createElement('div');
+                    card.className = 'video-card';
+
+                    const thumb = document.createElement('div');
+                    thumb.className = 'video-card-thumb';
+                    if (video.preview_hash) {
+                        thumb.style.backgroundImage = `url(/${video.preview_hash})`;
+                    }
+
+                    const title = document.createElement('div');
+                    title.className = 'video-card-title';
+                    title.textContent = video.title;
+                    title.title = video.title; // Tooltip for long titles
+
+                    const duration = document.createElement('div');
+                    duration.className = 'video-card-duration';
+                    duration.textContent = formatDuration(video.duration);
+
+                    card.appendChild(thumb);
+                    card.appendChild(title);
+                    card.appendChild(duration);
+
+                    // Sprite animation on hover
+                    let spriteInterval = null;
+                    let spriteMeta = null;
+
+                    card.onmouseenter = async () => {
+                        if (!video.sprite_meta_hash || spriteInterval) return;
+
+                        // Fetch sprite meta if not cached
+                        if (!spriteMeta) {
+                            try {
+                                const res = await fetch('/' + video.sprite_meta_hash);
+                                spriteMeta = await res.json();
+                            } catch (e) {
+                                return;
+                            }
+                        }
+
+                        // Animate through sprite frames
+                        let frame = 0;
+                        thumb.style.backgroundImage = `url(/${spriteMeta.sprite_hash})`;
+                        thumb.style.backgroundSize = `${spriteMeta.columns * 200}px auto`;
+                        thumb.style.backgroundPosition = '0px 0px'; // Start at first frame
+
+                        spriteInterval = setInterval(() => {
+                            frame = (frame + 1) % spriteMeta.frames;
+                            const col = frame % spriteMeta.columns;
+                            const row = Math.floor(frame / spriteMeta.columns);
+                            thumb.style.backgroundPosition = `-${col * 200}px -${row * 113}px`;
+                        }, 500);
+                    };
+
+                    card.onmouseleave = () => {
+                        if (spriteInterval) {
+                            clearInterval(spriteInterval);
+                            spriteInterval = null;
+                        }
+                        // Restore preview image
+                        if (video.preview_hash) {
+                            thumb.style.backgroundImage = `url(/${video.preview_hash})`;
+                            thumb.style.backgroundSize = 'cover';
+                            thumb.style.backgroundPosition = 'center';
+                        }
+                    };
+
+                    card.onclick = () => {
+                        // Stop sprite animation if running
+                        if (spriteInterval) {
+                            clearInterval(spriteInterval);
+                            spriteInterval = null;
+                        }
                         log(`Selected: ${video.title}`);
                         // Reset session balance when starting a new video
                         if (currentChannel) {
@@ -1314,8 +1412,9 @@
                         window.location.hash = video.master_hash;
                         playVideo('/' + video.master_hash);
                     };
-                    listDiv.appendChild(btn);
-                });
+
+                    listDiv.appendChild(card);
+                }
 
                 log(`Found ${data.videos.length} videos`);
 
