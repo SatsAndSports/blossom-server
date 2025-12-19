@@ -710,13 +710,13 @@
         }
 
         // ============================================
-        // ActiveChannel - combines SpilmanChannelSender with current balance
+        // FundedChannel - combines SpilmanChannelSender with current balance
         // ============================================
 
         // Track which channels have sent params to server this session
         const channelsSentParams = new Set();
 
-        class ActiveChannel {
+        class FundedChannel {
             constructor(sender) {
                 this.sender = sender;       // SpilmanChannelSender
             }
@@ -770,13 +770,13 @@
                 const record = await getChannel(channelId);
                 if (!record) return null;
                 const sender = SpilmanChannelSender.fromJSON(JSON.parse(record.sender_json));
-                return new ActiveChannel(sender);
+                return new FundedChannel(sender);
             }
 
             // Static: Find by pubkeys and keyset params
             static async findByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk) {
                 const channelId = await findChannelByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk);
-                return channelId ? await ActiveChannel.load(channelId) : null;
+                return channelId ? await FundedChannel.load(channelId) : null;
             }
 
             // Static: Generate random nonce
@@ -812,7 +812,7 @@
             return { secretHex, pubkeyHex, isNew };
         }
 
-        // Current channel instance
+        // Current FundedChannel instance - null until a funded channel is ready
         let currentChannel = null;
 
         // Alice's identity
@@ -1199,7 +1199,7 @@
 
             // Check for existing channel with matching params, create if none exists
             if (charlie && mintInfo && keysetInfo) {
-                currentChannel = await ActiveChannel.findByParams(
+                currentChannel = await FundedChannel.findByParams(
                     alice.pubkeyHex,
                     charlie.pubkeyHex,
                     mintInfo.unit,
@@ -1216,7 +1216,7 @@
                     // Build params JSON
                     const setupTimestamp = Math.floor(Date.now() / 1000);
                     const expiry = setupTimestamp + 7 * 24 * 60 * 60; // 1 week
-                    const senderNonce = ActiveChannel.generateNonce();
+                    const senderNonce = FundedChannel.generateNonce();
                     const paramsJson = JSON.stringify({
                         mint: mintInfo.mint,
                         unit: mintInfo.unit,
@@ -1264,10 +1264,10 @@
                         );
                         log(`SpilmanChannelSender created: channel=${sender.getChannelId().substring(0, 16)}... ${sender.getFundingAmount()} sats funded`);
 
-                        // Wrap in ActiveChannel and save
-                        currentChannel = new ActiveChannel(sender);
+                        // Wrap in FundedChannel and save
+                        currentChannel = new FundedChannel(sender);
                         await currentChannel.save();
-                        log(`ActiveChannel saved to IndexedDB`);
+                        log(`FundedChannel saved to IndexedDB`);
                     } catch (e) {
                         log(`Failed to create/mint funding outputs: ${e}`, 'error');
                         console.error('Funding outputs error:', e);
