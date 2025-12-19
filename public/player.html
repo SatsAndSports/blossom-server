@@ -719,17 +719,21 @@
         class FundedChannel {
             constructor(sender) {
                 this.sender = sender;       // SpilmanChannelSender
-                this._channelId = sender.getChannelId();  // Cache since it never changes
+                this.channelId = sender.getChannelId();  // Cache since it never changes
             }
 
             // Convenience getters delegated to sender
-            get channelId() { return this._channelId; }
             get params() { return this.sender.getParams(); }
             get fundingAmount() { return this.sender.getFundingAmount(); }
 
-            // Get current balance from channelRequestCounts map
-            get balance() {
+            // Get current number of requests made with this channel
+            get requestCount() {
                 return channelRequestCounts.get(this.channelId) || 0;
+            }
+
+            // Balance owed is the request count (1 sat per request)
+            get balance() {
+                return this.requestCount;
             }
 
             // Create payment header for a segment (sync for HLS.js xhrSetup)
