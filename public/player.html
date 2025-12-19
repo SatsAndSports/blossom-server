@@ -85,6 +85,24 @@
         #action-indicator.right {
             left: 75%;
         }
+        #payment-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #f7931a;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: bold;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 10;
+        }
+        #payment-indicator.visible {
+            opacity: 1;
+        }
         #status {
             background: #2a2a2a;
             padding: 15px;
@@ -266,6 +284,7 @@
     <div id="video-container">
         <video id="video" controls></video>
         <div id="action-indicator"><div class="pause-icon"></div></div>
+        <div id="payment-indicator">0 sats</div>
         <div id="quality-control">
             <label for="quality-select">Quality:</label>
             <select id="quality-select">
@@ -968,6 +987,11 @@
                             const hash = url.split('/').pop().substring(0, 8);
                             log(`Payment: balance=${currentChannel.balance} for ${hash}...`, 'payment');
 
+                            // Update payment indicator if visible
+                            if (window.updatePaymentIndicator) {
+                                window.updatePaymentIndicator();
+                            }
+
                             // Mark params as sent only after successful response
                             xhr.addEventListener('load', function() {
                                 if (xhr.status >= 200 && xhr.status < 300) {
@@ -1420,6 +1444,42 @@
             indicator.addEventListener('animationend', () => {
                 indicator.className = '';
             });
+        })();
+
+        // Payment indicator (shows session spend on mouse/key activity)
+        (function() {
+            const videoContainer = document.getElementById('video-container');
+            const paymentIndicator = document.getElementById('payment-indicator');
+            let hideTimeout = null;
+
+            function updatePaymentIndicator() {
+                if (currentChannel) {
+                    const spent = currentChannel.balance - sessionStartBalance;
+                    paymentIndicator.textContent = spent + ' sats';
+                }
+            }
+
+            function showPaymentIndicator() {
+                updatePaymentIndicator();
+                paymentIndicator.classList.add('visible');
+                clearTimeout(hideTimeout);
+                hideTimeout = setTimeout(() => {
+                    paymentIndicator.classList.remove('visible');
+                }, 3000);
+            }
+
+            // Show on mouse movement, click, or keypress
+            videoContainer.addEventListener('mousemove', showPaymentIndicator);
+            videoContainer.addEventListener('click', showPaymentIndicator);
+            document.addEventListener('keydown', (e) => {
+                // Only show for video-related keys when video is focused
+                if (['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) {
+                    showPaymentIndicator();
+                }
+            });
+
+            // Also update when a segment is requested (called from xhrSetup)
+            window.updatePaymentIndicator = updatePaymentIndicator;
         })();
     </script>
 </body>
