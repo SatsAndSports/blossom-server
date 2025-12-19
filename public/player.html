@@ -87,13 +87,13 @@
         }
         #payment-indicator {
             position: absolute;
-            top: 10px;
-            right: 10px;
+            top: 20px;
+            right: 20px;
             background: rgba(0, 0, 0, 0.6);
             color: #f7931a;
-            padding: 6px 12px;
-            border-radius: 4px;
-            font-size: 14px;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 28px;
             font-weight: bold;
             pointer-events: none;
             opacity: 0;
@@ -176,18 +176,33 @@
             border-radius: 4px;
             cursor: pointer;
         }
-        #share-btn {
+        #share-btn, #fullscreen-btn {
             background: #444;
             color: #e0e0e0;
             border: 1px solid #555;
             padding: 5px 12px;
             border-radius: 4px;
             cursor: pointer;
+        }
+        #share-btn {
             margin-left: auto;
         }
-        #share-btn:hover {
+        #share-btn:hover, #fullscreen-btn:hover {
             background: #555;
             border-color: #f7931a;
+        }
+        #video-container:fullscreen {
+            background: #000;
+        }
+        #video-container:fullscreen video {
+            height: 100%;
+            width: 100%;
+        }
+        #video-container:fullscreen #quality-control {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
         }
         #share-modal {
             display: none;
@@ -291,6 +306,7 @@
                 <option value="-1">Auto</option>
             </select>
             <button id="share-btn">Share</button>
+            <button id="fullscreen-btn">Fullscreen</button>
         </div>
     </div>
 
@@ -1376,6 +1392,16 @@
         document.getElementById('share-modal').onclick = (e) => {
             if (e.target.id === 'share-modal') {
                 document.getElementById('share-modal').classList.remove('visible');
+            }
+        };
+
+        // Fullscreen button - fullscreens the container so overlays are visible
+        document.getElementById('fullscreen-btn').onclick = () => {
+            const container = document.getElementById('video-container');
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                container.requestFullscreen();
             }
         };
 
