@@ -513,8 +513,9 @@
         // IndexedDB Channel Storage
         // ============================================
         const DB_NAME = 'cashu_channels';
-        const DB_VERSION = 2;  // Bumped for ActiveChannel schema change
+        const DB_VERSION = 3;  // Bumped to add request_counts store
         const STORE_NAME = 'channels';
+        const REQUEST_COUNTS_STORE = 'request_counts';
 
         let db = null;
 
@@ -554,6 +555,11 @@
                     // Create indexes for querying
                     store.createIndex('charlie_pubkey', 'charlie_pubkey', { unique: false });
                     store.createIndex('mint', 'mint', { unique: false });
+
+                    // Create request_counts object store
+                    if (!database.objectStoreNames.contains(REQUEST_COUNTS_STORE)) {
+                        database.createObjectStore(REQUEST_COUNTS_STORE, { keyPath: 'channel_id' });
+                    }
                 };
             });
         }
@@ -686,23 +692,57 @@
         }
 
         // ============================================
-        // ActiveChannel - combines SpilmanChannelSender with current balance
+        // Request Counts Storage
         // ============================================
-
-        // Track which channels have sent params to server this session
-        const channelsSentParams = new Set();
 
         // In-memory request count per channel - tracks how much we owe for payment
         const channelRequestCounts = new Map();
+
+        // Load all request counts from IndexedDB into memory
+        async function loadRequestCounts() {
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(REQUEST_COUNTS_STORE, 'readonly');
+                const store = tx.objectStore(REQUEST_COUNTS_STORE);
+                const request = store.getAll();
+                request.onsuccess = () => {
+                    for (const record of request.result) {
+                        channelRequestCounts.set(record.channel_id, record.count);
+                    }
+                    resolve();
+                };
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        // Persist request count to IndexedDB (biggest wins)
+        function persistRequestCount(channelId, newCount) {
+            const tx = db.transaction(REQUEST_COUNTS_STORE, 'readwrite');
+            const store = tx.objectStore(REQUEST_COUNTS_STORE);
+            const getRequest = store.get(channelId);
+            getRequest.onsuccess = () => {
+                const existing = getRequest.result;
+                if (!existing || newCount > existing.count) {
+                    store.put({ channel_id: channelId, count: newCount });
+                }
+            };
+        }
 
         // url parameter is only used for logging
         function incrementChannelRequestCount(channelId, url) {
             const count = (channelRequestCounts.get(channelId) || 0) + 1;
             channelRequestCounts.set(channelId, count);
+            persistRequestCount(channelId, count);
             const path = '/' + url.split('/').pop();
             console.log('channelRequestCount:', count, 'channel_id:', channelId, 'url_path:', path);
             return count;
         }
+
+        // ============================================
+        // ActiveChannel - combines SpilmanChannelSender with current balance
+        // ============================================
+
+        // Track which channels have sent params to server this session
+        const channelsSentParams = new Set();
 
         class ActiveChannel {
             constructor(sender, balance = 0) {
@@ -1147,7 +1187,8 @@
             try {
                 await initDB();
                 const channels = await getAllChannels();
-                log(`IndexedDB initialized (${channels.length} channels stored)`);
+                await loadRequestCounts();
+                log(`IndexedDB initialized (${channels.length} channels, ${channelRequestCounts.size} request counts)`);
             } catch (e) {
                 log(`Failed to initialize IndexedDB: ${e}`, 'error');
             }
