@@ -922,6 +922,12 @@
                     xhrSetup: function(xhr, url) {
                         // Add payment header for hash-based blob requests
                         if (isHashUrl(url)) {
+                            // "xhr.open() should be called in xhrSetup if the callback modifies
+                            // the XMLHttpRequest instance in ways that require it to be opened first"
+                            // https://github.com/video-dev/hls.js/blob/master/docs/API.md#xhrsetup
+                            if (xhr.readyState === XMLHttpRequest.UNSENT) {
+                                xhr.open('GET', url, true);
+                            }
                             const payment = createPayment();
                             xhr.setRequestHeader('X-Cashu-Channel', payment);
                             const hash = url.split('/').pop().substring(0, 8);
