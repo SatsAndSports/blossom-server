@@ -4,12 +4,14 @@ import router from "./router.js";
 
 // POST /api/videos - Register a video (requires admin auth)
 router.post("/videos", async (ctx) => {
-  const { title, master_hash, duration, description, source } = ctx.request.body as {
+  const { title, master_hash, duration, description, source, preview_hash, sprite_meta_hash } = ctx.request.body as {
     title?: string;
     master_hash?: string;
     duration?: number;
     description?: string;
     source?: string;
+    preview_hash?: string;
+    sprite_meta_hash?: string;
   };
 
   if (!title || !master_hash || duration === undefined) {
@@ -21,10 +23,10 @@ router.post("/videos", async (ctx) => {
   const uploaded = dayjs().unix();
 
   const result = db.prepare(
-    `INSERT INTO videos (title, master_hash, duration, uploaded, description, source) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(title, master_hash, duration, uploaded, description ?? null, source ?? null);
+    `INSERT INTO videos (title, master_hash, duration, uploaded, description, source, preview_hash, sprite_meta_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(title, master_hash, duration, uploaded, description ?? null, source ?? null, preview_hash ?? null, sprite_meta_hash ?? null);
 
-  ctx.body = { id: result.lastInsertRowid, title, master_hash, duration, uploaded, description, source };
+  ctx.body = { id: result.lastInsertRowid, title, master_hash, duration, uploaded, description, source, preview_hash, sprite_meta_hash };
 });
 
 // GET /api/videos - List all videos (also available here for admin)

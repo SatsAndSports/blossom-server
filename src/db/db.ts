@@ -26,7 +26,9 @@ db.prepare(
     duration INTEGER NOT NULL,
     uploaded INTEGER NOT NULL,
     description TEXT,
-    source TEXT
+    source TEXT,
+    preview_hash TEXT,
+    sprite_meta_hash TEXT
   )`,
 ).run();
 
