@@ -361,11 +361,7 @@
         #controls-spacer {
             flex: 1;
         }
-        .quality-label {
-            color: #888;
-            font-size: 13px;
-        }
-        #quality-select {
+        #quality-select, #speed-select {
             background: #333;
             color: #e0e0e0;
             border: 1px solid #444;
@@ -373,11 +369,6 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 13px;
-        }
-        @media (max-width: 400px) {
-            .quality-label {
-                display: none;
-            }
         }
         #video-container:fullscreen {
             background: #000;
@@ -513,8 +504,16 @@
                     <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="1">
                 </div>
                 <div id="controls-spacer"></div>
-                <label for="quality-select" class="quality-label">Quality:</label>
-                <select id="quality-select">
+                <select id="speed-select" title="Playback speed">
+                    <option value="0.5">0.5x</option>
+                    <option value="0.75">0.75x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="1.25">1.25x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="1.75">1.75x</option>
+                    <option value="2">2x</option>
+                </select>
+                <select id="quality-select" title="Quality">
                     <option value="-1">Auto</option>
                 </select>
                 <button id="share-btn" class="ctrl-btn" title="Share">↗</button>
@@ -1994,6 +1993,12 @@
                 volumeSlider.value = video.muted ? 0 : video.volume;
                 muteBtn.textContent = (video.muted || video.volume == 0) ? '🔇' : '🔊';
             });
+
+            // Playback speed
+            const speedSelect = document.getElementById('speed-select');
+            speedSelect.onchange = () => {
+                video.playbackRate = parseFloat(speedSelect.value);
+            };
 
             // Fullscreen
             fullscreenBtn.onclick = () => {
