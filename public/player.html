@@ -169,8 +169,6 @@
             opacity: 0;
             transition: opacity 0.3s;
         }
-        #video-container:hover #video-controls,
-        #video-controls:hover,
         #video-controls.visible {
             opacity: 1;
         }
@@ -1645,27 +1643,44 @@
                 fullscreenBtn.textContent = document.fullscreenElement ? '⛶' : '⛶';
             });
 
-            // Show controls on touch/mouse activity, hide after delay
+            // Show overlays (controls + payment indicator) on activity, hide after delay
+            const paymentIndicator = document.getElementById('payment-indicator');
             let hideTimeout = null;
 
-            function showControls() {
+            function updatePaymentIndicator() {
+                if (typeof currentChannel !== 'undefined' && currentChannel) {
+                    const spent = currentChannel.balance - sessionStartBalance;
+                    paymentIndicator.textContent = spent + ' sats';
+                }
+            }
+
+            function showOverlays() {
+                updatePaymentIndicator();
                 controls.classList.add('visible');
+                paymentIndicator.classList.add('visible');
                 clearTimeout(hideTimeout);
                 hideTimeout = setTimeout(() => {
-                    if (!video.paused) {
-                        controls.classList.remove('visible');
-                    }
+                    controls.classList.remove('visible');
+                    paymentIndicator.classList.remove('visible');
                 }, 3000);
             }
 
-            container.addEventListener('mousemove', showControls);
-            container.addEventListener('touchstart', showControls);
-            video.addEventListener('pause', () => controls.classList.add('visible'));
-            video.addEventListener('play', showControls);
+            container.addEventListener('mousemove', showOverlays);
+            container.addEventListener('touchstart', showOverlays);
+            container.addEventListener('click', showOverlays);
+            video.addEventListener('pause', showOverlays);
+            video.addEventListener('play', showOverlays);
+
+            // Expose for xhrSetup to call when segments load
+            window.updatePaymentIndicator = updatePaymentIndicator;
 
             // Keyboard controls
             document.addEventListener('keydown', (e) => {
-                // Only if video is in viewport or focused
+                const videoKeys = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyM', 'KeyF'];
+                if (videoKeys.includes(e.code)) {
+                    showOverlays();
+                }
+
                 if (e.code === 'Space') {
                     e.preventDefault();
                     if (video.paused) video.play();
@@ -1792,42 +1807,6 @@
             });
         })();
 
-        // Payment indicator (shows session spend on mouse/key activity)
-        (function() {
-            const videoContainer = document.getElementById('video-container');
-            const paymentIndicator = document.getElementById('payment-indicator');
-            let hideTimeout = null;
-
-            function updatePaymentIndicator() {
-                if (currentChannel) {
-                    const spent = currentChannel.balance - sessionStartBalance;
-                    paymentIndicator.textContent = spent + ' sats';
-                }
-            }
-
-            function showPaymentIndicator() {
-                updatePaymentIndicator();
-                paymentIndicator.classList.add('visible');
-                clearTimeout(hideTimeout);
-                hideTimeout = setTimeout(() => {
-                    paymentIndicator.classList.remove('visible');
-                }, 3000);
-            }
-
-            // Show on mouse movement, touch, click, or keypress
-            videoContainer.addEventListener('mousemove', showPaymentIndicator);
-            videoContainer.addEventListener('touchstart', showPaymentIndicator);
-            videoContainer.addEventListener('click', showPaymentIndicator);
-            document.addEventListener('keydown', (e) => {
-                // Only show for video-related keys when video is focused
-                if (['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) {
-                    showPaymentIndicator();
-                }
-            });
-
-            // Also update when a segment is requested (called from xhrSetup)
-            window.updatePaymentIndicator = updatePaymentIndicator;
-        })();
     </script>
 </body>
 </html>
