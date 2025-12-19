@@ -5,9 +5,11 @@
 # Usage: hls-upload.sh <blossom-url> <video-title> [source]
 #
 # Expects to be run from a directory created by hls-encode.sh containing:
-#   hashed/          - directory of hash symlinks
-#   master.m3u8.txt  - master playlist hash
-#   duration.txt     - video duration in seconds
+#   hashed/              - directory of hash symlinks
+#   master.m3u8.txt      - master playlist hash
+#   duration.txt         - video duration in seconds
+#   preview.jpg.txt      - preview thumbnail hash
+#   sprite-meta.json.txt - sprite metadata hash
 #
 # Uploads all files from hashed/ to Blossom, verifies hashes,
 # then registers the video with the given title.
@@ -43,10 +45,14 @@ fi
 
 MASTER_HASH=$(cat master.m3u8.txt)
 DURATION=$(cat duration.txt)
+PREVIEW_HASH=$(cat preview.jpg.txt 2>/dev/null || echo "")
+SPRITE_META_HASH=$(cat sprite-meta.json.txt 2>/dev/null || echo "")
 
 echo "Video title: $TITLE" >&2
 echo "Master hash: $MASTER_HASH" >&2
 echo "Duration: ${DURATION}s" >&2
+[ -n "$PREVIEW_HASH" ] && echo "Preview hash: $PREVIEW_HASH" >&2
+[ -n "$SPRITE_META_HASH" ] && echo "Sprite meta hash: $SPRITE_META_HASH" >&2
 
 # Count files
 total=$(find "$HASHED_DIR" -maxdepth 1 -type l | wc -l)
@@ -96,11 +102,24 @@ if [ -z "$ADMIN_PASS" ]; then
     exit 1
 fi
 
+# Build JSON payload
+JSON_PAYLOAD=$(cat <<EOF
+{
+    "title": "$TITLE",
+    "master_hash": "$MASTER_HASH",
+    "duration": $DURATION,
+    "source": "$SOURCE",
+    "preview_hash": "$PREVIEW_HASH",
+    "sprite_meta_hash": "$SPRITE_META_HASH"
+}
+EOF
+)
+
 http_code=$(curl -s -o /tmp/blossom_response.json -w "%{http_code}" \
     -u "$ADMIN_USER:$ADMIN_PASS" \
     -X POST \
     -H "Content-Type: application/json" \
-    -d "{\"title\": \"$TITLE\", \"master_hash\": \"$MASTER_HASH\", \"duration\": $DURATION, \"source\": \"$SOURCE\"}" \
+    -d "$JSON_PAYLOAD" \
     "$SERVER/api/videos")
 
 response=$(cat /tmp/blossom_response.json)
