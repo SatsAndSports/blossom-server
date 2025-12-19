@@ -193,16 +193,35 @@
         }
         #video-container:fullscreen {
             background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }
         #video-container:fullscreen video {
-            height: 100%;
             width: 100%;
+            height: 100%;
+            object-fit: contain;
         }
         #video-container:fullscreen #quality-control {
             position: absolute;
             bottom: 0;
             left: 0;
             right: 0;
+            /* Move above native video controls on mobile (typically ~48px tall) */
+            padding-bottom: 60px;
+        }
+        #video-container:fullscreen #action-indicator {
+            top: 50%;
+        }
+        #video-container:fullscreen #payment-indicator {
+            top: 20px;
+            right: 20px;
+        }
+        /* On touch devices, hide our custom controls in fullscreen to not obstruct native controls */
+        @media (pointer: coarse) {
+            #video-container:fullscreen #quality-control {
+                display: none;
+            }
         }
         #share-modal {
             display: none;
@@ -1440,10 +1459,13 @@
                 indicator.innerHTML = `<div class="skip-icon">${seconds > 0 ? '+' : ''}${seconds}s</div>`;
             }
 
-            video.addEventListener('click', (e) => {
+            function handleTap(e) {
                 const now = Date.now();
                 const rect = video.getBoundingClientRect();
-                const x = e.clientX - rect.left;
+                // Support both mouse (clientX) and touch (touches[0].clientX)
+                const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX;
+                if (clientX === undefined) return;
+                const x = clientX - rect.left;
                 const width = rect.width;
 
                 if (now - lastTap < doubleTapDelay && Math.abs(x - lastTapX) < 100) {
@@ -1464,7 +1486,10 @@
                     lastTap = now;
                     lastTapX = x;
                 }
-            });
+            }
+
+            video.addEventListener('click', handleTap);
+            video.addEventListener('touchend', handleTap);
 
             // Reset indicator position after animation
             indicator.addEventListener('animationend', () => {
@@ -1494,8 +1519,9 @@
                 }, 3000);
             }
 
-            // Show on mouse movement, click, or keypress
+            // Show on mouse movement, touch, click, or keypress
             videoContainer.addEventListener('mousemove', showPaymentIndicator);
+            videoContainer.addEventListener('touchstart', showPaymentIndicator);
             videoContainer.addEventListener('click', showPaymentIndicator);
             document.addEventListener('keydown', (e) => {
                 // Only show for video-related keys when video is focused
