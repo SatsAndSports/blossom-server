@@ -719,10 +719,11 @@
         class FundedChannel {
             constructor(sender) {
                 this.sender = sender;       // SpilmanChannelSender
+                this._channelId = sender.getChannelId();  // Cache since it never changes
             }
 
             // Convenience getters delegated to sender
-            get channelId() { return this.sender.getChannelId(); }
+            get channelId() { return this._channelId; }
             get params() { return this.sender.getParams(); }
             get fundingAmount() { return this.sender.getFundingAmount(); }
 
