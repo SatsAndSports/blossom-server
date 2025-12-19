@@ -1897,8 +1897,10 @@
 
             function updatePaymentIndicator() {
                 if (typeof currentChannel !== 'undefined' && currentChannel) {
-                    const spent = currentChannel.balance - sessionStartBalance;
-                    paymentIndicator.textContent = spent + ' sats';
+                    const balance = currentChannel.balance;
+                    const capacity = currentChannel.params.capacity;
+                    const unit = currentChannel.params.unit;
+                    paymentIndicator.textContent = `${balance} / ${capacity} ${unit}`;
                 }
             }
 
