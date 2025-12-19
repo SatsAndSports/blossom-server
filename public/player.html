@@ -74,6 +74,17 @@
             border-color: transparent transparent transparent #fff;
             margin-left: 4px;
         }
+        #action-indicator .skip-icon {
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        #action-indicator.left {
+            left: 25%;
+        }
+        #action-indicator.right {
+            left: 75%;
+        }
         #status {
             background: #2a2a2a;
             padding: 15px;
@@ -1293,6 +1304,7 @@
         };
 
         // Action indicator (brief pause/play feedback like YouTube)
+        // Also used for skip feedback
         (function() {
             const video = document.getElementById('video');
             const indicator = document.getElementById('action-indicator');
@@ -1314,6 +1326,47 @@
             });
             video.addEventListener('play', () => {
                 if (video.readyState > 0) showIndicator('play');
+            });
+
+            // Double-tap to skip ±10 seconds
+            let lastTap = 0;
+            let lastTapX = 0;
+            const doubleTapDelay = 300; // ms
+
+            function showSkipIndicator(side, seconds) {
+                indicator.className = 'show ' + side;
+                indicator.innerHTML = `<div class="skip-icon">${seconds > 0 ? '+' : ''}${seconds}s</div>`;
+            }
+
+            video.addEventListener('click', (e) => {
+                const now = Date.now();
+                const rect = video.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const width = rect.width;
+
+                if (now - lastTap < doubleTapDelay && Math.abs(x - lastTapX) < 100) {
+                    // Double tap detected
+                    e.preventDefault();
+
+                    if (x < width / 3) {
+                        // Left third - skip back
+                        video.currentTime = Math.max(0, video.currentTime - 10);
+                        showSkipIndicator('left', -10);
+                    } else if (x > width * 2 / 3) {
+                        // Right third - skip forward
+                        video.currentTime = Math.min(video.duration, video.currentTime + 10);
+                        showSkipIndicator('right', 10);
+                    }
+                    lastTap = 0; // Reset to prevent triple-tap
+                } else {
+                    lastTap = now;
+                    lastTapX = x;
+                }
+            });
+
+            // Reset indicator position after animation
+            indicator.addEventListener('animationend', () => {
+                indicator.className = '';
             });
         })();
     </script>
