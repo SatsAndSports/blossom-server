@@ -143,5 +143,59 @@ ln -sf "../master.m3u8" "hashed/$MASTER_HASH"
 echo "$MASTER_HASH" > master.m3u8.txt
 
 echo "Master playlist: $MASTER_HASH" >&2
+
+# Step 5: Generate preview thumbnail (best frame for video list)
+echo -n "Generating preview thumbnail... " >&2
+ffmpeg -i "$SOURCE" -y \
+    -vf "thumbnail=n=100,scale=280:-1:flags=lanczos" \
+    -frames:v 1 \
+    -q:v 5 \
+    preview.jpg \
+    2>/dev/null
+PREVIEW_HASH=$(hash_file preview.jpg)
+ln -sf "../preview.jpg" "hashed/$PREVIEW_HASH"
+echo "$PREVIEW_HASH" > preview.jpg.txt
+echo "done ($PREVIEW_HASH)" >&2
+
+# Step 6: Generate sprite sheet (thumbnails for progress bar scrubbing)
+echo -n "Generating sprite sheet... " >&2
+SPRITE_INTERVAL=5
+SPRITE_COLUMNS=10
+SPRITE_THUMB_WIDTH=160
+SPRITE_THUMB_HEIGHT=90
+
+# Calculate rows needed based on duration
+SPRITE_FRAMES=$(( (DURATION + SPRITE_INTERVAL - 1) / SPRITE_INTERVAL ))
+SPRITE_ROWS=$(( (SPRITE_FRAMES + SPRITE_COLUMNS - 1) / SPRITE_COLUMNS ))
+
+ffmpeg -i "$SOURCE" -y \
+    -vf "fps=1/$SPRITE_INTERVAL,scale=${SPRITE_THUMB_WIDTH}:${SPRITE_THUMB_HEIGHT}:force_original_aspect_ratio=decrease,pad=${SPRITE_THUMB_WIDTH}:${SPRITE_THUMB_HEIGHT}:(ow-iw)/2:(oh-ih)/2,tile=${SPRITE_COLUMNS}x${SPRITE_ROWS}" \
+    -frames:v 1 \
+    -q:v 5 \
+    sprite.jpg \
+    2>/dev/null
+SPRITE_HASH=$(hash_file sprite.jpg)
+ln -sf "../sprite.jpg" "hashed/$SPRITE_HASH"
+echo "$SPRITE_HASH" > sprite.jpg.txt
+
+# Write sprite metadata for the player
+cat > sprite-meta.json << EOF
+{
+    "sprite_hash": "$SPRITE_HASH",
+    "interval": $SPRITE_INTERVAL,
+    "columns": $SPRITE_COLUMNS,
+    "thumb_width": $SPRITE_THUMB_WIDTH,
+    "thumb_height": $SPRITE_THUMB_HEIGHT,
+    "rows": $SPRITE_ROWS,
+    "frames": $SPRITE_FRAMES
+}
+EOF
+
+# Hash and symlink sprite-meta.json for upload
+SPRITE_META_HASH=$(hash_file sprite-meta.json)
+ln -sf "../sprite-meta.json" "hashed/$SPRITE_META_HASH"
+echo "$SPRITE_META_HASH" > sprite-meta.json.txt
+echo "done (sprite: $SPRITE_HASH, meta: $SPRITE_META_HASH)" >&2
+
 echo ""
 echo "$MASTER_HASH"
