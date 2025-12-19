@@ -1790,12 +1790,31 @@
                 }
             }
 
-            video.addEventListener('click', handleTap);
-            video.addEventListener('touchend', handleTap);
+            // Use touchend on touch devices, click on desktop
+            // Once a touch is detected, disable click handling permanently
+            let useTouchEvents = false;
+
+            function handleClick(e) {
+                if (!useTouchEvents) handleTap(e);
+            }
+
+            function handleTouch(e) {
+                useTouchEvents = true;
+                handleTap(e);
+            }
+
+            video.addEventListener('click', handleClick);
+            video.addEventListener('touchend', handleTouch);
 
             // Also listen on the container for taps (e.g., in fullscreen)
             const container = document.getElementById('video-container');
+            container.addEventListener('click', (e) => {
+                if (!useTouchEvents && (e.target === video || e.target === container)) {
+                    handleTap(e);
+                }
+            });
             container.addEventListener('touchend', (e) => {
+                useTouchEvents = true;
                 if (e.target === video || e.target === container) {
                     handleTap(e);
                 }
