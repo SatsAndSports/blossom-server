@@ -26,6 +26,10 @@
             overflow: hidden;
             margin-bottom: 20px;
             position: relative;
+            display: none;
+        }
+        #video-container.visible {
+            display: block;
         }
         video {
             width: 100%;
@@ -1084,6 +1088,9 @@
         function playVideo(manifestUrl, startTime = null) {
             const video = document.getElementById('video');
             const qualitySelect = document.getElementById('quality-select');
+
+            // Show video container
+            document.getElementById('video-container').classList.add('visible');
 
             // Extract master hash from URL for sharing
             const hashMatch = manifestUrl.match(/([0-9a-f]{64})/);
