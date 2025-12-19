@@ -1501,7 +1501,12 @@
         document.getElementById('share-copy').onclick = () => {
             const urlInput = document.getElementById('share-url');
             urlInput.select();
-            navigator.clipboard.writeText(urlInput.value);
+            // Use clipboard API if available, fall back to execCommand
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(urlInput.value);
+            } else {
+                document.execCommand('copy');
+            }
             const copied = document.getElementById('share-copied');
             copied.classList.add('visible');
             setTimeout(() => copied.classList.remove('visible'), 2000);
