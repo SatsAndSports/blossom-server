@@ -217,10 +217,11 @@
             top: 20px;
             right: 20px;
         }
-        /* On touch devices, hide our custom controls in fullscreen to not obstruct native controls */
+        /* On touch devices in container fullscreen, show our controls */
         @media (pointer: coarse) {
             #video-container:fullscreen #quality-control {
-                display: none;
+                /* Keep visible but add safe padding */
+                padding-bottom: 20px;
             }
         }
         #share-modal {
@@ -1417,12 +1418,27 @@
         // Fullscreen button - fullscreens the container so overlays are visible
         document.getElementById('fullscreen-btn').onclick = () => {
             const container = document.getElementById('video-container');
+            const video = document.getElementById('video');
             if (document.fullscreenElement) {
                 document.exitFullscreen();
             } else {
                 container.requestFullscreen();
             }
         };
+
+        // When entering/exiting fullscreen, toggle native controls on mobile
+        // We disable native controls in container fullscreen so our touch handlers work
+        document.addEventListener('fullscreenchange', () => {
+            const video = document.getElementById('video');
+            const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+            if (document.fullscreenElement && isTouchDevice) {
+                // In fullscreen on touch device - disable native controls
+                video.controls = false;
+            } else {
+                // Not in fullscreen or on desktop - enable native controls
+                video.controls = true;
+            }
+        });
 
         // Action indicator (brief pause/play feedback like YouTube)
         // Also used for skip feedback
@@ -1459,6 +1475,9 @@
                 indicator.innerHTML = `<div class="skip-icon">${seconds > 0 ? '+' : ''}${seconds}s</div>`;
             }
 
+            // Timer for detecting single vs double tap
+            let singleTapTimer = null;
+
             function handleTap(e) {
                 const now = Date.now();
                 const rect = video.getBoundingClientRect();
@@ -1469,7 +1488,9 @@
                 const width = rect.width;
 
                 if (now - lastTap < doubleTapDelay && Math.abs(x - lastTapX) < 100) {
-                    // Double tap detected
+                    // Double tap detected - cancel single tap action
+                    clearTimeout(singleTapTimer);
+                    singleTapTimer = null;
                     e.preventDefault();
 
                     if (x < width / 3) {
@@ -1485,11 +1506,36 @@
                 } else {
                     lastTap = now;
                     lastTapX = x;
+
+                    // On touch devices without native controls, single tap toggles play/pause
+                    // But only in the center third (sides are for double-tap skip)
+                    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+                    if (isTouchDevice && !video.controls && x >= width / 3 && x <= width * 2 / 3) {
+                        clearTimeout(singleTapTimer);
+                        singleTapTimer = setTimeout(() => {
+                            if (video.paused) {
+                                video.play();
+                            } else {
+                                video.pause();
+                            }
+                            singleTapTimer = null;
+                        }, doubleTapDelay);
+                    }
                 }
             }
 
             video.addEventListener('click', handleTap);
             video.addEventListener('touchend', handleTap);
+
+            // Also listen on the container for fullscreen touch events
+            // (video element may not receive touches in some fullscreen modes)
+            const container = document.getElementById('video-container');
+            container.addEventListener('touchend', (e) => {
+                // Only handle if the touch was on the video area, not controls
+                if (e.target === video || e.target === container) {
+                    handleTap(e);
+                }
+            });
 
             // Reset indicator position after animation
             indicator.addEventListener('animationend', () => {
