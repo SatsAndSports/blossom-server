@@ -93,7 +93,16 @@ router.get("/:hash", range, async (ctx, next) => {
   const paymentHeader = ctx.headers["x-cashu-channel"] as string | undefined;
   paymentLog("request path=%s hasPayment=%s", ctx.path, !!paymentHeader);
   if (paymentHeader) {
-    paymentLog("X-Cashu-Channel: %s", paymentHeader);
+    // Log a condensed version of the header (replace funding_proofs array with "FUNDED")
+    try {
+      const parsed = JSON.parse(paymentHeader);
+      if (parsed.funding_proofs) {
+        parsed.funding_proofs = "...FUNDING TOKEN REDACTED...";
+      }
+      paymentLog("X-Cashu-Channel: %s", JSON.stringify(parsed));
+    } catch {
+      paymentLog("X-Cashu-Channel: %s", paymentHeader);
+    }
   }
 
   const match = ctx.path.match(/([0-9a-f]{64})/);
