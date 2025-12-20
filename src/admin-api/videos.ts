@@ -4,7 +4,7 @@ import router from "./router.js";
 
 // POST /api/videos - Register a video (requires admin auth)
 router.post("/videos", async (ctx) => {
-  const { title, master_hash, duration, description, source, preview_hash, sprite_meta_hash } = ctx.request.body as {
+  const { title, master_hash, duration, description, source, preview_hash, sprite_meta_hash, width, height } = ctx.request.body as {
     title?: string;
     master_hash?: string;
     duration?: number;
@@ -12,6 +12,8 @@ router.post("/videos", async (ctx) => {
     source?: string;
     preview_hash?: string;
     sprite_meta_hash?: string;
+    width?: number;
+    height?: number;
   };
 
   if (!title || !master_hash || duration === undefined) {
@@ -23,13 +25,13 @@ router.post("/videos", async (ctx) => {
   const uploaded = dayjs().unix();
 
   const result = db.prepare(
-    `INSERT INTO videos (title, master_hash, duration, uploaded, description, source, preview_hash, sprite_meta_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(title, master_hash, duration, uploaded, description ?? null, source ?? null, preview_hash ?? null, sprite_meta_hash ?? null);
+    `INSERT INTO videos (title, master_hash, duration, uploaded, description, source, preview_hash, sprite_meta_hash, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(title, master_hash, duration, uploaded, description ?? null, source ?? null, preview_hash ?? null, sprite_meta_hash ?? null, width ?? null, height ?? null);
 
   // Add to cache for view counting
   addToMasterHashCache(master_hash);
 
-  ctx.body = { id: result.lastInsertRowid, title, master_hash, duration, uploaded, description, source, preview_hash, sprite_meta_hash, views: 0 };
+  ctx.body = { id: result.lastInsertRowid, title, master_hash, duration, uploaded, description, source, preview_hash, sprite_meta_hash, width, height, views: 0 };
 });
 
 // GET /api/videos - List all videos (also available here for admin)

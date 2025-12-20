@@ -29,13 +29,27 @@ db.prepare(
     source TEXT,
     preview_hash TEXT,
     sprite_meta_hash TEXT,
-    views INTEGER DEFAULT 0
+    views INTEGER DEFAULT 0,
+    width INTEGER,
+    height INTEGER
   )`,
 ).run();
 
 // Add views column if it doesn't exist (migration for existing databases)
 try {
   db.prepare("ALTER TABLE videos ADD COLUMN views INTEGER DEFAULT 0").run();
+} catch (e) {
+  // Column already exists
+}
+
+// Add width/height columns if they don't exist (migration for existing databases)
+try {
+  db.prepare("ALTER TABLE videos ADD COLUMN width INTEGER").run();
+} catch (e) {
+  // Column already exists
+}
+try {
+  db.prepare("ALTER TABLE videos ADD COLUMN height INTEGER").run();
 } catch (e) {
   // Column already exists
 }

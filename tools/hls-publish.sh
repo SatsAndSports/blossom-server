@@ -77,6 +77,8 @@ echo "=== Uploading ==="
 
 # Save hash to original directory
 MASTER_HASH=$(cat master.m3u8.txt)
+WIDTH=$(cat width.txt)
+HEIGHT=$(cat height.txt)
 HASH_FILE="$ORIG_DIR/$TITLE.hash.txt"
 echo "$MASTER_HASH" > "$HASH_FILE"
 
@@ -88,6 +90,7 @@ echo "=========================================================="
 echo ""
 echo "  Title:       $TITLE"
 echo "  Source:      $SOURCE"
+echo "  Resolution:  ${WIDTH}x${HEIGHT}"
 echo "  Master hash: $MASTER_HASH"
 echo "  Hash file:   $HASH_FILE"
 echo "  URL:         $SERVER/$MASTER_HASH"

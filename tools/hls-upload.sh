@@ -47,10 +47,13 @@ MASTER_HASH=$(cat master.m3u8.txt)
 DURATION=$(cat duration.txt)
 PREVIEW_HASH=$(cat preview.jpg.txt 2>/dev/null || echo "")
 SPRITE_META_HASH=$(cat sprite-meta.json.txt 2>/dev/null || echo "")
+WIDTH=$(cat width.txt 2>/dev/null || echo "")
+HEIGHT=$(cat height.txt 2>/dev/null || echo "")
 
 echo "Video title: $TITLE" >&2
 echo "Master hash: $MASTER_HASH" >&2
 echo "Duration: ${DURATION}s" >&2
+[ -n "$WIDTH" ] && [ -n "$HEIGHT" ] && echo "Resolution: ${WIDTH}x${HEIGHT}" >&2
 [ -n "$PREVIEW_HASH" ] && echo "Preview hash: $PREVIEW_HASH" >&2
 [ -n "$SPRITE_META_HASH" ] && echo "Sprite meta hash: $SPRITE_META_HASH" >&2
 
@@ -103,16 +106,25 @@ if [ -z "$ADMIN_PASS" ]; then
 fi
 
 # Build JSON payload
-JSON_PAYLOAD=$(cat <<EOF
-{
-    "title": "$TITLE",
-    "master_hash": "$MASTER_HASH",
-    "duration": $DURATION,
-    "source": "$SOURCE",
-    "preview_hash": "$PREVIEW_HASH",
-    "sprite_meta_hash": "$SPRITE_META_HASH"
-}
-EOF
+# Use jq to properly construct JSON with optional fields
+JSON_PAYLOAD=$(jq -n \
+    --arg title "$TITLE" \
+    --arg master_hash "$MASTER_HASH" \
+    --argjson duration "$DURATION" \
+    --arg source "$SOURCE" \
+    --arg preview_hash "$PREVIEW_HASH" \
+    --arg sprite_meta_hash "$SPRITE_META_HASH" \
+    --arg width "$WIDTH" \
+    --arg height "$HEIGHT" \
+    '{
+        title: $title,
+        master_hash: $master_hash,
+        duration: $duration,
+        source: $source,
+        preview_hash: $preview_hash,
+        sprite_meta_hash: $sprite_meta_hash
+    } + (if $width != "" then {width: ($width | tonumber)} else {} end)
+      + (if $height != "" then {height: ($height | tonumber)} else {} end)'
 )
 
 http_code=$(curl -s -o /tmp/blossom_response.json -w "%{http_code}" \
