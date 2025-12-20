@@ -1217,6 +1217,34 @@
             return payment;
         }
 
+        // Fetch a hash-based blob with payment header, return as object URL
+        async function fetchBlobWithPayment(hash) {
+            if (!currentChannel) {
+                throw new Error('No payment channel available');
+            }
+            const response = await fetch('/' + hash, {
+                headers: { 'X-Cashu-Channel': createPayment() }
+            });
+            if (!response.ok) {
+                throw new Error(`Failed to fetch blob: ${response.status}`);
+            }
+            const blob = await response.blob();
+            return URL.createObjectURL(blob);
+        }
+
+        // Cache for blob object URLs (hash -> objectURL)
+        const blobUrlCache = new Map();
+
+        // Fetch blob with payment, using cache
+        async function fetchBlobCached(hash) {
+            if (blobUrlCache.has(hash)) {
+                return blobUrlCache.get(hash);
+            }
+            const url = await fetchBlobWithPayment(hash);
+            blobUrlCache.set(hash, url);
+            return url;
+        }
+
         // Current HLS instance
         let currentHls = null;
 
@@ -1490,11 +1518,16 @@
                     let thumbLoaded = false;
 
                     // Load thumbnail on hover (desktop) or touch (mobile)
-                    const loadThumb = () => {
-                        if (!thumbLoaded && video.preview_hash) {
-                            thumb.style.backgroundImage = `url(/${video.preview_hash})`;
-                            thumbLoaded = true;
-                            log(`Loaded thumbnail: ${video.preview_hash.substring(0, 8)}...`);
+                    const loadThumb = async () => {
+                        if (!thumbLoaded && video.preview_hash && currentChannel) {
+                            try {
+                                const url = await fetchBlobCached(video.preview_hash);
+                                thumb.style.backgroundImage = `url(${url})`;
+                                thumbLoaded = true;
+                                log(`Loaded thumbnail: ${video.preview_hash.substring(0, 8)}...`);
+                            } catch (e) {
+                                log(`Failed to load thumbnail: ${e.message}`, 'error');
+                            }
                         }
                     };
                     card.addEventListener('mouseenter', loadThumb);
@@ -1524,15 +1557,27 @@
                     // Sprite animation on hover
                     let spriteInterval = null;
                     let spriteMeta = null;
+                    let spriteUrl = null;
+                    let thumbUrl = null; // Cache the thumbnail URL for restoring
 
                     card.onmouseenter = async () => {
-                        if (!video.sprite_meta_hash || spriteInterval) return;
+                        if (!video.sprite_meta_hash || spriteInterval || !currentChannel) return;
 
-                        // Fetch sprite meta if not cached
+                        // Fetch sprite meta if not cached (with payment)
                         if (!spriteMeta) {
                             try {
-                                const res = await fetch('/' + video.sprite_meta_hash);
+                                const metaUrl = await fetchBlobCached(video.sprite_meta_hash);
+                                const res = await fetch(metaUrl);
                                 spriteMeta = await res.json();
+                            } catch (e) {
+                                return;
+                            }
+                        }
+
+                        // Fetch sprite image if not cached (with payment)
+                        if (!spriteUrl) {
+                            try {
+                                spriteUrl = await fetchBlobCached(spriteMeta.sprite_hash);
                             } catch (e) {
                                 return;
                             }
@@ -1540,7 +1585,7 @@
 
                         // Animate through sprite frames
                         let frame = 0;
-                        thumb.style.backgroundImage = `url(/${spriteMeta.sprite_hash})`;
+                        thumb.style.backgroundImage = `url(${spriteUrl})`;
                         thumb.style.backgroundSize = `${spriteMeta.columns * 200}px auto`;
                         thumb.style.backgroundPosition = '0px 0px'; // Start at first frame
 
@@ -1557,9 +1602,12 @@
                             clearInterval(spriteInterval);
                             spriteInterval = null;
                         }
-                        // Restore preview image
-                        if (video.preview_hash) {
-                            thumb.style.backgroundImage = `url(/${video.preview_hash})`;
+                        // Restore preview image (use cached URL if available)
+                        if (thumbLoaded && video.preview_hash) {
+                            const cachedUrl = blobUrlCache.get(video.preview_hash);
+                            if (cachedUrl) {
+                                thumb.style.backgroundImage = `url(${cachedUrl})`;
+                            }
                             thumb.style.backgroundSize = 'cover';
                             thumb.style.backgroundPosition = 'center';
                         }
@@ -1926,11 +1974,16 @@
                     return;
                 }
 
-                // Fetch sprite meta if needed
+                // Fetch sprite meta if needed (with payment)
                 if (!currentSpriteMeta) {
                     try {
-                        const res = await fetch('/' + currentSpriteMetaHash);
+                        const metaUrl = await fetchBlobCached(currentSpriteMetaHash);
+                        const res = await fetch(metaUrl);
                         currentSpriteMeta = await res.json();
+                        // Also prefetch the sprite image
+                        if (currentSpriteMeta.sprite_hash) {
+                            fetchBlobCached(currentSpriteMeta.sprite_hash);
+                        }
                     } catch (err) {
                         return;
                     }
@@ -1949,8 +2002,9 @@
                 const col = frame % currentSpriteMeta.columns;
                 const row = Math.floor(frame / currentSpriteMeta.columns);
 
-                // Update preview image and position
-                progressPreview.style.backgroundImage = `url(/${currentSpriteMeta.sprite_hash})`;
+                // Update preview image and position (use cached object URL)
+                const spriteUrl = await fetchBlobCached(currentSpriteMeta.sprite_hash);
+                progressPreview.style.backgroundImage = `url(${spriteUrl})`;
                 progressPreview.style.backgroundSize = `${currentSpriteMeta.columns * 160}px ${currentSpriteMeta.rows * 90}px`;
                 progressPreview.style.backgroundPosition = `-${col * 160}px -${row * 90}px`;
 
