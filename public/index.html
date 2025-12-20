@@ -468,7 +468,7 @@
         <button id="reset-alice" style="background:#533;border:1px solid #744;color:#e0e0e0;padding:8px 16px;border-radius:4px;cursor:pointer;">Reset Alice Key</button>
     </div>
 
-    <h1>CashuTube</h1>
+    <h1><a href="/" style="color:inherit;text-decoration:none;">CashuTube</a></h1>
 
     <h3>Log</h3>
     <div id="log"></div>
@@ -1548,6 +1548,11 @@
                     views.textContent = (video.views || 0) + ' views';
 
                     meta.appendChild(duration);
+                    if (video.width && video.height) {
+                        const resolution = document.createElement('span');
+                        resolution.textContent = video.width + 'x' + video.height;
+                        meta.appendChild(resolution);
+                    }
                     meta.appendChild(views);
 
                     card.appendChild(thumb);
