@@ -14,7 +14,7 @@ import * as uploadModule from "../storage/upload.js";
 import { getFileRule } from "../rules/index.js";
 import storage, { getStorageRedirect, readStoragePointer, searchStorage } from "../storage/index.js";
 import { updateBlobAccess } from "../db/methods.js";
-import { blobDB } from "../db/db.js";
+import { blobDB, masterHashCache, incrementVideoViews } from "../db/db.js";
 import logger from "../logger.js";
 import { log, router } from "./router.js";
 import { channel_parameters_get_channel_id, compute_shared_secret, verify_balance_update_signature } from "../wasm/cdk_wasm.js";
@@ -163,6 +163,11 @@ router.get("/:hash", range, async (ctx, next) => {
   const storageResult = await searchStorage(search);
   if (storageResult) {
     updateBlobAccess(search.hash, dayjs().unix());
+
+    // Increment view count if this is a video master playlist
+    if (masterHashCache.has(search.hash)) {
+      incrementVideoViews(search.hash);
+    }
 
     const redirect = getStorageRedirect(storageResult);
     if (redirect) return ctx.redirect(redirect);
