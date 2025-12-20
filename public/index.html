@@ -1487,9 +1487,18 @@
 
                     const thumb = document.createElement('div');
                     thumb.className = 'video-card-thumb';
-                    if (video.preview_hash) {
-                        thumb.style.backgroundImage = `url(/${video.preview_hash})`;
-                    }
+                    let thumbLoaded = false;
+
+                    // Load thumbnail on hover (desktop) or touch (mobile)
+                    const loadThumb = () => {
+                        if (!thumbLoaded && video.preview_hash) {
+                            thumb.style.backgroundImage = `url(/${video.preview_hash})`;
+                            thumbLoaded = true;
+                            log(`Loaded thumbnail: ${video.preview_hash.substring(0, 8)}...`);
+                        }
+                    };
+                    card.addEventListener('mouseenter', loadThumb);
+                    card.addEventListener('touchstart', loadThumb, { passive: true });
 
                     const title = document.createElement('div');
                     title.className = 'video-card-title';
