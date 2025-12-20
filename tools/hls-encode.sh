@@ -35,13 +35,14 @@ DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wr
 echo "Video duration: ${DURATION}s" >&2
 echo "$DURATION" > duration.txt
 
-# Quality levels: name resolution bitrate
+# Quality levels: name height bitrate
+# We scale by height and auto-calculate width to preserve aspect ratio
 QUALITIES=(
-    "1080p 1920x1080 5000k"
-    "720p 1280x720 2800k"
-    "480p 854x480 1400k"
-    "360p 640x360 800k"
-    "240p 426x240 400k"
+    "1080p 1080 5000k"
+    "720p 720 2800k"
+    "480p 480 1400k"
+    "360p 360 800k"
+    "240p 240 400k"
 )
 
 SEGMENT_DURATION=1
@@ -52,6 +53,9 @@ declare -A SEG_TO_HASH
 # Build a mapping of quality name to playlist hash
 declare -A QUALITY_PLAYLIST_HASH
 
+# Build a mapping of quality name to actual resolution
+declare -A QUALITY_RESOLUTION
+
 hash_file() {
     sha256sum "$1" | cut -d' ' -f1
 }
@@ -61,13 +65,13 @@ mkdir -p hashed
 
 # Step 1: Encode each quality level
 for quality in "${QUALITIES[@]}"; do
-    read -r NAME RES BITRATE <<< "$quality"
+    read -r NAME HEIGHT BITRATE <<< "$quality"
 
-    echo -n "Encoding $NAME ($RES @ $BITRATE) " >&2
+    echo -n "Encoding $NAME (height=$HEIGHT @ $BITRATE) " >&2
     mkdir -p "$NAME"
 
     ffmpeg -i "$SOURCE" -y \
-        -vf "scale=$RES" \
+        -vf "scale=-2:$HEIGHT" \
         -c:v libx264 -b:v "$BITRATE" \
         -g 30 -keyint_min 30 \
         -c:a aac -b:a 128k \
@@ -82,6 +86,12 @@ for quality in "${QUALITIES[@]}"; do
         done
     echo " done" >&2
 
+    # Get actual resolution from first segment
+    ACTUAL_WIDTH=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of default=noprint_wrappers=1:nokey=1 "$NAME/seg000.ts" | head -1 | tr -d '\n\r')
+    ACTUAL_HEIGHT=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$NAME/seg000.ts" | head -1 | tr -d '\n\r')
+    QUALITY_RESOLUTION["$NAME"]="${ACTUAL_WIDTH}x${ACTUAL_HEIGHT}"
+    echo "  Actual resolution: ${ACTUAL_WIDTH}x${ACTUAL_HEIGHT}" >&2
+
     # Step 2: Create hash symlinks for segments in hashed/
     for seg in "$NAME"/seg*.ts; do
         if [ -f "$seg" ]; then
@@ -92,6 +102,10 @@ for quality in "${QUALITIES[@]}"; do
         fi
     done
 done
+
+# Store resolution of highest quality (1080p) for video metadata
+VIDEO_WIDTH=$(echo "${QUALITY_RESOLUTION["1080p"]}" | cut -d'x' -f1)
+VIDEO_HEIGHT=$(echo "${QUALITY_RESOLUTION["1080p"]}" | cut -d'x' -f2)
 
 # Step 3: Rewrite quality playlists to use hash-based segment names
 for quality in "${QUALITIES[@]}"; do
@@ -123,15 +137,15 @@ echo "Generating master playlist..." >&2
 
 cat > master.m3u8 << EOF
 #EXTM3U
-#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080
+#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=${QUALITY_RESOLUTION["1080p"]}
 ${QUALITY_PLAYLIST_HASH["1080p"]}
-#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=${QUALITY_RESOLUTION["720p"]}
 ${QUALITY_PLAYLIST_HASH["720p"]}
-#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=854x480
+#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=${QUALITY_RESOLUTION["480p"]}
 ${QUALITY_PLAYLIST_HASH["480p"]}
-#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=${QUALITY_RESOLUTION["360p"]}
 ${QUALITY_PLAYLIST_HASH["360p"]}
-#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=426x240
+#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=${QUALITY_RESOLUTION["240p"]}
 ${QUALITY_PLAYLIST_HASH["240p"]}
 EOF
 
@@ -196,6 +210,11 @@ SPRITE_META_HASH=$(hash_file sprite-meta.json)
 ln -sf "../sprite-meta.json" "hashed/$SPRITE_META_HASH"
 echo "$SPRITE_META_HASH" > sprite-meta.json.txt
 echo "done (sprite: $SPRITE_HASH, meta: $SPRITE_META_HASH)" >&2
+
+# Write resolution to file for easy reference
+echo "$VIDEO_WIDTH" > width.txt
+echo "$VIDEO_HEIGHT" > height.txt
+echo "Video resolution: ${VIDEO_WIDTH}x${VIDEO_HEIGHT}" >&2
 
 echo ""
 echo "$MASTER_HASH"
