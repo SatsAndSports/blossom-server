@@ -21,9 +21,14 @@ import { channel_parameters_get_channel_id, compute_shared_secret, verify_balanc
 
 const paymentLog = logger.extend("payments");
 
-// In-memory channel balance tracking
-// Map of channel_id -> current balance
-const channelBalances: Map<string, number> = new Map();
+// In-memory channel usage tracking
+// Map of channel_id -> { blobsServed, bytesServed, lastBalance }
+interface ChannelUsage {
+  blobsServed: number;
+  bytesServed: number;
+  lastBalance: number;  // Last balance claimed by client
+}
+const channelUsage: Map<string, ChannelUsage> = new Map();
 
 // In-memory channel params storage
 // Map of channel_id -> params JSON string
@@ -33,17 +38,29 @@ const channelParams: Map<string, string> = new Map();
 // Map of channel_id -> funding proofs JSON string
 const channelFundingProofs: Map<string, string> = new Map();
 
-// Get the current balance for a channel (0 if unknown)
-function getChannelBalance(channelId: string): number {
-  return channelBalances.get(channelId) ?? 0;
+// Get usage for a channel
+function getChannelUsage(channelId: string): ChannelUsage {
+  return channelUsage.get(channelId) ?? { blobsServed: 0, bytesServed: 0, lastBalance: 0 };
 }
 
-// Update the balance for a channel (only if higher than current)
+// Update the last balance claimed by client (only if higher than current)
 function updateChannelBalance(channelId: string, newBalance: number): void {
-  const current = getChannelBalance(channelId);
-  if (newBalance > current) {
-    channelBalances.set(channelId, newBalance);
+  const usage = getChannelUsage(channelId);
+  if (newBalance > usage.lastBalance) {
+    channelUsage.set(channelId, { ...usage, lastBalance: newBalance });
   }
+}
+
+// Record that a blob was served to a channel (call after response is sent)
+function recordBlobServed(channelId: string, size: number): void {
+  const usage = getChannelUsage(channelId);
+  channelUsage.set(channelId, {
+    ...usage,
+    blobsServed: usage.blobsServed + 1,
+    bytesServed: usage.bytesServed + size,
+  });
+  paymentLog("channel=%s served blob size=%d total: blobs=%d bytes=%d",
+    channelId.substring(0, 8), size, usage.blobsServed + 1, usage.bytesServed + size);
 }
 
 // Get params for a channel (null if unknown)
@@ -83,75 +100,6 @@ router.get("/:hash", range, async (ctx, next) => {
   if (!match) return next();
 
   const hash = match[1];
-
-  // Process payment header if present
-  if (paymentHeader) {
-    try {
-      const payment = JSON.parse(paymentHeader);
-      const currentBalance = getChannelBalance(payment.channel_id);
-      const hasParams = !!getChannelParams(payment.channel_id);
-      const fundingProofsJson = getChannelFundingProofs(payment.channel_id);
-      const numProofs = fundingProofsJson ? JSON.parse(fundingProofsJson).length : 0;
-      paymentLog("channel=%s balance: %d -> %d (client) hasParams=%s proofs=%d sig=%s",
-        payment.channel_id?.substring(0, 8),
-        currentBalance,
-        payment.balance,
-        hasParams,
-        numProofs,
-        payment.signature?.substring(0, 16) + "..."
-      );
-
-      // Verify signature if we have params and funding proofs (either from header or cache)
-      const paramsJsonForVerify = payment.params ? JSON.stringify(payment.params) : getChannelParams(payment.channel_id);
-      const fundingProofsForVerify = payment.funding_proofs ? JSON.stringify(payment.funding_proofs) : getChannelFundingProofs(payment.channel_id);
-
-      if (paramsJsonForVerify && fundingProofsForVerify && config.channel?.secretKey) {
-        try {
-          const params = JSON.parse(paramsJsonForVerify);
-          const sharedSecret = compute_shared_secret(config.channel.secretKey, params.alice_pubkey);
-          const valid = verify_balance_update_signature(
-            paramsJsonForVerify,
-            sharedSecret,
-            fundingProofsForVerify,
-            payment.channel_id,
-            BigInt(payment.balance),
-            payment.signature
-          );
-          paymentLog("signature verify: %s", valid ? "VALID" : "INVALID");
-        } catch (e) {
-          paymentLog("signature verify: ERROR - %s", (e as Error).message);
-        }
-      }
-
-      // Verify channel_id and store params if provided
-      if (payment.params && config.channel?.secretKey) {
-        const paramsJson = JSON.stringify(payment.params);
-        const alicePubkey = payment.params.alice_pubkey;
-        const sharedSecret = compute_shared_secret(config.channel.secretKey, alicePubkey);
-        const computedChannelId = channel_parameters_get_channel_id(paramsJson, sharedSecret);
-        const match = computedChannelId === payment.channel_id;
-        paymentLog("channel_id verify: computed=%s provided=%s match=%s",
-          computedChannelId.substring(0, 8),
-          payment.channel_id?.substring(0, 8),
-          match ? "YES" : "NO"
-        );
-
-        // Update balance and store params/funding proofs if channel_id is valid
-        if (match) {
-          updateChannelBalance(payment.channel_id, payment.balance);
-          storeChannelParams(payment.channel_id, paramsJson);
-          if (payment.funding_proofs) {
-            storeChannelFundingProofs(payment.channel_id, JSON.stringify(payment.funding_proofs));
-          }
-        }
-      } else if (payment.channel_id && getChannelParams(payment.channel_id)) {
-        // Params not in header, but we have them stored - update balance
-        updateChannelBalance(payment.channel_id, payment.balance);
-      }
-    } catch (e) {
-      paymentLog("hash=%s invalid payment header: %s", hash.substring(0, 8), paymentHeader);
-    }
-  }
   const ext = extname(ctx.path) ?? undefined;
 
   const search: BlobSearch = {
@@ -160,6 +108,7 @@ router.get("/:hash", range, async (ctx, next) => {
     type: mime.getType(ctx.path) ?? undefined,
   };
 
+  // Look up blob first - no point verifying payment if blob doesn't exist
   const storageResult = await searchStorage(search);
   if (storageResult) {
     updateBlobAccess(search.hash, dayjs().unix());
@@ -167,6 +116,85 @@ router.get("/:hash", range, async (ctx, next) => {
     // Increment view count if this is a video master playlist
     if (masterHashCache.has(search.hash)) {
       incrementVideoViews(search.hash);
+    }
+
+    // Process payment header if present (now we know blob size)
+    if (paymentHeader) {
+      try {
+        const payment = JSON.parse(paymentHeader);
+        const usage = getChannelUsage(payment.channel_id);
+        const hasParams = !!getChannelParams(payment.channel_id);
+        const fundingProofsJson = getChannelFundingProofs(payment.channel_id);
+        const numProofs = fundingProofsJson ? JSON.parse(fundingProofsJson).length : 0;
+        paymentLog("channel=%s balance: %d -> %d (client) served: blobs=%d bytes=%d hasParams=%s proofs=%d",
+          payment.channel_id?.substring(0, 8),
+          usage.lastBalance,
+          payment.balance,
+          usage.blobsServed,
+          usage.bytesServed,
+          hasParams,
+          numProofs
+        );
+
+        // Verify signature if we have params and funding proofs (either from header or cache)
+        const paramsJsonForVerify = payment.params ? JSON.stringify(payment.params) : getChannelParams(payment.channel_id);
+        const fundingProofsForVerify = payment.funding_proofs ? JSON.stringify(payment.funding_proofs) : getChannelFundingProofs(payment.channel_id);
+
+        let signatureValid = false;
+        if (paramsJsonForVerify && fundingProofsForVerify && config.channel?.secretKey) {
+          try {
+            const params = JSON.parse(paramsJsonForVerify);
+            const sharedSecret = compute_shared_secret(config.channel.secretKey, params.alice_pubkey);
+            signatureValid = verify_balance_update_signature(
+              paramsJsonForVerify,
+              sharedSecret,
+              fundingProofsForVerify,
+              payment.channel_id,
+              BigInt(payment.balance),
+              payment.signature
+            );
+            paymentLog("signature verify: %s", signatureValid ? "VALID" : "INVALID");
+          } catch (e) {
+            paymentLog("signature verify: ERROR - %s", (e as Error).message);
+          }
+        }
+
+        // Verify channel_id and store params if provided
+        if (payment.params && config.channel?.secretKey) {
+          const paramsJson = JSON.stringify(payment.params);
+          const alicePubkey = payment.params.alice_pubkey;
+          const sharedSecret = compute_shared_secret(config.channel.secretKey, alicePubkey);
+          const computedChannelId = channel_parameters_get_channel_id(paramsJson, sharedSecret);
+          const channelIdMatch = computedChannelId === payment.channel_id;
+          paymentLog("channel_id verify: computed=%s provided=%s match=%s",
+            computedChannelId.substring(0, 8),
+            payment.channel_id?.substring(0, 8),
+            channelIdMatch ? "YES" : "NO"
+          );
+
+          // Update balance and store params/funding proofs if channel_id is valid
+          if (channelIdMatch) {
+            updateChannelBalance(payment.channel_id, payment.balance);
+            storeChannelParams(payment.channel_id, paramsJson);
+            if (payment.funding_proofs) {
+              storeChannelFundingProofs(payment.channel_id, JSON.stringify(payment.funding_proofs));
+            }
+            // Record blob served after successful payment verification
+            if (signatureValid) {
+              recordBlobServed(payment.channel_id, storageResult.size);
+            }
+          }
+        } else if (payment.channel_id && getChannelParams(payment.channel_id)) {
+          // Params not in header, but we have them stored - update balance
+          updateChannelBalance(payment.channel_id, payment.balance);
+          // Record blob served after successful payment verification
+          if (signatureValid) {
+            recordBlobServed(payment.channel_id, storageResult.size);
+          }
+        }
+      } catch (e) {
+        paymentLog("hash=%s invalid payment header: %s", hash.substring(0, 8), paymentHeader);
+      }
     }
 
     const redirect = getStorageRedirect(storageResult);
