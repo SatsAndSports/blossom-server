@@ -173,7 +173,9 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .video-card-duration {
+        .video-card-meta {
+            display: flex;
+            justify-content: space-between;
             padding: 0 10px 10px;
             font-size: 12px;
             color: #888;
@@ -1494,13 +1496,21 @@
                     title.textContent = video.title;
                     title.title = video.title; // Tooltip for long titles
 
-                    const duration = document.createElement('div');
-                    duration.className = 'video-card-duration';
+                    const meta = document.createElement('div');
+                    meta.className = 'video-card-meta';
+
+                    const duration = document.createElement('span');
                     duration.textContent = formatDuration(video.duration);
+
+                    const views = document.createElement('span');
+                    views.textContent = (video.views || 0) + ' views';
+
+                    meta.appendChild(duration);
+                    meta.appendChild(views);
 
                     card.appendChild(thumb);
                     card.appendChild(title);
-                    card.appendChild(duration);
+                    card.appendChild(meta);
 
                     // Sprite animation on hover
                     let spriteInterval = null;
