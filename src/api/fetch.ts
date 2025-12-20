@@ -119,6 +119,11 @@ router.get("/:hash", range, async (ctx, next) => {
     }
 
     // Process payment header if present (now we know blob size)
+    if (!paymentHeader) {
+      paymentLog("=======================================================");
+      paymentLog("WARNING: No payment for hash %s (size=%d)", hash, storageResult.size);
+      paymentLog("=======================================================");
+    }
     if (paymentHeader) {
       try {
         const payment = JSON.parse(paymentHeader);
