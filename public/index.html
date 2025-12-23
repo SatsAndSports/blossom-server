@@ -468,7 +468,13 @@
         <button id="reset-alice" style="background:#533;border:1px solid #744;color:#e0e0e0;padding:8px 16px;border-radius:4px;cursor:pointer;">Reset Alice Key</button>
     </div>
 
-    <h1><a href="/" style="color:inherit;text-decoration:none;">CashuTube</a></h1>
+    <div style="display:flex;align-items:center;gap:20px;margin-bottom:10px;">
+        <h1 style="margin:0;"><a href="/" style="color:inherit;text-decoration:none;">CashuTube</a></h1>
+        <select id="server-select" style="padding:8px 12px;border-radius:4px;background:#333;color:#e0e0e0;border:1px solid #555;font-size:14px;">
+            <option value="http://localhost:3000">localhost:3000</option>
+            <option value="http://localhost:3001">localhost:3001</option>
+        </select>
+    </div>
 
     <h3>Log</h3>
     <div id="log"></div>
@@ -1128,6 +1134,9 @@
             return { secretHex, pubkeyHex, isNew };
         }
 
+        // Current server URL
+        let currentServer = localStorage.getItem('cashutube_server') || 'http://localhost:3000';
+
         // Current FundedChannel instance - null until a funded channel is ready
         let currentChannel = null;
 
@@ -1222,7 +1231,7 @@
             if (!currentChannel) {
                 throw new Error('No payment channel available');
             }
-            const response = await fetch('/' + hash, {
+            const response = await fetch(currentServer + '/' + hash, {
                 headers: { 'X-Cashu-Channel': createPayment() }
             });
             if (!response.ok) {
@@ -1420,7 +1429,7 @@
         // Fetch Charlie's (server) channel params
         async function fetchChannelParams() {
             try {
-                const response = await fetch('/channel/params');
+                const response = await fetch(currentServer + '/channel/params');
                 const data = await response.json();
                 charlie = {
                     pubkeyHex: data.receiver_pubkey,
@@ -1498,7 +1507,7 @@
         // Load video list
         async function loadVideos() {
             try {
-                const response = await fetch('/videos');
+                const response = await fetch(currentServer + '/videos');
                 const data = await response.json();
 
                 const listDiv = document.getElementById('video-list');
@@ -1632,7 +1641,7 @@
                         }
                         // Update URL hash and play video
                         window.location.hash = video.master_hash;
-                        playVideo('/' + video.master_hash, null, video.sprite_meta_hash, video.title);
+                        playVideo(currentServer + '/' + video.master_hash, null, video.sprite_meta_hash, video.title);
                     };
 
                     listDiv.appendChild(card);
@@ -1648,50 +1657,18 @@
                     const spriteMetaHash = matchingVideo?.sprite_meta_hash || null;
                     const videoTitle = matchingVideo?.title || null;
                     log(`Auto-playing from URL: ${masterHash.substring(0, 8)}...` + (startTime ? ` @ ${startTime}s` : ''));
-                    playVideo('/' + masterHash, startTime, spriteMetaHash, videoTitle);
+                    playVideo(currentServer + '/' + masterHash, startTime, spriteMetaHash, videoTitle);
                 }
             } catch (e) {
                 log(`Failed to load videos: ${e}`, 'error');
             }
         }
 
-        // Initialize
-        async function init() {
-            // Initialize WASM
-            await initWasm();
-            log(`WASM module loaded`);
-
-            // Initialize IndexedDB
-            try {
-                await initDB();
-                const channels = await getAllChannels();
-                await loadRequestCounts();
-                cleanupOldPositions(); // Async, no need to await
-                log(`IndexedDB initialized (${channels.length} channels, ${channelRequestCounts.size} request counts)`);
-            } catch (e) {
-                log(`Failed to initialize IndexedDB: ${e}`, 'error');
-            }
-
-            // Get Alice's keypair
-            alice = getOrCreateAliceKey();
-            if (alice.isNew) {
-                log(`Generated new Alice keypair`);
-            } else {
-                log(`Loaded Alice keypair from storage`);
-            }
-
-            // Fetch Charlie's params
-            await fetchChannelParams();
-
-            // Log both pubkeys
-            log(`Alice pubkey:   ${alice.pubkeyHex}`);
-            log(`Charlie pubkey: ${charlie ? charlie.pubkeyHex : 'unavailable'}`);
-
-            // Compute shared secret now that we have both pubkeys
-            let sharedSecretHex = null;
-            if (charlie) {
-                sharedSecretHex = compute_shared_secret(alice.secretHex, charlie.pubkeyHex);
-                log(`Shared secret:  ${sharedSecretHex.substring(0, 16)}...`);
+        // Load existing channel or create a new one
+        async function loadOrCreateChannel() {
+            if (!charlie) {
+                log(`Cannot load/create channel: no server params`, 'error');
+                return;
             }
 
             // Fetch keyset info from the selected mint
@@ -1794,12 +1771,82 @@
                 sessionStartBalance = currentChannel.balance;
                 log(`Session start balance: ${sessionStartBalance}`);
             }
+        }
+
+        // Initialize
+        async function init() {
+            // Initialize WASM
+            await initWasm();
+            log(`WASM module loaded`);
+
+            // Initialize IndexedDB
+            try {
+                await initDB();
+                const channels = await getAllChannels();
+                await loadRequestCounts();
+                cleanupOldPositions(); // Async, no need to await
+                log(`IndexedDB initialized (${channels.length} channels, ${channelRequestCounts.size} request counts)`);
+            } catch (e) {
+                log(`Failed to initialize IndexedDB: ${e}`, 'error');
+            }
+
+            // Get Alice's keypair
+            alice = getOrCreateAliceKey();
+            if (alice.isNew) {
+                log(`Generated new Alice keypair`);
+            } else {
+                log(`Loaded Alice keypair from storage`);
+            }
+
+            await connectToServer();
+        }
+
+        // Connect to the current server (fetch params, load/create channel, load videos)
+        async function connectToServer() {
+            // Fetch Charlie's params
+            await fetchChannelParams();
+
+            // Log both pubkeys
+            log(`Alice pubkey:   ${alice.pubkeyHex}`);
+            log(`Charlie pubkey: ${charlie ? charlie.pubkeyHex : 'unavailable'}`);
+
+            // Compute shared secret now that we have both pubkeys
+            if (charlie) {
+                const sharedSecretHex = compute_shared_secret(alice.secretHex, charlie.pubkeyHex);
+                log(`Shared secret:  ${sharedSecretHex.substring(0, 16)}...`);
+            }
+
+            await loadOrCreateChannel();
 
             updateStatus();
-            loadVideos();
+            await loadVideos();
         }
 
         init();
+
+        // Server selector
+        const serverSelect = document.getElementById('server-select');
+        serverSelect.value = currentServer;
+        serverSelect.onchange = async () => {
+            currentServer = serverSelect.value;
+            localStorage.setItem('cashutube_server', currentServer);
+            log(`Switching to server: ${currentServer}`);
+
+            // Clear current channel and caches
+            currentChannel = null;
+            charlie = null;
+            blobUrlCache.clear();
+
+            // Stop current video
+            if (currentHls) {
+                currentHls.destroy();
+                currentHls = null;
+            }
+            document.getElementById('video-container').classList.remove('visible');
+
+            // Connect to new server
+            await connectToServer();
+        };
 
         // Dev tools
         document.getElementById('reset-alice').onclick = () => {
