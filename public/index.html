@@ -767,7 +767,7 @@
         // IndexedDB Channel Storage
         // ============================================
         const DB_NAME = 'cashu_channels';
-        const DB_VERSION = 4;  // Bumped to add video_positions store
+        const DB_VERSION = 5;  // Bumped to add server_url and alice_pubkey
         const STORE_NAME = 'channels';
         const REQUEST_COUNTS_STORE = 'request_counts';
         const VIDEO_POSITIONS_STORE = 'video_positions';
@@ -808,7 +808,9 @@
                     const store = database.createObjectStore(STORE_NAME, { keyPath: 'channel_id' });
 
                     // Create indexes for querying
+                    store.createIndex('alice_secret', 'alice_secret', { unique: false });
                     store.createIndex('charlie_pubkey', 'charlie_pubkey', { unique: false });
+                    store.createIndex('server_url', 'server_url', { unique: false });
                     store.createIndex('mint', 'mint', { unique: false });
 
                     // Create request_counts object store
@@ -894,25 +896,28 @@
             });
         }
 
-        // Find a channel matching pubkeys, unit, keyset_id, and fee
+        // Find a channel matching alice's secret, charlie's pubkey, unit, keyset_id, and fee
         // Returns the first matching channel_id, or null if none exists
-        async function findChannelByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk) {
+        async function findChannelByParams(aliceSecret, charliePubkey, unit, keysetId, inputFeePpk) {
+            // First filter by alice_secret index (only channels for current Alice)
             const channels = await new Promise((resolve, reject) => {
                 const tx = db.transaction(STORE_NAME, 'readonly');
                 const store = tx.objectStore(STORE_NAME);
-                const index = store.index('charlie_pubkey');
-                const request = index.getAll(charliePubkey);
+                const index = store.index('alice_secret');
+                const request = index.getAll(aliceSecret);
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(request.error);
             });
 
-            // Filter by params (params are nested in sender_json.channel_params.params_json)
+            // Filter by charlie_pubkey and other params
             for (const channel of channels) {
                 try {
+                    // Quick check on indexed field first
+                    if (channel.charlie_pubkey !== charliePubkey) continue;
+
                     const senderData = JSON.parse(channel.sender_json);
                     const params = JSON.parse(senderData.channel_params.params_json);
-                    if (params.alice_pubkey === alicePubkey &&
-                        params.unit === unit &&
+                    if (params.unit === unit &&
                         params.keyset_id === keysetId &&
                         params.input_fee_ppk === inputFeePpk) {
                         return channel.channel_id;
@@ -1077,7 +1082,9 @@
                     channel_id: this.channelId,
                     sender_json: JSON.stringify(this.sender.toJSON()),
                     // Indexed fields for queries
+                    alice_secret: alice.secretHex,
                     charlie_pubkey: params.charlie_pubkey,
+                    server_url: currentServer,
                     mint: params.mint
                 };
             }
@@ -1095,9 +1102,9 @@
                 return new FundedChannel(sender);
             }
 
-            // Static: Find by pubkeys and keyset params
-            static async findByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk) {
-                const channelId = await findChannelByParams(alicePubkey, charliePubkey, unit, keysetId, inputFeePpk);
+            // Static: Find by alice's secret and keyset params
+            static async findByParams(aliceSecret, charliePubkey, unit, keysetId, inputFeePpk) {
+                const channelId = await findChannelByParams(aliceSecret, charliePubkey, unit, keysetId, inputFeePpk);
                 return channelId ? await FundedChannel.load(channelId) : null;
             }
 
@@ -1687,7 +1694,7 @@
             // Check for existing channel with matching params, create if none exists
             if (charlie && mintInfo && keysetInfo) {
                 currentChannel = await FundedChannel.findByParams(
-                    alice.pubkeyHex,
+                    alice.secretHex,
                     charlie.pubkeyHex,
                     mintInfo.unit,
                     mintInfo.keysetId,
