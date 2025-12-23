@@ -1449,8 +1449,10 @@
                 charlie = {
                     pubkeyHex: data.receiver_pubkey,
                     mintsUnitsKeysets: data.mints_units_keysets,
-                    pricePerSegment: data.price_per_segment
+                    pricePerRequestPpk: data.price_per_request_ppk,
+                    pricePerMegabytePpk: data.price_per_megabyte_ppk
                 };
+                log(`Charlie pricing: ${charlie.pricePerRequestPpk} ppk/request, ${charlie.pricePerMegabytePpk} ppk/MB`);
                 log(`Charlie accepts: ${JSON.stringify(charlie.mintsUnitsKeysets)}`);
                 return charlie;
             } catch (e) {
