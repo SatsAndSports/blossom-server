@@ -1393,6 +1393,14 @@
                 hls.on(Hls.Events.ERROR, function(event, data) {
                     console.error('HLS Error:', data);
                     if (data.fatal) {
+                        // Handle specific HTTP errors
+                        if (data.response && data.response.code === 404) {
+                            log(`Video not found on this server (${currentMasterHash || 'unknown'})`, 'error');
+                            hls.destroy();
+                            document.getElementById('video-container').classList.remove('visible');
+                            return;
+                        }
+
                         log(`Fatal error: ${data.type} - ${data.details}`, 'error');
                         if (data.response) {
                             log(`Response: ${data.response.code} - ${data.response.text}`, 'error');
