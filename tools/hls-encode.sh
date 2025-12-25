@@ -35,15 +35,59 @@ DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wr
 echo "Video duration: ${DURATION}s" >&2
 echo "$DURATION" > duration.txt
 
-# Quality levels: name height bitrate
+# Get source video height
+SOURCE_HEIGHT=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$SOURCE" | head -1 | tr -d '\n\r')
+echo "Source height: ${SOURCE_HEIGHT}p" >&2
+
+# All possible quality levels: name height bitrate
 # We scale by height and auto-calculate width to preserve aspect ratio
-QUALITIES=(
+ALL_QUALITIES=(
     "1080p 1080 5000k"
     "720p 720 2800k"
     "480p 480 1400k"
     "360p 360 800k"
     "240p 240 400k"
 )
+
+# Cap source height at 1080p for browser compatibility (H.264 level 4.1)
+MAX_HEIGHT=1080
+if [ "$SOURCE_HEIGHT" -gt "$MAX_HEIGHT" ]; then
+    echo "Source exceeds ${MAX_HEIGHT}p, capping at ${MAX_HEIGHT}p" >&2
+    EFFECTIVE_HEIGHT=$MAX_HEIGHT
+else
+    EFFECTIVE_HEIGHT=$SOURCE_HEIGHT
+fi
+
+# Filter to only include qualities <= effective height
+# Also include the effective height itself if it doesn't match a standard level
+QUALITIES=()
+EFFECTIVE_HEIGHT_ADDED=false
+for quality in "${ALL_QUALITIES[@]}"; do
+    read -r NAME HEIGHT BITRATE <<< "$quality"
+    if [ "$HEIGHT" -le "$EFFECTIVE_HEIGHT" ]; then
+        QUALITIES+=("$quality")
+        if [ "$HEIGHT" -eq "$EFFECTIVE_HEIGHT" ]; then
+            EFFECTIVE_HEIGHT_ADDED=true
+        fi
+    fi
+done
+
+# If effective height is non-standard (e.g., 500p), add it as the top quality
+if [ "$EFFECTIVE_HEIGHT_ADDED" = false ]; then
+    # Estimate bitrate based on height (roughly linear interpolation)
+    if [ "$EFFECTIVE_HEIGHT" -gt 720 ]; then
+        BITRATE="4000k"
+    elif [ "$EFFECTIVE_HEIGHT" -gt 480 ]; then
+        BITRATE="2000k"
+    elif [ "$EFFECTIVE_HEIGHT" -gt 360 ]; then
+        BITRATE="1000k"
+    else
+        BITRATE="600k"
+    fi
+    QUALITIES=("${EFFECTIVE_HEIGHT}p $EFFECTIVE_HEIGHT $BITRATE" "${QUALITIES[@]}")
+fi
+
+echo "Encoding qualities: ${QUALITIES[*]}" >&2
 
 SEGMENT_DURATION=1
 
@@ -71,8 +115,8 @@ for quality in "${QUALITIES[@]}"; do
     mkdir -p "$NAME"
 
     ffmpeg -i "$SOURCE" -y \
-        -vf "scale=-2:$HEIGHT" \
-        -c:v libx264 -b:v "$BITRATE" \
+        -vf "scale=-2:$HEIGHT,format=yuv420p" \
+        -c:v libx264 -profile:v high -level 4.1 -b:v "$BITRATE" \
         -g 30 -keyint_min 30 \
         -c:a aac -b:a 128k \
         -f hls \
@@ -103,9 +147,10 @@ for quality in "${QUALITIES[@]}"; do
     done
 done
 
-# Store resolution of highest quality (1080p) for video metadata
-VIDEO_WIDTH=$(echo "${QUALITY_RESOLUTION["1080p"]}" | cut -d'x' -f1)
-VIDEO_HEIGHT=$(echo "${QUALITY_RESOLUTION["1080p"]}" | cut -d'x' -f2)
+# Store resolution of highest quality (first in QUALITIES array) for video metadata
+read -r TOP_QUALITY _ _ <<< "${QUALITIES[0]}"
+VIDEO_WIDTH=$(echo "${QUALITY_RESOLUTION["$TOP_QUALITY"]}" | cut -d'x' -f1)
+VIDEO_HEIGHT=$(echo "${QUALITY_RESOLUTION["$TOP_QUALITY"]}" | cut -d'x' -f2)
 
 # Step 3: Rewrite quality playlists to use hash-based segment names
 for quality in "${QUALITIES[@]}"; do
@@ -135,19 +180,15 @@ done
 # Step 4: Generate master playlist referencing quality playlists by hash
 echo "Generating master playlist..." >&2
 
-cat > master.m3u8 << EOF
-#EXTM3U
-#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=${QUALITY_RESOLUTION["1080p"]}
-${QUALITY_PLAYLIST_HASH["1080p"]}
-#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=${QUALITY_RESOLUTION["720p"]}
-${QUALITY_PLAYLIST_HASH["720p"]}
-#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=${QUALITY_RESOLUTION["480p"]}
-${QUALITY_PLAYLIST_HASH["480p"]}
-#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=${QUALITY_RESOLUTION["360p"]}
-${QUALITY_PLAYLIST_HASH["360p"]}
-#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=${QUALITY_RESOLUTION["240p"]}
-${QUALITY_PLAYLIST_HASH["240p"]}
-EOF
+# Build master playlist dynamically based on encoded qualities
+echo "#EXTM3U" > master.m3u8
+for quality in "${QUALITIES[@]}"; do
+    read -r NAME HEIGHT BITRATE <<< "$quality"
+    # Convert bitrate string (e.g., "5000k") to number (e.g., 5000000)
+    BW_NUM=$(echo "$BITRATE" | sed 's/k$/000/')
+    echo "#EXT-X-STREAM-INF:BANDWIDTH=${BW_NUM},RESOLUTION=${QUALITY_RESOLUTION["$NAME"]}" >> master.m3u8
+    echo "${QUALITY_PLAYLIST_HASH["$NAME"]}" >> master.m3u8
+done
 
 # Hash master playlist and create symlink in hashed/
 MASTER_HASH=$(hash_file master.m3u8)
