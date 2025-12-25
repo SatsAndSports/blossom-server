@@ -49,11 +49,17 @@ PREVIEW_HASH=$(cat preview.jpg.txt 2>/dev/null || echo "")
 SPRITE_META_HASH=$(cat sprite-meta.json.txt 2>/dev/null || echo "")
 WIDTH=$(cat width.txt 2>/dev/null || echo "")
 HEIGHT=$(cat height.txt 2>/dev/null || echo "")
+BLOB_COUNT=$(cat blob_count.txt 2>/dev/null || echo "")
+TOTAL_SIZE=$(cat total_size.txt 2>/dev/null || echo "")
+MAX_BLOB_SIZE=$(cat max_blob_size.txt 2>/dev/null || echo "")
 
 echo "Video title: $TITLE" >&2
 echo "Master hash: $MASTER_HASH" >&2
 echo "Duration: ${DURATION}s" >&2
 [ -n "$WIDTH" ] && [ -n "$HEIGHT" ] && echo "Resolution: ${WIDTH}x${HEIGHT}" >&2
+[ -n "$BLOB_COUNT" ] && echo "Blob count: $BLOB_COUNT" >&2
+[ -n "$TOTAL_SIZE" ] && echo "Total size: $TOTAL_SIZE bytes" >&2
+[ -n "$MAX_BLOB_SIZE" ] && echo "Max blob size: $MAX_BLOB_SIZE bytes" >&2
 [ -n "$PREVIEW_HASH" ] && echo "Preview hash: $PREVIEW_HASH" >&2
 [ -n "$SPRITE_META_HASH" ] && echo "Sprite meta hash: $SPRITE_META_HASH" >&2
 
@@ -116,6 +122,9 @@ JSON_PAYLOAD=$(jq -n \
     --arg sprite_meta_hash "$SPRITE_META_HASH" \
     --arg width "$WIDTH" \
     --arg height "$HEIGHT" \
+    --arg blob_count "$BLOB_COUNT" \
+    --arg total_size "$TOTAL_SIZE" \
+    --arg max_blob_size "$MAX_BLOB_SIZE" \
     '{
         title: $title,
         master_hash: $master_hash,
@@ -124,7 +133,10 @@ JSON_PAYLOAD=$(jq -n \
         preview_hash: $preview_hash,
         sprite_meta_hash: $sprite_meta_hash
     } + (if $width != "" then {width: ($width | tonumber)} else {} end)
-      + (if $height != "" then {height: ($height | tonumber)} else {} end)'
+      + (if $height != "" then {height: ($height | tonumber)} else {} end)
+      + (if $blob_count != "" then {blob_count: ($blob_count | tonumber)} else {} end)
+      + (if $total_size != "" then {total_size: ($total_size | tonumber)} else {} end)
+      + (if $max_blob_size != "" then {max_blob_size: ($max_blob_size | tonumber)} else {} end)'
 )
 
 http_code=$(curl -s -o /tmp/blossom_response.json -w "%{http_code}" \

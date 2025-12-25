@@ -216,5 +216,22 @@ echo "$VIDEO_WIDTH" > width.txt
 echo "$VIDEO_HEIGHT" > height.txt
 echo "Video resolution: ${VIDEO_WIDTH}x${VIDEO_HEIGHT}" >&2
 
+# Calculate blob statistics
+BLOB_COUNT=$(find hashed -maxdepth 1 -type l | wc -l)
+TOTAL_SIZE=0
+MAX_BLOB_SIZE=0
+for file in hashed/*; do
+    [ -e "$file" ] || continue
+    size=$(stat -L -c%s "$file")
+    TOTAL_SIZE=$((TOTAL_SIZE + size))
+    if [ "$size" -gt "$MAX_BLOB_SIZE" ]; then
+        MAX_BLOB_SIZE=$size
+    fi
+done
+echo "$BLOB_COUNT" > blob_count.txt
+echo "$TOTAL_SIZE" > total_size.txt
+echo "$MAX_BLOB_SIZE" > max_blob_size.txt
+echo "Blob stats: count=$BLOB_COUNT total=${TOTAL_SIZE} bytes max=${MAX_BLOB_SIZE} bytes" >&2
+
 echo ""
 echo "$MASTER_HASH"

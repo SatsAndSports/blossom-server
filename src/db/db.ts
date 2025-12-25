@@ -31,7 +31,10 @@ db.prepare(
     sprite_meta_hash TEXT,
     views INTEGER DEFAULT 0,
     width INTEGER,
-    height INTEGER
+    height INTEGER,
+    blob_count INTEGER,
+    total_size INTEGER,
+    max_blob_size INTEGER
   )`,
 ).run();
 
@@ -50,6 +53,23 @@ try {
 }
 try {
   db.prepare("ALTER TABLE videos ADD COLUMN height INTEGER").run();
+} catch (e) {
+  // Column already exists
+}
+
+// Add blob stats columns if they don't exist (migration for existing databases)
+try {
+  db.prepare("ALTER TABLE videos ADD COLUMN blob_count INTEGER").run();
+} catch (e) {
+  // Column already exists
+}
+try {
+  db.prepare("ALTER TABLE videos ADD COLUMN total_size INTEGER").run();
+} catch (e) {
+  // Column already exists
+}
+try {
+  db.prepare("ALTER TABLE videos ADD COLUMN max_blob_size INTEGER").run();
 } catch (e) {
   // Column already exists
 }
