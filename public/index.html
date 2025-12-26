@@ -479,8 +479,7 @@
     <div style="display:flex;align-items:center;gap:20px;margin-bottom:10px;">
         <h1 style="margin:0;"><a href="/" style="color:inherit;text-decoration:none;">CashuTube</a></h1>
         <select id="server-select" style="padding:8px 12px;border-radius:4px;background:#333;color:#e0e0e0;border:1px solid #555;font-size:14px;">
-            <option value="http://localhost:3000">localhost:3000</option>
-            <option value="http://localhost:3001">localhost:3001</option>
+            <!-- Populated dynamically from server params -->
         </select>
     </div>
 
@@ -1149,8 +1148,18 @@
             return { secretHex, pubkeyHex, isNew };
         }
 
-        // Current server URL
-        let currentServer = localStorage.getItem('cashutube_server') || 'http://localhost:3000';
+        // Hardcoded list of known servers
+        const KNOWN_SERVERS = [
+            'http://localhost:3000',
+            'http://localhost:3001'
+        ];
+
+        // Server info cache: { url: { pubkeyHex, pricing: { unit: { perRequestPpk, perMegabytePpk } }, units: [...] } }
+        const serverInfo = {};
+
+        // Current selection (server + unit)
+        let currentServer = null;
+        let currentUnit = null;
 
         // Current FundedChannel instance - null until a funded channel is ready
         let currentChannel = null;
@@ -1161,7 +1170,7 @@
         // Alice's identity
         let alice = null;
 
-        // Charlie's (server) identity
+        // Charlie's (server) identity for current connection
         let charlie = null;
 
         // Update status display
@@ -1449,23 +1458,84 @@
             }
         }
 
-        // Fetch Charlie's (server) channel params
-        async function fetchChannelParams() {
+        // Fetch channel params from a single server and cache in serverInfo
+        async function fetchServerParams(serverUrl) {
             try {
-                const response = await fetch(currentServer + '/channel/params');
+                const response = await fetch(serverUrl + '/channel/params');
                 const data = await response.json();
-                charlie = {
+
+                // Extract units from mints_units_keysets
+                const units = new Set();
+                for (const [mint, mintUnits] of Object.entries(data.mints_units_keysets || {})) {
+                    for (const unit of Object.keys(mintUnits)) {
+                        units.add(unit);
+                    }
+                }
+
+                serverInfo[serverUrl] = {
                     pubkeyHex: data.receiver_pubkey,
                     mintsUnitsKeysets: data.mints_units_keysets,
                     pricePerRequestPpk: data.price_per_request_ppk,
-                    pricePerMegabytePpk: data.price_per_megabyte_ppk
+                    pricePerMegabytePpk: data.price_per_megabyte_ppk,
+                    units: Array.from(units)
                 };
-                log(`Charlie pricing: ${charlie.pricePerRequestPpk} ppk/request, ${charlie.pricePerMegabytePpk} ppk/MB`);
-                log(`Charlie accepts: ${JSON.stringify(charlie.mintsUnitsKeysets)}`);
-                return charlie;
+
+                log(`${serverUrl}: pubkey=${data.receiver_pubkey.substring(0, 8)}..., units=[${Array.from(units).join(', ')}], pricing=${data.price_per_request_ppk} ppk/req, ${data.price_per_megabyte_ppk} ppk/MB`);
+                return serverInfo[serverUrl];
             } catch (e) {
-                log(`Failed to fetch channel params: ${e}`, 'error');
+                log(`${serverUrl}: failed to fetch params (${e.message})`, 'error');
                 return null;
+            }
+        }
+
+        // Fetch params from all known servers
+        async function fetchAllServerParams() {
+            log('Fetching params from all known servers...');
+            await Promise.all(KNOWN_SERVERS.map(url => fetchServerParams(url)));
+        }
+
+        // Set charlie from cached serverInfo for current server
+        function setCharlieFromServerInfo() {
+            if (!currentServer || !serverInfo[currentServer]) {
+                charlie = null;
+                return;
+            }
+            charlie = serverInfo[currentServer];
+        }
+
+        // Populate the server dropdown with (server, unit) pairs
+        function populateServerDropdown() {
+            const select = document.getElementById('server-select');
+            select.innerHTML = '';
+
+            for (const [url, info] of Object.entries(serverInfo)) {
+                for (const unit of info.units) {
+                    const option = document.createElement('option');
+                    option.value = `${url}|${unit}`;
+                    // Display as "localhost:3000 (sat)"
+                    const displayUrl = url.replace(/^https?:\/\//, '');
+                    option.textContent = `${displayUrl} (${unit})`;
+                    select.appendChild(option);
+                }
+            }
+
+            // Restore previous selection if available
+            const savedSelection = localStorage.getItem('cashutube_server_unit');
+            if (savedSelection && select.querySelector(`option[value="${savedSelection}"]`)) {
+                select.value = savedSelection;
+            }
+
+            // Parse current selection
+            if (select.value) {
+                const [server, unit] = select.value.split('|');
+                currentServer = server;
+                currentUnit = unit;
+            } else if (select.options.length > 0) {
+                // Default to first option
+                select.value = select.options[0].value;
+                const [server, unit] = select.value.split('|');
+                currentServer = server;
+                currentUnit = unit;
             }
         }
 
@@ -1887,15 +1957,27 @@
                 log(`Loaded Alice keypair from storage`);
             }
 
+            // Fetch params from all known servers
+            await fetchAllServerParams();
+
+            // Populate dropdown with (server, unit) pairs
+            populateServerDropdown();
+
+            if (!currentServer) {
+                log('No servers available', 'error');
+                return;
+            }
+
             await connectToServer();
         }
 
         // Connect to the current server (fetch params, load/create channel, load videos)
         async function connectToServer() {
-            // Fetch Charlie's params
-            await fetchChannelParams();
+            // Set charlie from cached server info
+            setCharlieFromServerInfo();
 
-            // Log both pubkeys
+            // Log connection info
+            log(`Connecting to ${currentServer} (unit: ${currentUnit})`);
             log(`Alice pubkey:   ${alice.pubkeyHex}`);
             log(`Charlie pubkey: ${charlie ? charlie.pubkeyHex : 'unavailable'}`);
 
@@ -1915,11 +1997,12 @@
 
         // Server selector
         const serverSelect = document.getElementById('server-select');
-        serverSelect.value = currentServer;
         serverSelect.onchange = async () => {
-            currentServer = serverSelect.value;
-            localStorage.setItem('cashutube_server', currentServer);
-            log(`Switching to server: ${currentServer}`);
+            const [server, unit] = serverSelect.value.split('|');
+            currentServer = server;
+            currentUnit = unit;
+            localStorage.setItem('cashutube_server_unit', serverSelect.value);
+            log(`Switching to ${currentServer} (unit: ${currentUnit})`);
 
             // Clear current channel and caches
             currentChannel = null;
