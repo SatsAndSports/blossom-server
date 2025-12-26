@@ -154,5 +154,13 @@ channel:
   approvedMintsAndUnits:
     http://localhost:3338:
       - sat
-  # price per video segment in sats
-  pricePerSegment: 1
+      - usd
+  # per-unit pricing (ppk = parts per thousand)
+  # cost = (requests * perRequestPpk + megabytes * perMegabytePpk) / 1000
+  pricing:
+    sat:
+      perRequestPpk: 500    # 0.5 sats per request
+      perMegabytePpk: 1000  # 1 sat per MB
+    usd:
+      perRequestPpk: 100    # 0.1 cents per request
+      perMegabytePpk: 200   # 0.2 cents per MB

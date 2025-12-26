@@ -488,7 +488,7 @@
 
     <div id="status">
         <span class="label">Channel:</span> <span class="value" id="channel-id">-</span><br>
-        <span class="label">Balance:</span> <span class="value" id="balance">0</span> sats<br>
+        <span class="label">Balance:</span> <span class="value" id="balance">0</span> <span id="balance-unit">sats</span><br>
         <span class="label">Segments:</span> <span class="value" id="segments">0</span>
     </div>
 
@@ -1475,12 +1475,16 @@
                 serverInfo[serverUrl] = {
                     pubkeyHex: data.receiver_pubkey,
                     mintsUnitsKeysets: data.mints_units_keysets,
-                    pricePerRequestPpk: data.price_per_request_ppk,
-                    pricePerMegabytePpk: data.price_per_megabyte_ppk,
+                    pricing: data.pricing || {},  // { unit: { perRequestPpk, perMegabytePpk } }
                     units: Array.from(units)
                 };
 
-                log(`${serverUrl}: pubkey=${data.receiver_pubkey.substring(0, 8)}..., units=[${Array.from(units).join(', ')}], pricing=${data.price_per_request_ppk} ppk/req, ${data.price_per_megabyte_ppk} ppk/MB`);
+                // Log pricing for each unit
+                const pricingStr = Object.entries(data.pricing || {})
+                    .map(([u, p]) => `${u}: ${p.perRequestPpk} ppk/req, ${p.perMegabytePpk} ppk/MB`)
+                    .join('; ');
+                log(`${serverUrl}: pubkey=${data.receiver_pubkey.substring(0, 8)}..., units=[${Array.from(units).join(', ')}]`);
+                log(`  pricing: ${pricingStr || 'none'}`);
                 return serverInfo[serverUrl];
             } catch (e) {
                 log(`${serverUrl}: failed to fetch params (${e.message})`, 'error');
@@ -1537,6 +1541,9 @@
                 currentServer = server;
                 currentUnit = unit;
             }
+
+            // Update balance unit display
+            document.getElementById('balance-unit').textContent = getUnitLabel(currentUnit);
         }
 
         // Get first approved mint, unit, and keyset from Charlie's params
@@ -1599,17 +1606,25 @@
             return `${m}:${s.toString().padStart(2, '0')}`;
         }
 
-        // Calculate estimated cost to watch a video (in sats)
+        // Get current pricing based on selected unit
+        function getCurrentPricing() {
+            if (!charlie || !charlie.pricing || !currentUnit) return null;
+            return charlie.pricing[currentUnit] || null;
+        }
+
+        // Calculate estimated cost to watch a video (in current unit)
         function estimateCost(video) {
-            if (!charlie || !video.blob_count || !video.total_size) return null;
-            const requestCost = video.blob_count * (charlie.pricePerRequestPpk || 0) / 1000;
-            const sizeCostMB = (video.total_size / 1000000) * (charlie.pricePerMegabytePpk || 0) / 1000;
+            const pricing = getCurrentPricing();
+            if (!pricing || !video.blob_count || !video.total_size) return null;
+            const requestCost = video.blob_count * (pricing.perRequestPpk || 0) / 1000;
+            const sizeCostMB = (video.total_size / 1000000) * (pricing.perMegabytePpk || 0) / 1000;
             return requestCost + sizeCostMB;
         }
 
-        // Calculate estimated cost for a specific quality (in sats)
+        // Calculate estimated cost for a specific quality (in current unit)
         function estimateQualityCost(video, qualityName) {
-            if (!charlie || !video.quality_stats) return null;
+            const pricing = getCurrentPricing();
+            if (!pricing || !video.quality_stats) return null;
             const qs = video.quality_stats;
             const quality = qs.qualities[qualityName];
             const meta = qs.meta;
@@ -1617,8 +1632,8 @@
 
             const count = quality.count + meta.count;
             const size = quality.size + meta.size;
-            const requestCost = count * (charlie.pricePerRequestPpk || 0) / 1000;
-            const sizeCost = (size / 1000000) * (charlie.pricePerMegabytePpk || 0) / 1000;
+            const requestCost = count * (pricing.perRequestPpk || 0) / 1000;
+            const sizeCost = (size / 1000000) * (pricing.perMegabytePpk || 0) / 1000;
             return requestCost + sizeCost;
         }
 
@@ -1636,15 +1651,26 @@
             return lines.join('\n');
         }
 
-        // Format cost as sats
-        function formatCost(sats) {
-            if (sats === null) return null;
-            if (sats < 1) {
-                return '<1 sat';
-            } else if (sats < 1000) {
-                return Math.round(sats) + ' sats';
+        // Format cost with appropriate unit label
+        function formatCost(amount) {
+            if (amount === null) return null;
+            const unitLabel = getUnitLabel(currentUnit);
+            if (amount < 1) {
+                return '<1 ' + unitLabel;
+            } else if (amount < 1000) {
+                return Math.round(amount) + ' ' + unitLabel;
             } else {
-                return (sats / 1000).toFixed(1) + 'k sats';
+                return (amount / 1000).toFixed(1) + 'k ' + unitLabel;
+            }
+        }
+
+        // Get display label for a unit
+        function getUnitLabel(unit) {
+            switch (unit) {
+                case 'sat': return 'sats';
+                case 'usd': return '$ cents';
+                case 'eur': return '€ cents';
+                default: return unit || 'units';
             }
         }
 
@@ -2004,6 +2030,9 @@
             localStorage.setItem('cashutube_server_unit', serverSelect.value);
             log(`Switching to ${currentServer} (unit: ${currentUnit})`);
 
+            // Update balance unit display
+            document.getElementById('balance-unit').textContent = getUnitLabel(currentUnit);
+
             // Clear current channel and caches
             currentChannel = null;
             charlie = null;
@@ -2319,8 +2348,8 @@
                 if (typeof currentChannel !== 'undefined' && currentChannel) {
                     const balance = currentChannel.balance;
                     const capacity = currentChannel.params.capacity;
-                    const unit = currentChannel.params.unit;
-                    paymentIndicator.textContent = `${balance} / ${capacity} ${unit}`;
+                    const unitLabel = getUnitLabel(currentChannel.params.unit);
+                    paymentIndicator.textContent = `${balance} / ${capacity} ${unitLabel}`;
                 }
             }
 

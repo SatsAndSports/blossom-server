@@ -104,8 +104,7 @@ router.get("/channel/params", async (ctx) => {
 
   ctx.body = {
     receiver_pubkey: receiverPubkey,
-    price_per_request_ppk: config.channel.pricePerRequestPpk,
-    price_per_megabyte_ppk: config.channel.pricePerMegabytePpk,
+    pricing: config.channel.pricing,
     mints_units_keysets: mintsUnitsKeysets,
   };
 });
