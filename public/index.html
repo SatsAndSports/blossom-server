@@ -1521,6 +1521,26 @@
             return `${m}:${s.toString().padStart(2, '0')}`;
         }
 
+        // Calculate estimated cost to watch a video (in sats)
+        function estimateCost(video) {
+            if (!charlie || !video.blob_count || !video.total_size) return null;
+            const requestCost = video.blob_count * (charlie.pricePerRequestPpk || 0) / 1000;
+            const sizeCostMB = (video.total_size / 1000000) * (charlie.pricePerMegabytePpk || 0) / 1000;
+            return requestCost + sizeCostMB;
+        }
+
+        // Format cost as sats
+        function formatCost(sats) {
+            if (sats === null) return null;
+            if (sats < 1) {
+                return '<1 sat';
+            } else if (sats < 1000) {
+                return Math.round(sats) + ' sats';
+            } else {
+                return (sats / 1000).toFixed(1) + 'k sats';
+            }
+        }
+
         // Load video list
         async function loadVideos() {
             try {
@@ -1580,6 +1600,14 @@
                         meta.appendChild(resolution);
                     }
                     meta.appendChild(views);
+
+                    const cost = estimateCost(video);
+                    if (cost !== null) {
+                        const costSpan = document.createElement('span');
+                        costSpan.textContent = formatCost(cost);
+                        costSpan.title = `${video.blob_count} blobs, ${(video.total_size / 1000000).toFixed(1)} MB`;
+                        meta.appendChild(costSpan);
+                    }
 
                     card.appendChild(thumb);
                     card.appendChild(title);

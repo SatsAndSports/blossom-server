@@ -34,7 +34,8 @@ db.prepare(
     height INTEGER,
     blob_count INTEGER,
     total_size INTEGER,
-    max_blob_size INTEGER
+    max_blob_size INTEGER,
+    quality_stats TEXT
   )`,
 ).run();
 
@@ -70,6 +71,11 @@ try {
 }
 try {
   db.prepare("ALTER TABLE videos ADD COLUMN max_blob_size INTEGER").run();
+} catch (e) {
+  // Column already exists
+}
+try {
+  db.prepare("ALTER TABLE videos ADD COLUMN quality_stats TEXT").run();
 } catch (e) {
   // Column already exists
 }

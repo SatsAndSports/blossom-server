@@ -52,6 +52,7 @@ HEIGHT=$(cat height.txt 2>/dev/null || echo "")
 BLOB_COUNT=$(cat blob_count.txt 2>/dev/null || echo "")
 TOTAL_SIZE=$(cat total_size.txt 2>/dev/null || echo "")
 MAX_BLOB_SIZE=$(cat max_blob_size.txt 2>/dev/null || echo "")
+QUALITY_STATS=$(cat quality_stats.json 2>/dev/null || echo "")
 
 echo "Video title: $TITLE" >&2
 echo "Master hash: $MASTER_HASH" >&2
@@ -125,6 +126,7 @@ JSON_PAYLOAD=$(jq -n \
     --arg blob_count "$BLOB_COUNT" \
     --arg total_size "$TOTAL_SIZE" \
     --arg max_blob_size "$MAX_BLOB_SIZE" \
+    --arg quality_stats "$QUALITY_STATS" \
     '{
         title: $title,
         master_hash: $master_hash,
@@ -136,7 +138,8 @@ JSON_PAYLOAD=$(jq -n \
       + (if $height != "" then {height: ($height | tonumber)} else {} end)
       + (if $blob_count != "" then {blob_count: ($blob_count | tonumber)} else {} end)
       + (if $total_size != "" then {total_size: ($total_size | tonumber)} else {} end)
-      + (if $max_blob_size != "" then {max_blob_size: ($max_blob_size | tonumber)} else {} end)'
+      + (if $max_blob_size != "" then {max_blob_size: ($max_blob_size | tonumber)} else {} end)
+      + (if $quality_stats != "" then {quality_stats: ($quality_stats | fromjson)} else {} end)'
 )
 
 http_code=$(curl -s -o /tmp/blossom_response.json -w "%{http_code}" \

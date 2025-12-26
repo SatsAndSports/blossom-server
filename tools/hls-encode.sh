@@ -100,6 +100,11 @@ declare -A QUALITY_PLAYLIST_HASH
 # Build a mapping of quality name to actual resolution
 declare -A QUALITY_RESOLUTION
 
+# Build a mapping of quality name to blob stats (count, size, max)
+declare -A QUALITY_BLOB_COUNT
+declare -A QUALITY_TOTAL_SIZE
+declare -A QUALITY_MAX_SIZE
+
 hash_file() {
     sha256sum "$1" | cut -d' ' -f1
 }
@@ -137,14 +142,27 @@ for quality in "${QUALITIES[@]}"; do
     echo "  Actual resolution: ${ACTUAL_WIDTH}x${ACTUAL_HEIGHT}" >&2
 
     # Step 2: Create hash symlinks for segments in hashed/
+    Q_COUNT=0
+    Q_SIZE=0
+    Q_MAX=0
     for seg in "$NAME"/seg*.ts; do
         if [ -f "$seg" ]; then
             hash=$(hash_file "$seg")
             segname=$(basename "$seg")
             ln -sf "../$NAME/$segname" "hashed/$hash"
             SEG_TO_HASH["$NAME/$segname"]="$hash"
+            Q_COUNT=$((Q_COUNT + 1))
+            seg_size=$(stat -L -c%s "$seg")
+            Q_SIZE=$((Q_SIZE + seg_size))
+            if [ "$seg_size" -gt "$Q_MAX" ]; then
+                Q_MAX=$seg_size
+            fi
         fi
     done
+    QUALITY_BLOB_COUNT["$NAME"]=$Q_COUNT
+    QUALITY_TOTAL_SIZE["$NAME"]=$Q_SIZE
+    QUALITY_MAX_SIZE["$NAME"]=$Q_MAX
+    echo "  Segments: $Q_COUNT, $(( Q_SIZE / 1000000 )) MB, max $(( Q_MAX / 1000 )) KB" >&2
 done
 
 # Store resolution of highest quality (first in QUALITIES array) for video metadata
@@ -174,6 +192,11 @@ for quality in "${QUALITIES[@]}"; do
     playlist_hash=$(hash_file "$NAME/playlist-hashed.m3u8")
     ln -sf "../$NAME/playlist-hashed.m3u8" "hashed/$playlist_hash"
     QUALITY_PLAYLIST_HASH["$NAME"]="$playlist_hash"
+
+    # Add playlist to quality stats (count +1, size + playlist size)
+    PLAYLIST_SIZE=$(stat -L -c%s "$NAME/playlist-hashed.m3u8")
+    QUALITY_BLOB_COUNT["$NAME"]=$((QUALITY_BLOB_COUNT["$NAME"] + 1))
+    QUALITY_TOTAL_SIZE["$NAME"]=$((QUALITY_TOTAL_SIZE["$NAME"] + PLAYLIST_SIZE))
     echo "  $NAME playlist: $playlist_hash" >&2
 done
 
@@ -257,6 +280,10 @@ echo "$VIDEO_WIDTH" > width.txt
 echo "$VIDEO_HEIGHT" > height.txt
 echo "Video resolution: ${VIDEO_WIDTH}x${VIDEO_HEIGHT}" >&2
 
+# Calculate meta stats (master playlist, preview, sprite, sprite-meta)
+META_COUNT=4
+META_SIZE=$(($(stat -L -c%s master.m3u8) + $(stat -L -c%s preview.jpg) + $(stat -L -c%s sprite.jpg) + $(stat -L -c%s sprite-meta.json)))
+
 # Calculate blob statistics
 BLOB_COUNT=$(find hashed -maxdepth 1 -type l | wc -l)
 TOTAL_SIZE=0
@@ -274,5 +301,27 @@ echo "$TOTAL_SIZE" > total_size.txt
 echo "$MAX_BLOB_SIZE" > max_blob_size.txt
 echo "Blob stats: count=$BLOB_COUNT total=${TOTAL_SIZE} bytes max=${MAX_BLOB_SIZE} bytes" >&2
 
+# Generate quality_stats.json
+{
+    echo "{"
+    echo "  \"qualities\": {"
+    first=true
+    for quality in "${QUALITIES[@]}"; do
+        read -r NAME _ _ <<< "$quality"
+        if [ "$first" = true ]; then
+            first=false
+        else
+            echo ","
+        fi
+        echo -n "    \"$NAME\": {\"count\": ${QUALITY_BLOB_COUNT["$NAME"]}, \"size\": ${QUALITY_TOTAL_SIZE["$NAME"]}, \"max\": ${QUALITY_MAX_SIZE["$NAME"]}}"
+    done
+    echo ""
+    echo "  },"
+    echo "  \"meta\": {\"count\": $META_COUNT, \"size\": $META_SIZE}"
+    echo "}"
+} > quality_stats.json
+echo "Quality stats written to quality_stats.json" >&2
+
 echo ""
 echo "$MASTER_HASH"
+cat quality_stats.json
