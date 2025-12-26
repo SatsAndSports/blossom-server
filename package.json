@@ -12,7 +12,9 @@
     "build": "tsc && cp -r src/wasm build/",
     "postbuild": "cd admin && pnpm install && pnpm build",
     "dev": "nodemon -i '**/data/**' -i '**/database.json' -i '**/database.old.json' --exec 'node' --loader @swc-node/register/esm src/index.ts",
-    "format": "prettier -w ."
+    "format": "prettier -w .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "bin": "build/index.js",
   "files": [
@@ -72,7 +74,8 @@
     "@types/ws": "^8.5.13",
     "nodemon": "^3.1.10",
     "prettier": "^3.5.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.0.16"
   },
   "packageManager": "pnpm@9.12.0"
 }

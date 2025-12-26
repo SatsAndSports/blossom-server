@@ -1,0 +1,42 @@
+import { describe, it, expect } from 'vitest';
+
+const TEST_PORT = 3099;
+const BASE_URL = `http://localhost:${TEST_PORT}`;
+
+describe('GET /channel/params', () => {
+  it('returns receiver pubkey', async () => {
+    const response = await fetch(`${BASE_URL}/channel/params`);
+    expect(response.status).toBe(200);
+
+    const data = await response.json();
+    expect(data.receiver_pubkey).toBeDefined();
+    expect(data.receiver_pubkey).toMatch(/^[0-9a-f]{66}$/); // compressed pubkey
+  });
+
+  it('returns pricing for configured units', async () => {
+    const response = await fetch(`${BASE_URL}/channel/params`);
+    const data = await response.json();
+
+    expect(data.pricing).toBeDefined();
+    expect(data.pricing.sat).toBeDefined();
+    expect(data.pricing.sat.perRequestPpk).toBe(500);
+    expect(data.pricing.sat.perMegabytePpk).toBe(1000);
+    expect(data.pricing.usd).toBeDefined();
+    expect(data.pricing.usd.perRequestPpk).toBe(100);
+    expect(data.pricing.usd.perMegabytePpk).toBe(200);
+  });
+
+  it('returns mints_units_keysets with approved mints', async () => {
+    const response = await fetch(`${BASE_URL}/channel/params`);
+    const data = await response.json();
+
+    expect(data.mints_units_keysets).toBeDefined();
+    // Should have localhost:3338 configured
+    const mintUrl = 'http://localhost:3338';
+    expect(data.mints_units_keysets[mintUrl]).toBeDefined();
+    expect(data.mints_units_keysets[mintUrl].sat).toBeDefined();
+    expect(Array.isArray(data.mints_units_keysets[mintUrl].sat)).toBe(true);
+    expect(data.mints_units_keysets[mintUrl].usd).toBeDefined();
+    expect(Array.isArray(data.mints_units_keysets[mintUrl].usd)).toBe(true);
+  });
+});
