@@ -180,6 +180,14 @@
             font-size: 12px;
             color: #888;
         }
+        .video-card-costs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            padding: 0 10px 10px;
+            font-size: 11px;
+            color: #6a6;
+        }
         #log {
             background: #0a0a0a;
             padding: 15px;
@@ -1529,6 +1537,35 @@
             return requestCost + sizeCostMB;
         }
 
+        // Calculate estimated cost for a specific quality (in sats)
+        function estimateQualityCost(video, qualityName) {
+            if (!charlie || !video.quality_stats) return null;
+            const qs = video.quality_stats;
+            const quality = qs.qualities[qualityName];
+            const meta = qs.meta;
+            if (!quality || !meta) return null;
+
+            const count = quality.count + meta.count;
+            const size = quality.size + meta.size;
+            const requestCost = count * (charlie.pricePerRequestPpk || 0) / 1000;
+            const sizeCost = (size / 1000000) * (charlie.pricePerMegabytePpk || 0) / 1000;
+            return requestCost + sizeCost;
+        }
+
+        // Build per-quality cost breakdown for tooltip
+        function buildQualityCostTooltip(video) {
+            if (!video.quality_stats) return null;
+            const qs = video.quality_stats;
+            const lines = [];
+            for (const [name, data] of Object.entries(qs.qualities)) {
+                const cost = estimateQualityCost(video, name);
+                if (cost !== null) {
+                    lines.push(`${name}: ${formatCost(cost)}`);
+                }
+            }
+            return lines.join('\n');
+        }
+
         // Format cost as sats
         function formatCost(sats) {
             if (sats === null) return null;
@@ -1601,17 +1638,24 @@
                     }
                     meta.appendChild(views);
 
-                    const cost = estimateCost(video);
-                    if (cost !== null) {
-                        const costSpan = document.createElement('span');
-                        costSpan.textContent = formatCost(cost);
-                        costSpan.title = `${video.blob_count} blobs, ${(video.total_size / 1000000).toFixed(1)} MB`;
-                        meta.appendChild(costSpan);
-                    }
-
                     card.appendChild(thumb);
                     card.appendChild(title);
                     card.appendChild(meta);
+
+                    // Show per-quality cost breakdown
+                    if (video.quality_stats) {
+                        const costs = document.createElement('div');
+                        costs.className = 'video-card-costs';
+                        for (const [name, data] of Object.entries(video.quality_stats.qualities)) {
+                            const cost = estimateQualityCost(video, name);
+                            if (cost !== null) {
+                                const row = document.createElement('span');
+                                row.textContent = `${name}: ${formatCost(cost)}`;
+                                costs.appendChild(row);
+                            }
+                        }
+                        card.appendChild(costs);
+                    }
 
                     // Sprite animation on hover
                     let spriteInterval = null;
