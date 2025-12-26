@@ -21,71 +21,52 @@ import { channel_parameters_get_channel_id, compute_shared_secret, verify_balanc
 
 const paymentLog = logger.extend("payments");
 
-// In-memory channel usage tracking
-// Map of channel_id -> { blobsServed, bytesServed, lastBalance }
-interface ChannelUsage {
-  blobsServed: number;
-  bytesServed: number;
-  lastBalance: number;  // Last balance claimed by client
+// In-memory channel state
+// Stores everything we need to verify payments for a channel
+interface ChannelState {
+  paramsJson: string;        // Channel parameters JSON
+  fundingProofsJson: string; // Funding proofs JSON
+  blobsServed: number;       // Number of blobs served
+  bytesServed: number;       // Total bytes served
+  lastBalance: number;       // Last balance claimed by client
 }
-const channelUsage: Map<string, ChannelUsage> = new Map();
+const channels: Map<string, ChannelState> = new Map();
 
-// In-memory channel params storage
-// Map of channel_id -> params JSON string
-const channelParams: Map<string, string> = new Map();
+// Get channel state (null if unknown)
+function getChannel(channelId: string): ChannelState | null {
+  return channels.get(channelId) ?? null;
+}
 
-// In-memory channel funding proofs storage
-// Map of channel_id -> funding proofs JSON string
-const channelFundingProofs: Map<string, string> = new Map();
-
-// Get usage for a channel
-function getChannelUsage(channelId: string): ChannelUsage {
-  return channelUsage.get(channelId) ?? { blobsServed: 0, bytesServed: 0, lastBalance: 0 };
+// Store channel (only if not already stored)
+function storeChannel(channelId: string, paramsJson: string, fundingProofsJson: string): void {
+  if (!channels.has(channelId)) {
+    channels.set(channelId, {
+      paramsJson,
+      fundingProofsJson,
+      blobsServed: 0,
+      bytesServed: 0,
+      lastBalance: 0,
+    });
+    paymentLog("channel=%s stored (params + funding)", channelId.substring(0, 8));
+  }
 }
 
 // Update the last balance claimed by client (only if higher than current)
 function updateChannelBalance(channelId: string, newBalance: number): void {
-  const usage = getChannelUsage(channelId);
-  if (newBalance > usage.lastBalance) {
-    channelUsage.set(channelId, { ...usage, lastBalance: newBalance });
+  const channel = channels.get(channelId);
+  if (channel && newBalance > channel.lastBalance) {
+    channel.lastBalance = newBalance;
   }
 }
 
-// Record that a blob was served to a channel (call after response is sent)
+// Record that a blob was served to a channel
 function recordBlobServed(channelId: string, size: number): void {
-  const usage = getChannelUsage(channelId);
-  channelUsage.set(channelId, {
-    ...usage,
-    blobsServed: usage.blobsServed + 1,
-    bytesServed: usage.bytesServed + size,
-  });
-  paymentLog("channel=%s served blob size=%d total: blobs=%d bytes=%d",
-    channelId.substring(0, 8), size, usage.blobsServed + 1, usage.bytesServed + size);
-}
-
-// Get params for a channel (null if unknown)
-function getChannelParams(channelId: string): string | null {
-  return channelParams.get(channelId) ?? null;
-}
-
-// Store params for a channel (only if not already stored)
-function storeChannelParams(channelId: string, paramsJson: string): void {
-  if (!channelParams.has(channelId)) {
-    channelParams.set(channelId, paramsJson);
-    paymentLog("channel=%s params stored", channelId.substring(0, 8));
-  }
-}
-
-// Get funding proofs for a channel (null if unknown)
-function getChannelFundingProofs(channelId: string): string | null {
-  return channelFundingProofs.get(channelId) ?? null;
-}
-
-// Store funding proofs for a channel (only if not already stored)
-function storeChannelFundingProofs(channelId: string, fundingProofsJson: string): void {
-  if (!channelFundingProofs.has(channelId)) {
-    channelFundingProofs.set(channelId, fundingProofsJson);
-    paymentLog("channel=%s funding proofs stored", channelId.substring(0, 8));
+  const channel = channels.get(channelId);
+  if (channel) {
+    channel.blobsServed += 1;
+    channel.bytesServed += size;
+    paymentLog("channel=%s served blob size=%d total: blobs=%d bytes=%d",
+      channelId.substring(0, 8), size, channel.blobsServed, channel.bytesServed);
   }
 }
 
@@ -136,33 +117,30 @@ router.get("/:hash", range, async (ctx, next) => {
     if (paymentHeader) {
       try {
         const payment = JSON.parse(paymentHeader);
-        const usage = getChannelUsage(payment.channel_id);
-        const hasParams = !!getChannelParams(payment.channel_id);
-        const fundingProofsJson = getChannelFundingProofs(payment.channel_id);
-        const numProofs = fundingProofsJson ? JSON.parse(fundingProofsJson).length : 0;
-        paymentLog("channel=%s balance: %d -> %d (client) served: blobs=%d bytes=%d hasParams=%s proofs=%d",
+        const channel = getChannel(payment.channel_id);
+        paymentLog("channel=%s balance: %d -> %d (client) served: blobs=%d bytes=%d known=%s",
           payment.channel_id?.substring(0, 8),
-          usage.lastBalance,
+          channel?.lastBalance ?? 0,
           payment.balance,
-          usage.blobsServed,
-          usage.bytesServed,
-          hasParams,
-          numProofs
+          channel?.blobsServed ?? 0,
+          channel?.bytesServed ?? 0,
+          !!channel
         );
 
-        // Verify signature if we have params and funding proofs (either from header or cache)
-        const paramsJsonForVerify = payment.params ? JSON.stringify(payment.params) : getChannelParams(payment.channel_id);
-        const fundingProofsForVerify = payment.funding_proofs ? JSON.stringify(payment.funding_proofs) : getChannelFundingProofs(payment.channel_id);
+        // Get params and funding proofs (from header or cache)
+        const paramsJson = payment.params ? JSON.stringify(payment.params) : channel?.paramsJson;
+        const fundingProofsJson = payment.funding_proofs ? JSON.stringify(payment.funding_proofs) : channel?.fundingProofsJson;
 
+        // Verify signature if we have params and funding proofs
         let signatureValid = false;
-        if (paramsJsonForVerify && fundingProofsForVerify && config.channel?.secretKey) {
+        if (paramsJson && fundingProofsJson && config.channel?.secretKey) {
           try {
-            const params = JSON.parse(paramsJsonForVerify);
+            const params = JSON.parse(paramsJson);
             const sharedSecret = compute_shared_secret(config.channel.secretKey, params.alice_pubkey);
             signatureValid = verify_balance_update_signature(
-              paramsJsonForVerify,
+              paramsJson,
               sharedSecret,
-              fundingProofsForVerify,
+              fundingProofsJson,
               payment.channel_id,
               BigInt(payment.balance),
               payment.signature
@@ -173,9 +151,10 @@ router.get("/:hash", range, async (ctx, next) => {
           }
         }
 
-        // Verify channel_id and store params if provided
-        if (payment.params && config.channel?.secretKey) {
+        // Store new channel if params and funding proofs provided
+        if (payment.params && payment.funding_proofs && config.channel?.secretKey) {
           const paramsJson = JSON.stringify(payment.params);
+          const fundingProofsJson = JSON.stringify(payment.funding_proofs);
           const alicePubkey = payment.params.alice_pubkey;
           const sharedSecret = compute_shared_secret(config.channel.secretKey, alicePubkey);
           const computedChannelId = channel_parameters_get_channel_id(paramsJson, sharedSecret);
@@ -186,22 +165,16 @@ router.get("/:hash", range, async (ctx, next) => {
             channelIdMatch ? "YES" : "NO"
           );
 
-          // Update balance and store params/funding proofs if channel_id is valid
           if (channelIdMatch) {
+            storeChannel(payment.channel_id, paramsJson, fundingProofsJson);
             updateChannelBalance(payment.channel_id, payment.balance);
-            storeChannelParams(payment.channel_id, paramsJson);
-            if (payment.funding_proofs) {
-              storeChannelFundingProofs(payment.channel_id, JSON.stringify(payment.funding_proofs));
-            }
-            // Record blob served after successful payment verification
             if (signatureValid) {
               recordBlobServed(payment.channel_id, storageResult.size);
             }
           }
-        } else if (payment.channel_id && getChannelParams(payment.channel_id)) {
-          // Params not in header, but we have them stored - update balance
+        } else if (channel) {
+          // Known channel, update balance
           updateChannelBalance(payment.channel_id, payment.balance);
-          // Record blob served after successful payment verification
           if (signatureValid) {
             recordBlobServed(payment.channel_id, storageResult.size);
           }
