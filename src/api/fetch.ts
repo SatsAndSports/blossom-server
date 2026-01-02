@@ -22,6 +22,223 @@ import { getKeysetKeys } from "./channel.js";
 
 const paymentLog = logger.extend("payments");
 
+// Result of payment validation - null means success
+interface PaymentError {
+  header: Record<string, any>;  // JSON for X-Cashu-Channel header
+  body: Record<string, any>;    // JSON for response body
+}
+
+// Validate a payment and return error info if invalid, null if valid
+function validatePayment(
+  paymentHeader: string | undefined,
+  blobSize: number
+): PaymentError | null {
+  // Check if channel payments are enabled
+  if (!config.channel?.enabled) {
+    return null; // Payments not required
+  }
+
+  // Check header is present and valid JSON
+  if (!paymentHeader) {
+    paymentLog("No X-Cashu-Channel header (size=%d)", blobSize);
+    return {
+      header: { error: "missing", size: blobSize },
+      body: { error: "Payment required", reason: "missing" },
+    };
+  }
+
+  let payment: any;
+  try {
+    payment = JSON.parse(paymentHeader);
+  } catch {
+    paymentLog("Invalid JSON in X-Cashu-Channel header");
+    return {
+      header: { error: "invalid JSON", size: blobSize },
+      body: { error: "Payment required", reason: "invalid JSON" },
+    };
+  }
+
+  // Check required fields
+  if (!payment.channel_id || typeof payment.channel_id !== "string") {
+    return {
+      header: { error: "missing channel_id", size: blobSize },
+      body: { error: "Payment required", reason: "missing channel_id" },
+    };
+  }
+  if (typeof payment.balance !== "number") {
+    return {
+      header: { error: "missing balance", size: blobSize },
+      body: { error: "Payment required", reason: "missing balance" },
+    };
+  }
+  if (!payment.signature || typeof payment.signature !== "string") {
+    return {
+      header: { error: "missing signature", size: blobSize },
+      body: { error: "Payment required", reason: "missing signature" },
+    };
+  }
+
+  // For new channels with params and funding proofs, validate everything first
+  // before checking any server-side caches
+  if (payment.params && payment.funding_proofs) {
+    const paramsJson = JSON.stringify(payment.params);
+    const fundingProofsJson = JSON.stringify(payment.funding_proofs);
+    const alicePubkey = payment.params.alice_pubkey;
+
+    if (!config.channel.secretKey) {
+      return {
+        header: { error: "server misconfigured", size: blobSize },
+        body: { error: "Payment required", reason: "server misconfigured" },
+      };
+    }
+
+    const sharedSecret = compute_shared_secret(config.channel.secretKey, alicePubkey);
+    const computedChannelId = channel_parameters_get_channel_id(paramsJson, sharedSecret);
+    const channelIdMatch = computedChannelId === payment.channel_id;
+    paymentLog("channel_id verify: computed=%s provided=%s match=%s",
+      computedChannelId.substring(0, 8),
+      payment.channel_id?.substring(0, 8),
+      channelIdMatch ? "YES" : "NO"
+    );
+
+    if (!channelIdMatch) {
+      return {
+        header: { error: "channel_id mismatch", size: blobSize },
+        body: { error: "Payment required", reason: "channel_id mismatch" },
+      };
+    }
+
+    // Check keyset is from approved mint
+    const mintUrl = payment.params.mint;
+    const keysetId = payment.params.keyset_id;
+    const cachedKeys = getKeysetKeys(mintUrl, keysetId);
+
+    if (!cachedKeys) {
+      paymentLog("channel validation FAILED: keyset %s not from approved mint %s", keysetId, mintUrl);
+      return {
+        header: { error: "keyset not from approved mint", size: blobSize, mint: mintUrl, keyset_id: keysetId },
+        body: { error: "Payment required", reason: "keyset not from approved mint" },
+      };
+    }
+
+    // Build keyset info for verification
+    const keysetInfo = {
+      keysetId: keysetId,
+      keys: cachedKeys,
+      inputFeePpk: payment.params.input_fee_ppk || 0,
+    };
+
+    // Run full channel verification (DLEQ, keyset ID match)
+    try {
+      const verificationResultJson = verify_channel(
+        paramsJson,
+        sharedSecret,
+        fundingProofsJson,
+        JSON.stringify(keysetInfo)
+      );
+      const verificationResult = JSON.parse(verificationResultJson);
+      paymentLog("channel validation: valid=%s errors=%d", verificationResult.valid, verificationResult.errors.length);
+
+      if (!verificationResult.valid) {
+        paymentLog("channel validation FAILED: %s", JSON.stringify(verificationResult.errors));
+        return {
+          header: { error: "channel validation failed", size: blobSize, validation_errors: verificationResult.errors },
+          body: { error: "Payment required", reason: "channel validation failed", details: verificationResult.errors },
+        };
+      }
+    } catch (e) {
+      paymentLog("channel validation ERROR: %s", (e as Error).message);
+      return {
+        header: { error: "channel validation error", size: blobSize, message: (e as Error).message },
+        body: { error: "Payment required", reason: "channel validation error" },
+      };
+    }
+
+    // Verify signature
+    let signatureValid = false;
+    try {
+      signatureValid = verify_balance_update_signature(
+        paramsJson,
+        sharedSecret,
+        fundingProofsJson,
+        payment.channel_id,
+        BigInt(payment.balance),
+        payment.signature
+      );
+      paymentLog("signature verify: %s", signatureValid ? "VALID" : "INVALID");
+    } catch (e) {
+      paymentLog("signature verify: ERROR - %s", (e as Error).message);
+    }
+
+    if (!signatureValid) {
+      return {
+        header: { error: "invalid signature", size: blobSize },
+        body: { error: "Payment required", reason: "invalid signature" },
+      };
+    }
+
+    // Channel is valid, store it
+    storeChannel(payment.channel_id, paramsJson, fundingProofsJson);
+    updateChannelBalance(payment.channel_id, payment.balance);
+    recordBlobServed(payment.channel_id, blobSize);
+
+    return null; // Success
+  }
+
+  // No params/funding_proofs provided - check if this is a known channel
+  // (Only now do we check server-side caches)
+  const channel = getChannel(payment.channel_id);
+  paymentLog("channel=%s balance: %d -> %d (client) served: blobs=%d bytes=%d known=%s",
+    payment.channel_id?.substring(0, 8),
+    channel?.lastBalance ?? 0,
+    payment.balance,
+    channel?.blobsServed ?? 0,
+    channel?.bytesServed ?? 0,
+    !!channel
+  );
+
+  if (!channel) {
+    // Unknown channel and no params/funding_proofs provided
+    return {
+      header: { error: "unknown channel", size: blobSize },
+      body: { error: "Payment required", reason: "unknown channel - provide params and funding_proofs" },
+    };
+  }
+
+  // Known channel - verify signature and update balance
+  const paramsJson = channel.paramsJson;
+  const fundingProofsJson = channel.fundingProofsJson;
+  const params = JSON.parse(paramsJson);
+  const sharedSecret = compute_shared_secret(config.channel.secretKey, params.alice_pubkey);
+
+  let signatureValid = false;
+  try {
+    signatureValid = verify_balance_update_signature(
+      paramsJson,
+      sharedSecret,
+      fundingProofsJson,
+      payment.channel_id,
+      BigInt(payment.balance),
+      payment.signature
+    );
+    paymentLog("signature verify: %s", signatureValid ? "VALID" : "INVALID");
+  } catch (e) {
+    paymentLog("signature verify: ERROR - %s", (e as Error).message);
+  }
+
+  if (!signatureValid) {
+    return {
+      header: { error: "invalid signature", size: blobSize },
+      body: { error: "Payment required", reason: "invalid signature" },
+    };
+  }
+
+  updateChannelBalance(payment.channel_id, payment.balance);
+  recordBlobServed(payment.channel_id, blobSize);
+
+  return null; // Success
+}
+
 // In-memory channel state
 // Stores everything we need to verify payments for a channel
 interface ChannelState {
@@ -109,181 +326,13 @@ router.get("/:hash", range, async (ctx, next) => {
       incrementVideoViews(search.hash);
     }
 
-    // Process payment header if present (now we know blob size)
-    // Check if channel payments are enabled
-    if (config.channel?.enabled) {
-      // Validate the payment header
-      let payment: any = null;
-      let headerError: string | null = null;
-
-      if (!paymentHeader) {
-        headerError = "missing";
-        paymentLog("No X-Cashu-Channel header for hash %s (size=%d)", hash, storageResult.size);
-      } else {
-        try {
-          payment = JSON.parse(paymentHeader);
-          // Check required fields
-          if (!payment.channel_id || typeof payment.channel_id !== "string") {
-            headerError = "missing channel_id";
-          } else if (typeof payment.balance !== "number") {
-            headerError = "missing balance";
-          } else if (!payment.signature || typeof payment.signature !== "string") {
-            headerError = "missing signature";
-          }
-        } catch {
-          headerError = "invalid JSON";
-          paymentLog("Invalid JSON in X-Cashu-Channel header");
-        }
-      }
-
-      // Return 402 if header is missing or invalid
-      if (headerError) {
-        ctx.status = 402;
-        ctx.set("X-Cashu-Channel", JSON.stringify({
-          error: headerError,
-          size: storageResult.size,
-        }));
-        ctx.body = { error: "Payment required", reason: headerError };
-        return;
-      }
-    }
-
-    if (paymentHeader) {
-      try {
-        const payment = JSON.parse(paymentHeader);
-        const channel = getChannel(payment.channel_id);
-        paymentLog("channel=%s balance: %d -> %d (client) served: blobs=%d bytes=%d known=%s",
-          payment.channel_id?.substring(0, 8),
-          channel?.lastBalance ?? 0,
-          payment.balance,
-          channel?.blobsServed ?? 0,
-          channel?.bytesServed ?? 0,
-          !!channel
-        );
-
-        // Get params and funding proofs (from header or cache)
-        const paramsJson = payment.params ? JSON.stringify(payment.params) : channel?.paramsJson;
-        const fundingProofsJson = payment.funding_proofs ? JSON.stringify(payment.funding_proofs) : channel?.fundingProofsJson;
-
-        // Verify signature if we have params and funding proofs
-        let signatureValid = false;
-        if (paramsJson && fundingProofsJson && config.channel?.secretKey) {
-          try {
-            const params = JSON.parse(paramsJson);
-            const sharedSecret = compute_shared_secret(config.channel.secretKey, params.alice_pubkey);
-            signatureValid = verify_balance_update_signature(
-              paramsJson,
-              sharedSecret,
-              fundingProofsJson,
-              payment.channel_id,
-              BigInt(payment.balance),
-              payment.signature
-            );
-            paymentLog("signature verify: %s", signatureValid ? "VALID" : "INVALID");
-          } catch (e) {
-            paymentLog("signature verify: ERROR - %s", (e as Error).message);
-          }
-        }
-
-        // Store new channel if params and funding proofs provided
-        if (payment.params && payment.funding_proofs && config.channel?.secretKey) {
-          const paramsJson = JSON.stringify(payment.params);
-          const fundingProofsJson = JSON.stringify(payment.funding_proofs);
-          const alicePubkey = payment.params.alice_pubkey;
-          const sharedSecret = compute_shared_secret(config.channel.secretKey, alicePubkey);
-          const computedChannelId = channel_parameters_get_channel_id(paramsJson, sharedSecret);
-          const channelIdMatch = computedChannelId === payment.channel_id;
-          paymentLog("channel_id verify: computed=%s provided=%s match=%s",
-            computedChannelId.substring(0, 8),
-            payment.channel_id?.substring(0, 8),
-            channelIdMatch ? "YES" : "NO"
-          );
-
-          if (!channelIdMatch) {
-            ctx.status = 402;
-            ctx.set("X-Cashu-Channel", JSON.stringify({
-              error: "channel_id mismatch",
-              size: storageResult.size,
-            }));
-            ctx.body = { error: "Payment required", reason: "channel_id mismatch" };
-            return;
-          }
-
-          // Validate the channel: check keyset is from approved mint and verify DLEQ
-          const mintUrl = payment.params.mint;
-          const keysetId = payment.params.keyset_id;
-          const cachedKeys = getKeysetKeys(mintUrl, keysetId);
-
-          if (!cachedKeys) {
-            paymentLog("channel validation FAILED: keyset %s not from approved mint %s", keysetId, mintUrl);
-            ctx.status = 402;
-            ctx.set("X-Cashu-Channel", JSON.stringify({
-              error: "keyset not from approved mint",
-              size: storageResult.size,
-              mint: mintUrl,
-              keyset_id: keysetId,
-            }));
-            ctx.body = { error: "Payment required", reason: "keyset not from approved mint" };
-            return;
-          }
-
-          // Build keyset info for verification
-          const keysetInfo = {
-            keysetId: keysetId,
-            keys: cachedKeys,
-            inputFeePpk: payment.params.input_fee_ppk || 0,
-          };
-
-          // Run full channel verification (DLEQ, keyset ID match)
-          try {
-            const verificationResultJson = verify_channel(
-              paramsJson,
-              sharedSecret,
-              fundingProofsJson,
-              JSON.stringify(keysetInfo)
-            );
-            const verificationResult = JSON.parse(verificationResultJson);
-            paymentLog("channel validation: valid=%s errors=%d", verificationResult.valid, verificationResult.errors.length);
-
-            if (!verificationResult.valid) {
-              paymentLog("channel validation FAILED: %s", JSON.stringify(verificationResult.errors));
-              ctx.status = 402;
-              ctx.set("X-Cashu-Channel", JSON.stringify({
-                error: "channel validation failed",
-                size: storageResult.size,
-                validation_errors: verificationResult.errors,
-              }));
-              ctx.body = { error: "Payment required", reason: "channel validation failed", details: verificationResult.errors };
-              return;
-            }
-          } catch (e) {
-            paymentLog("channel validation ERROR: %s", (e as Error).message);
-            ctx.status = 402;
-            ctx.set("X-Cashu-Channel", JSON.stringify({
-              error: "channel validation error",
-              size: storageResult.size,
-              message: (e as Error).message,
-            }));
-            ctx.body = { error: "Payment required", reason: "channel validation error" };
-            return;
-          }
-
-          // Channel is valid, store it
-          storeChannel(payment.channel_id, paramsJson, fundingProofsJson);
-          updateChannelBalance(payment.channel_id, payment.balance);
-          if (signatureValid) {
-            recordBlobServed(payment.channel_id, storageResult.size);
-          }
-        } else if (channel) {
-          // Known channel, update balance
-          updateChannelBalance(payment.channel_id, payment.balance);
-          if (signatureValid) {
-            recordBlobServed(payment.channel_id, storageResult.size);
-          }
-        }
-      } catch (e) {
-        paymentLog("hash=%s invalid payment header: %s", hash.substring(0, 8), paymentHeader);
-      }
+    // Validate payment
+    const paymentError = validatePayment(paymentHeader, storageResult.size);
+    if (paymentError) {
+      ctx.status = 402;
+      ctx.set("X-Cashu-Channel", JSON.stringify(paymentError.header));
+      ctx.body = paymentError.body;
+      return;
     }
 
     const redirect = getStorageRedirect(storageResult);
