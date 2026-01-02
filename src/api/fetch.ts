@@ -109,11 +109,44 @@ router.get("/:hash", range, async (ctx, next) => {
     }
 
     // Process payment header if present (now we know blob size)
-    if (!paymentHeader) {
-      paymentLog("=======================================================");
-      paymentLog("WARNING: No payment for hash %s (size=%d)", hash, storageResult.size);
-      paymentLog("=======================================================");
+    // Check if channel payments are enabled
+    if (config.channel?.enabled) {
+      // Validate the payment header
+      let payment: any = null;
+      let headerError: string | null = null;
+
+      if (!paymentHeader) {
+        headerError = "missing";
+        paymentLog("No X-Cashu-Channel header for hash %s (size=%d)", hash, storageResult.size);
+      } else {
+        try {
+          payment = JSON.parse(paymentHeader);
+          // Check required fields
+          if (!payment.channel_id || typeof payment.channel_id !== "string") {
+            headerError = "missing channel_id";
+          } else if (typeof payment.balance !== "number") {
+            headerError = "missing balance";
+          } else if (!payment.signature || typeof payment.signature !== "string") {
+            headerError = "missing signature";
+          }
+        } catch {
+          headerError = "invalid JSON";
+          paymentLog("Invalid JSON in X-Cashu-Channel header");
+        }
+      }
+
+      // Return 402 if header is missing or invalid
+      if (headerError) {
+        ctx.status = 402;
+        ctx.set("X-Cashu-Channel", JSON.stringify({
+          error: headerError,
+          size: storageResult.size,
+        }));
+        ctx.body = { error: "Payment required", reason: headerError };
+        return;
+      }
     }
+
     if (paymentHeader) {
       try {
         const payment = JSON.parse(paymentHeader);
