@@ -273,4 +273,67 @@ describe('New channel payment', () => {
     expect(fetched.equals(content)).toBe(true);
     console.log('Got 200 with payment, blob content verified ✓');
   });
+
+  it('returns 402 when DLEQ proof is tampered', async () => {
+    // Step 1: Upload a blob
+    const { content, hash } = generateBlob();
+    const uploadRes = await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+    expect(uploadRes.status).toBe(200);
+    console.log(`Uploaded blob: ${hash.substring(0, 16)}... (${content.length} bytes)`);
+
+    // Step 2: Mint a funded channel
+    const channel = await mintFundedChannel();
+    console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
+
+    // Step 3: Tamper with a DLEQ proof
+    const tamperedProofs = JSON.parse(JSON.stringify(channel.proofs));
+    const originalE = tamperedProofs[0].dleq.e;
+    tamperedProofs[0].dleq.e = originalE.slice(0, -1) + (originalE.slice(-1) === 'a' ? 'b' : 'a');
+    console.log(`Tampered DLEQ e: ${originalE.substring(0, 16)}... -> ${tamperedProofs[0].dleq.e.substring(0, 16)}...`);
+
+    // Step 4: Create a balance update with tampered proofs
+    const balance = 1;
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(tamperedProofs),
+      BigInt(balance)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    // Step 5: Request the blob with tampered payment
+    const paymentHeader = JSON.stringify({
+      channel_id: balanceUpdate.channel_id,
+      balance: balanceUpdate.amount,
+      signature: balanceUpdate.signature,
+      params: channel.channelParams,
+      funding_proofs: tamperedProofs,
+    });
+
+    const response = await fetch(`${BASE_URL}/${hash}`, {
+      headers: {
+        'X-Cashu-Channel': paymentHeader,
+      },
+    });
+
+    console.log(`Response status: ${response.status}`);
+    expect(response.status).toBe(402);
+
+    // Check the error details
+    const channelHeader = response.headers.get('X-Cashu-Channel');
+    expect(channelHeader).toBeDefined();
+    const headerData = JSON.parse(channelHeader!);
+    console.log(`X-Cashu-Channel: ${JSON.stringify(headerData)}`);
+
+    expect(headerData.error).toBe('channel validation failed');
+    expect(headerData.validation_errors).toBeDefined();
+    expect(headerData.validation_errors.length).toBeGreaterThan(0);
+    expect(headerData.validation_errors[0].type).toBe('InvalidDleq');
+    console.log('Tampered DLEQ rejected with 402 ✓');
+  });
 });

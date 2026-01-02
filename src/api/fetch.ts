@@ -17,7 +17,8 @@ import { updateBlobAccess } from "../db/methods.js";
 import { blobDB, masterHashCache, incrementVideoViews } from "../db/db.js";
 import logger from "../logger.js";
 import { log, router } from "./router.js";
-import { channel_parameters_get_channel_id, compute_shared_secret, verify_balance_update_signature } from "../wasm/cdk_wasm.js";
+import { channel_parameters_get_channel_id, compute_shared_secret, verify_balance_update_signature, verify_channel } from "../wasm/cdk_wasm.js";
+import { getKeysetKeys } from "./channel.js";
 
 const paymentLog = logger.extend("payments");
 
@@ -198,12 +199,80 @@ router.get("/:hash", range, async (ctx, next) => {
             channelIdMatch ? "YES" : "NO"
           );
 
-          if (channelIdMatch) {
-            storeChannel(payment.channel_id, paramsJson, fundingProofsJson);
-            updateChannelBalance(payment.channel_id, payment.balance);
-            if (signatureValid) {
-              recordBlobServed(payment.channel_id, storageResult.size);
+          if (!channelIdMatch) {
+            ctx.status = 402;
+            ctx.set("X-Cashu-Channel", JSON.stringify({
+              error: "channel_id mismatch",
+              size: storageResult.size,
+            }));
+            ctx.body = { error: "Payment required", reason: "channel_id mismatch" };
+            return;
+          }
+
+          // Validate the channel: check keyset is from approved mint and verify DLEQ
+          const mintUrl = payment.params.mint;
+          const keysetId = payment.params.keyset_id;
+          const cachedKeys = getKeysetKeys(mintUrl, keysetId);
+
+          if (!cachedKeys) {
+            paymentLog("channel validation FAILED: keyset %s not from approved mint %s", keysetId, mintUrl);
+            ctx.status = 402;
+            ctx.set("X-Cashu-Channel", JSON.stringify({
+              error: "keyset not from approved mint",
+              size: storageResult.size,
+              mint: mintUrl,
+              keyset_id: keysetId,
+            }));
+            ctx.body = { error: "Payment required", reason: "keyset not from approved mint" };
+            return;
+          }
+
+          // Build keyset info for verification
+          const keysetInfo = {
+            keysetId: keysetId,
+            keys: cachedKeys,
+            inputFeePpk: payment.params.input_fee_ppk || 0,
+          };
+
+          // Run full channel verification (DLEQ, keyset ID match)
+          try {
+            const verificationResultJson = verify_channel(
+              paramsJson,
+              sharedSecret,
+              fundingProofsJson,
+              JSON.stringify(keysetInfo)
+            );
+            const verificationResult = JSON.parse(verificationResultJson);
+            paymentLog("channel validation: valid=%s errors=%d", verificationResult.valid, verificationResult.errors.length);
+
+            if (!verificationResult.valid) {
+              paymentLog("channel validation FAILED: %s", JSON.stringify(verificationResult.errors));
+              ctx.status = 402;
+              ctx.set("X-Cashu-Channel", JSON.stringify({
+                error: "channel validation failed",
+                size: storageResult.size,
+                validation_errors: verificationResult.errors,
+              }));
+              ctx.body = { error: "Payment required", reason: "channel validation failed", details: verificationResult.errors };
+              return;
             }
+          } catch (e) {
+            paymentLog("channel validation ERROR: %s", (e as Error).message);
+            ctx.status = 402;
+            ctx.set("X-Cashu-Channel", JSON.stringify({
+              error: "channel validation error",
+              size: storageResult.size,
+              message: (e as Error).message,
+            }));
+            ctx.body = { error: "Payment required", reason: "channel validation error" };
+            return;
+          }
+
+          // Channel is valid, store it
+          storeChannel(payment.channel_id, paramsJson, fundingProofsJson);
+          updateChannelBalance(payment.channel_id, payment.balance);
+          if (signatureValid) {
+            recordBlobServed(payment.channel_id, storageResult.size);
           }
         } else if (channel) {
           // Known channel, update balance
