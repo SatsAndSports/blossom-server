@@ -337,3 +337,86 @@ describe('New channel payment', () => {
     console.log('Tampered DLEQ rejected with 402 ✓');
   });
 });
+
+describe('Payment header validation', () => {
+  it('returns 402 for invalid or missing header fields', async () => {
+    // Upload a blob to test against
+    const { content, hash } = generateBlob();
+    const uploadRes = await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+    expect(uploadRes.status).toBe(200);
+
+    const testCases = [
+      {
+        name: 'invalid JSON',
+        header: 'not valid json {{{',
+        expectedError: 'invalid JSON',
+      },
+      {
+        name: 'missing channel_id',
+        header: JSON.stringify({ balance: 1, signature: 'abc123' }),
+        expectedError: 'invalid or missing channel_id',
+      },
+      {
+        name: 'empty channel_id',
+        header: JSON.stringify({ channel_id: '', balance: 1, signature: 'abc123' }),
+        expectedError: 'invalid or missing channel_id',
+      },
+      {
+        name: 'non-string channel_id',
+        header: JSON.stringify({ channel_id: 12345, balance: 1, signature: 'abc123' }),
+        expectedError: 'invalid or missing channel_id',
+      },
+      {
+        name: 'missing balance',
+        header: JSON.stringify({ channel_id: 'abc123', signature: 'def456' }),
+        expectedError: 'invalid or missing balance',
+      },
+      {
+        name: 'non-number balance',
+        header: JSON.stringify({ channel_id: 'abc123', balance: 'not a number', signature: 'def456' }),
+        expectedError: 'invalid or missing balance',
+      },
+      {
+        name: 'NaN balance',
+        header: JSON.stringify({ channel_id: 'abc123', balance: NaN, signature: 'def456' }),
+        expectedError: 'invalid or missing balance',
+      },
+      {
+        name: 'missing signature',
+        header: JSON.stringify({ channel_id: 'abc123', balance: 1 }),
+        expectedError: 'invalid or missing signature',
+      },
+      {
+        name: 'empty signature',
+        header: JSON.stringify({ channel_id: 'abc123', balance: 1, signature: '' }),
+        expectedError: 'invalid or missing signature',
+      },
+      {
+        name: 'non-string signature',
+        header: JSON.stringify({ channel_id: 'abc123', balance: 1, signature: 12345 }),
+        expectedError: 'invalid or missing signature',
+      },
+    ];
+
+    for (const tc of testCases) {
+      const response = await fetch(`${BASE_URL}/${hash}`, {
+        headers: { 'X-Cashu-Channel': tc.header },
+      });
+
+      expect(response.status, `${tc.name}: expected 402`).toBe(402);
+
+      const channelHeader = response.headers.get('X-Cashu-Channel');
+      expect(channelHeader, `${tc.name}: expected X-Cashu-Channel header`).toBeDefined();
+
+      const headerData = JSON.parse(channelHeader!);
+      expect(headerData.error, `${tc.name}: wrong error`).toBe(tc.expectedError);
+      expect(headerData.size, `${tc.name}: expected size`).toBe(content.length);
+
+      console.log(`${tc.name}: 402 with error="${headerData.error}" ✓`);
+    }
+  });
+});

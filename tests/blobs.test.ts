@@ -29,25 +29,6 @@ describe('Blob operations', () => {
     expect(data.size).toBe(content.length);
   });
 
-  // TODO: Re-enable once we have payment header support in this test
-  it.skip('GET fetches an uploaded blob', async () => {
-    const { content, hash } = generateBlob();
-
-    // Upload first
-    await fetch(`${BASE_URL}/upload`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: content,
-    });
-
-    // Fetch it back
-    const response = await fetch(`${BASE_URL}/${hash}`);
-    expect(response.status).toBe(200);
-
-    const fetched = Buffer.from(await response.arrayBuffer());
-    expect(fetched.equals(content)).toBe(true);
-  });
-
   it('GET returns 402 when no payment header provided', async () => {
     const { content, hash } = generateBlob();
 
