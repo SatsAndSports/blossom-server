@@ -206,6 +206,41 @@ function validatePayment(
     };
   }
 
+  // Check balance covers usage + this request
+  const params = JSON.parse(funding.paramsJson);
+  const unit = params.unit;
+  const pricing = config.channel.pricing[unit];
+  if (!pricing) {
+    paymentLog("no pricing for unit=%s", unit);
+    return {
+      header: { error: "unsupported unit", size: blobSize, unit },
+      body: { error: "Payment required", reason: "unsupported unit" },
+    };
+  }
+
+  // Get existing usage (defaults to zero for new channels)
+  const usage = channelUsage.get(payment.channel_id);
+  const previousBlobs = usage?.blobsServed ?? 0;
+  const previousBytes = usage?.bytesServed ?? 0;
+
+  // Compute total due including this request
+  const totalBlobs = previousBlobs + 1;
+  const totalBytes = previousBytes + blobSize;
+  const totalMegabytes = totalBytes / 1_000_000;
+  const amountDue = Math.ceil(
+    (totalBlobs * pricing.perRequestPpk + totalMegabytes * pricing.perMegabytePpk) / 1000
+  );
+
+  paymentLog("channel=%s usage: blobs=%d bytes=%d amountDue=%d balance=%d",
+    payment.channel_id.substring(0, 8), totalBlobs, totalBytes, amountDue, payment.balance);
+
+  if (payment.balance < amountDue) {
+    return {
+      header: { error: "insufficient balance", size: blobSize, amount_due: amountDue, balance: payment.balance },
+      body: { error: "Payment required", reason: "insufficient balance", amount_due: amountDue },
+    };
+  }
+
   return { channelId: payment.channel_id, balance: payment.balance, signature: payment.signature };
 }
 
