@@ -22,17 +22,27 @@ import { getKeysetKeys } from "./channel.js";
 
 const paymentLog = logger.extend("payments");
 
-// Result of payment validation - null means success
+// Result of payment validation
 interface PaymentError {
   header: Record<string, any>;  // JSON for X-Cashu-Channel header
   body: Record<string, any>;    // JSON for response body
 }
 
-// Validate a payment and return error info if invalid, null if valid
+interface ValidPayment {
+  channelId: string;
+  balance: number;
+}
+
+function isPaymentError(result: PaymentError | ValidPayment | null): result is PaymentError {
+  return result !== null && 'header' in result;
+}
+
+// Validate a payment and return error info if invalid, or valid payment info if successful
+// Returns null if payments are not required
 function validatePayment(
   paymentHeader: string | undefined,
   blobSize: number
-): PaymentError | null {
+): PaymentError | ValidPayment | null {
   // Check if channel payments are enabled
   if (!config.channel?.enabled) {
     return null; // Payments not required
@@ -59,27 +69,27 @@ function validatePayment(
   }
 
   // Check required fields
-  if (!payment.channel_id || typeof payment.channel_id !== "string") {
+  if (typeof payment.channel_id !== "string" || !payment.channel_id) {
     return {
-      header: { error: "missing channel_id", size: blobSize },
-      body: { error: "Payment required", reason: "missing channel_id" },
+      header: { error: "invalid or missing channel_id", size: blobSize },
+      body: { error: "Payment required", reason: "invalid or missing channel_id" },
     };
   }
-  if (typeof payment.balance !== "number") {
+  if (typeof payment.balance !== "number" || Number.isNaN(payment.balance)) {
     return {
-      header: { error: "missing balance", size: blobSize },
-      body: { error: "Payment required", reason: "missing balance" },
+      header: { error: "invalid or missing balance", size: blobSize },
+      body: { error: "Payment required", reason: "invalid or missing balance" },
     };
   }
-  if (!payment.signature || typeof payment.signature !== "string") {
+  if (typeof payment.signature !== "string" || !payment.signature) {
     return {
-      header: { error: "missing signature", size: blobSize },
-      body: { error: "Payment required", reason: "missing signature" },
+      header: { error: "invalid or missing signature", size: blobSize },
+      body: { error: "Payment required", reason: "invalid or missing signature" },
     };
   }
 
-  // For new channels with params and funding proofs, validate everything first
-  // before checking any server-side caches
+  // If params and funding proofs are provided, validate and cache them
+  // (clients may include these on any request, not just the first)
   if (payment.params && payment.funding_proofs) {
     const paramsJson = JSON.stringify(payment.params);
     const fundingProofsJson = JSON.stringify(payment.funding_proofs);
@@ -154,74 +164,31 @@ function validatePayment(
       };
     }
 
-    // Verify signature
-    let signatureValid = false;
-    try {
-      signatureValid = verify_balance_update_signature(
-        paramsJson,
-        sharedSecret,
-        fundingProofsJson,
-        payment.channel_id,
-        BigInt(payment.balance),
-        payment.signature
-      );
-      paymentLog("signature verify: %s", signatureValid ? "VALID" : "INVALID");
-    } catch (e) {
-      paymentLog("signature verify: ERROR - %s", (e as Error).message);
-    }
-
-    if (!signatureValid) {
-      return {
-        header: { error: "invalid signature", size: blobSize },
-        body: { error: "Payment required", reason: "invalid signature" },
-      };
-    }
-
-    // Channel is valid - store in both places
+    // Channel funding is valid - cache it
     channelFunding.insert(payment.channel_id, {
       paramsJson,
       fundingProofsJson,
       sharedSecret,
+      secretKey: config.channel.secretKey,
     });
-    storeChannel(payment.channel_id, paramsJson, fundingProofsJson);
-    updateChannelBalance(payment.channel_id, payment.balance);
-    recordBlobServed(payment.channel_id, blobSize);
-
-    return null; // Success
   }
 
-  // No params/funding_proofs provided - check if this is a known channel
-  // (Only now do we check server-side caches)
-  const channel = getChannel(payment.channel_id);
-  paymentLog("channel=%s balance: %d -> %d (client) served: blobs=%d bytes=%d known=%s",
-    payment.channel_id?.substring(0, 8),
-    channel?.lastBalance ?? 0,
-    payment.balance,
-    channel?.blobsServed ?? 0,
-    channel?.bytesServed ?? 0,
-    !!channel
-  );
-
-  if (!channel) {
-    // Unknown channel and no params/funding_proofs provided
+  // Look up cached funding (either just inserted above, or from a previous request)
+  const funding = channelFunding.get(payment.channel_id);
+  if (!funding) {
     return {
       header: { error: "unknown channel", size: blobSize },
       body: { error: "Payment required", reason: "unknown channel - provide params and funding_proofs" },
     };
   }
 
-  // Known channel - verify signature and update balance
-  const paramsJson = channel.paramsJson;
-  const fundingProofsJson = channel.fundingProofsJson;
-  const params = JSON.parse(paramsJson);
-  const sharedSecret = compute_shared_secret(config.channel.secretKey, params.alice_pubkey);
-
+  // Verify signature
   let signatureValid = false;
   try {
     signatureValid = verify_balance_update_signature(
-      paramsJson,
-      sharedSecret,
-      fundingProofsJson,
+      funding.paramsJson,
+      funding.sharedSecret,
+      funding.fundingProofsJson,
       payment.channel_id,
       BigInt(payment.balance),
       payment.signature
@@ -238,10 +205,7 @@ function validatePayment(
     };
   }
 
-  updateChannelBalance(payment.channel_id, payment.balance);
-  recordBlobServed(payment.channel_id, blobSize);
-
-  return null; // Success
+  return { channelId: payment.channel_id, balance: payment.balance };
 }
 
 // ============================================================================
@@ -254,6 +218,7 @@ interface ChannelFundingData {
   paramsJson: string;
   fundingProofsJson: string;
   sharedSecret: string;
+  secretKey: string;  // Server's secret key used for this channel
 }
 
 // In-memory implementation (can be swapped for on-disk later)
@@ -273,54 +238,47 @@ const channelFunding = {
 };
 
 // ============================================================================
-// In-memory channel state
-// Stores everything we need to verify payments for a channel
-interface ChannelState {
-  paramsJson: string;        // Channel parameters JSON
-  fundingProofsJson: string; // Funding proofs JSON
-  blobsServed: number;       // Number of blobs served
-  bytesServed: number;       // Total bytes served
-  lastBalance: number;       // Last balance claimed by client
-}
-const channels: Map<string, ChannelState> = new Map();
+// Channel Counters Store
+// Mutable counters for tracking channel usage (separate from immutable funding data)
+// ============================================================================
 
-// Get channel state (null if unknown)
-function getChannel(channelId: string): ChannelState | null {
-  return channels.get(channelId) ?? null;
+interface ChannelCounters {
+  blobsServed: number;
+  bytesServed: number;
+  lastBalance: number;
 }
 
-// Store channel (only if not already stored)
-function storeChannel(channelId: string, paramsJson: string, fundingProofsJson: string): void {
-  if (!channels.has(channelId)) {
-    channels.set(channelId, {
-      paramsJson,
-      fundingProofsJson,
-      blobsServed: 0,
-      bytesServed: 0,
-      lastBalance: 0,
-    });
-    paymentLog("channel=%s stored (params + funding)", channelId.substring(0, 8));
-  }
-}
+const channelCountersStore = new Map<string, ChannelCounters>();
 
-// Update the last balance claimed by client (only if higher than current)
-function updateChannelBalance(channelId: string, newBalance: number): void {
-  const channel = channels.get(channelId);
-  if (channel && newBalance > channel.lastBalance) {
-    channel.lastBalance = newBalance;
-  }
-}
+const channelCounters = {
+  get(channelId: string): ChannelCounters | null {
+    return channelCountersStore.get(channelId) ?? null;
+  },
 
-// Record that a blob was served to a channel
-function recordBlobServed(channelId: string, size: number): void {
-  const channel = channels.get(channelId);
-  if (channel) {
-    channel.blobsServed += 1;
-    channel.bytesServed += size;
+  getOrCreate(channelId: string): ChannelCounters {
+    let counters = channelCountersStore.get(channelId);
+    if (!counters) {
+      counters = { blobsServed: 0, bytesServed: 0, lastBalance: 0 };
+      channelCountersStore.set(channelId, counters);
+    }
+    return counters;
+  },
+
+  updateBalance(channelId: string, newBalance: number): void {
+    const counters = this.getOrCreate(channelId);
+    if (newBalance > counters.lastBalance) {
+      counters.lastBalance = newBalance;
+    }
+  },
+
+  recordBlobServed(channelId: string, size: number): void {
+    const counters = this.getOrCreate(channelId);
+    counters.blobsServed += 1;
+    counters.bytesServed += size;
     paymentLog("channel=%s served blob size=%d total: blobs=%d bytes=%d",
-      channelId.substring(0, 8), size, channel.blobsServed, channel.bytesServed);
-  }
-}
+      channelId.substring(0, 8), size, counters.blobsServed, counters.bytesServed);
+  },
+};
 
 router.get("/:hash", range, async (ctx, next) => {
   const paymentHeader = ctx.headers["x-cashu-channel"] as string | undefined;
@@ -361,12 +319,18 @@ router.get("/:hash", range, async (ctx, next) => {
     }
 
     // Validate payment
-    const paymentError = validatePayment(paymentHeader, storageResult.size);
-    if (paymentError) {
+    const paymentResult = validatePayment(paymentHeader, storageResult.size);
+    if (isPaymentError(paymentResult)) {
       ctx.status = 402;
-      ctx.set("X-Cashu-Channel", JSON.stringify(paymentError.header));
-      ctx.body = paymentError.body;
+      ctx.set("X-Cashu-Channel", JSON.stringify(paymentResult.header));
+      ctx.body = paymentResult.body;
       return;
+    }
+
+    // Update counters if payment was validated
+    if (paymentResult) {
+      channelCounters.updateBalance(paymentResult.channelId, paymentResult.balance);
+      channelCounters.recordBlobServed(paymentResult.channelId, storageResult.size);
     }
 
     const redirect = getStorageRedirect(storageResult);
