@@ -420,3 +420,130 @@ describe('Payment header validation', () => {
     }
   });
 });
+
+describe('Channel validation errors', () => {
+  it('returns 402 when channel_id does not match params', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint a funded channel
+    const channel = await mintFundedChannel();
+
+    // Create a valid balance update
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(1)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    // Tamper with the channel_id (flip last character)
+    const tamperedChannelId = balanceUpdate.channel_id.slice(0, -1) +
+      (balanceUpdate.channel_id.slice(-1) === 'a' ? 'b' : 'a');
+
+    const paymentHeader = JSON.stringify({
+      channel_id: tamperedChannelId,
+      balance: balanceUpdate.amount,
+      signature: balanceUpdate.signature,
+      params: channel.channelParams,
+      funding_proofs: channel.proofs,
+    });
+
+    const response = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+
+    expect(response.status).toBe(402);
+    const headerData = JSON.parse(response.headers.get('X-Cashu-Channel')!);
+    expect(headerData.error).toBe('channel_id mismatch');
+    console.log('channel_id mismatch: 402 ✓');
+  });
+
+  it('returns 402 when keyset is not from approved mint', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint a funded channel
+    const channel = await mintFundedChannel();
+
+    // Tamper with keyset_id in params
+    const tamperedParams = { ...channel.channelParams, keyset_id: '00deadbeef123456' };
+    const tamperedParamsJson = JSON.stringify(tamperedParams);
+
+    // Recompute channel_id with tampered params (so it passes channel_id check)
+    const tamperedChannelId = channel_parameters_get_channel_id(
+      tamperedParamsJson,
+      channel.sharedSecret
+    );
+
+    const paymentHeader = JSON.stringify({
+      channel_id: tamperedChannelId,
+      balance: 1,
+      signature: 'fake_signature',  // Won't get this far anyway
+      params: tamperedParams,
+      funding_proofs: channel.proofs,
+    });
+
+    const response = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+
+    expect(response.status).toBe(402);
+    const headerData = JSON.parse(response.headers.get('X-Cashu-Channel')!);
+    expect(headerData.error).toBe('keyset not from approved mint');
+    console.log('keyset not from approved mint: 402 ✓');
+  });
+
+  it('returns 402 when signature does not match balance', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint a funded channel
+    const channel = await mintFundedChannel();
+
+    // Create a valid balance update for balance=1
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(1)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    // Send with balance=2 but signature for balance=1
+    const paymentHeader = JSON.stringify({
+      channel_id: balanceUpdate.channel_id,
+      balance: 2,  // Wrong balance!
+      signature: balanceUpdate.signature,  // Signature is for balance=1
+      params: channel.channelParams,
+      funding_proofs: channel.proofs,
+    });
+
+    const response = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+
+    expect(response.status).toBe(402);
+    const headerData = JSON.parse(response.headers.get('X-Cashu-Channel')!);
+    expect(headerData.error).toBe('invalid signature');
+    console.log('invalid signature (balance mismatch): 402 ✓');
+  });
+});
