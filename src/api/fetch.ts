@@ -342,6 +342,37 @@ const channelUsage = {
   },
 };
 
+// ============================================================================
+// Exported getters for channel status endpoint
+// ============================================================================
+
+export interface ChannelStatus {
+  channel_id: string;
+  capacity: number;
+  balance: number;
+  blobs_served: number;
+  bytes_served: number;
+}
+
+export function getChannelStatus(channelId: string): ChannelStatus | null {
+  const funding = channelFunding.get(channelId);
+  if (!funding) {
+    return null;
+  }
+
+  const params = JSON.parse(funding.paramsJson);
+  const balance = channelBalance.get(channelId);
+  const usage = channelUsage.get(channelId);
+
+  return {
+    channel_id: channelId,
+    capacity: params.capacity,
+    balance: balance?.balance ?? 0,
+    blobs_served: usage?.blobsServed ?? 0,
+    bytes_served: usage?.bytesServed ?? 0,
+  };
+}
+
 router.get("/:hash", range, async (ctx, next) => {
   const paymentHeader = ctx.headers["x-cashu-channel"] as string | undefined;
   paymentLog("request path=%s hasPayment=%s", ctx.path, !!paymentHeader);

@@ -547,3 +547,87 @@ describe('Channel validation errors', () => {
     console.log('invalid signature (balance mismatch): 402 ✓');
   });
 });
+
+describe('Channel status endpoint', () => {
+  it('returns status with zeroes before payment, then updated after payment', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint a funded channel
+    const channel = await mintFundedChannel();
+
+    // Create a balance update to establish the channel (but don't fetch a blob yet)
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(1)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    const paymentHeader = JSON.stringify({
+      channel_id: balanceUpdate.channel_id,
+      balance: balanceUpdate.amount,
+      signature: balanceUpdate.signature,
+      params: channel.channelParams,
+      funding_proofs: channel.proofs,
+    });
+
+    // Make a paid request to establish the channel
+    const blobResponse = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+    expect(blobResponse.status).toBe(200);
+
+    // Check status after first payment
+    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    expect(statusResponse.status).toBe(200);
+
+    const status = await statusResponse.json();
+    expect(status.channel_id).toBe(channel.channelId);
+    expect(status.capacity).toBe(channel.capacity);
+    expect(status.balance).toBe(1);
+    expect(status.blobs_served).toBe(1);
+    expect(status.bytes_served).toBe(content.length);
+
+    console.log(`Channel status after payment: capacity=${status.capacity} balance=${status.balance} blobs=${status.blobs_served} bytes=${status.bytes_served} ✓`);
+
+    // Make another request for the same blob with balance=2
+    const balanceUpdate2Json = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(2)
+    );
+    const balanceUpdate2 = JSON.parse(balanceUpdate2Json);
+
+    const paymentHeader2 = JSON.stringify({
+      channel_id: balanceUpdate2.channel_id,
+      balance: balanceUpdate2.amount,
+      signature: balanceUpdate2.signature,
+      // No need to send params/funding_proofs again - server has them cached
+    });
+
+    const blobResponse2 = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader2 },
+    });
+    expect(blobResponse2.status).toBe(200);
+
+    // Check updated status
+    const statusResponse2 = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const status2 = await statusResponse2.json();
+
+    expect(status2.balance).toBe(2);
+    expect(status2.blobs_served).toBe(2);
+    expect(status2.bytes_served).toBe(content.length * 2);
+
+    console.log(`Channel status after 2nd payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} ✓`);
+  });
+});

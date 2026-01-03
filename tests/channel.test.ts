@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { randomBytes } from 'crypto';
 
 const TEST_PORT = 3099;
 const BASE_URL = `http://localhost:${TEST_PORT}`;
@@ -38,5 +39,15 @@ describe('GET /channel/params', () => {
     expect(Array.isArray(data.mints_units_keysets[mintUrl].sat)).toBe(true);
     expect(data.mints_units_keysets[mintUrl].usd).toBeDefined();
     expect(Array.isArray(data.mints_units_keysets[mintUrl].usd)).toBe(true);
+  });
+});
+
+describe('GET /channel/:channel_id/status', () => {
+  it('returns 404 for unknown channel', async () => {
+    const fakeChannelId = randomBytes(32).toString('hex');
+    const response = await fetch(`${BASE_URL}/channel/${fakeChannelId}/status`);
+    expect(response.status).toBe(404);
+    const data = await response.json();
+    expect(data.error).toBe('unknown channel');
   });
 });

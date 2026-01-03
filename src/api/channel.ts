@@ -2,6 +2,7 @@ import * as secp from "@noble/secp256k1";
 import { config } from "../config.js";
 import { router } from "./router.js";
 import logger from "../logger.js";
+import { getChannelStatus } from "./fetch.js";
 
 const log = logger.extend("channel-mint-setup");
 
@@ -171,4 +172,23 @@ router.get("/channel/params", async (ctx) => {
     pricing: config.channel.pricing,
     mints_units_keysets: mintsUnitsKeysetIds,
   };
+});
+
+router.get("/channel/:channel_id/status", async (ctx) => {
+  if (!config.channel.enabled) {
+    ctx.status = 404;
+    ctx.body = { error: "Channel payments not enabled" };
+    return;
+  }
+
+  const channelId = ctx.params.channel_id;
+  const status = getChannelStatus(channelId);
+
+  if (!status) {
+    ctx.status = 404;
+    ctx.body = { error: "unknown channel" };
+    return;
+  }
+
+  ctx.body = status;
 });
