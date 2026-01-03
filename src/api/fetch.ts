@@ -177,7 +177,12 @@ function validatePayment(
       };
     }
 
-    // Channel is valid, store it
+    // Channel is valid - store in both places
+    channelFunding.insert(payment.channel_id, {
+      paramsJson,
+      fundingProofsJson,
+      sharedSecret,
+    });
     storeChannel(payment.channel_id, paramsJson, fundingProofsJson);
     updateChannelBalance(payment.channel_id, payment.balance);
     recordBlobServed(payment.channel_id, blobSize);
@@ -239,6 +244,35 @@ function validatePayment(
   return null; // Success
 }
 
+// ============================================================================
+// Channel Funding Store
+// Immutable data about a channel that has been validated (DLEQ verified, etc.)
+// This is stored separately so we can skip re-validation for known channels.
+// ============================================================================
+
+interface ChannelFundingData {
+  paramsJson: string;
+  fundingProofsJson: string;
+  sharedSecret: string;
+}
+
+// In-memory implementation (can be swapped for on-disk later)
+const channelFundingStore = new Map<string, ChannelFundingData>();
+
+const channelFunding = {
+  get(channelId: string): ChannelFundingData | null {
+    return channelFundingStore.get(channelId) ?? null;
+  },
+
+  insert(channelId: string, data: ChannelFundingData): void {
+    if (!channelFundingStore.has(channelId)) {
+      channelFundingStore.set(channelId, data);
+      paymentLog("channelFunding: inserted channel=%s", channelId.substring(0, 8));
+    }
+  },
+};
+
+// ============================================================================
 // In-memory channel state
 // Stores everything we need to verify payments for a channel
 interface ChannelState {
