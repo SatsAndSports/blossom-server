@@ -630,4 +630,73 @@ describe('Channel status endpoint', () => {
 
     console.log(`Channel status after 2nd payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} ✓`);
   });
+
+  it('does not update status when payment fails', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint a funded channel
+    const channel = await mintFundedChannel();
+
+    // Create a balance update and make a successful payment
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(1)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    const paymentHeader = JSON.stringify({
+      channel_id: balanceUpdate.channel_id,
+      balance: balanceUpdate.amount,
+      signature: balanceUpdate.signature,
+      params: channel.channelParams,
+      funding_proofs: channel.proofs,
+    });
+
+    const blobResponse = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+    expect(blobResponse.status).toBe(200);
+
+    // Check status after first payment
+    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const status = await statusResponse.json();
+    expect(status.balance).toBe(1);
+    expect(status.blobs_served).toBe(1);
+    expect(status.bytes_served).toBe(content.length);
+    console.log(`Channel status after payment: balance=${status.balance} blobs=${status.blobs_served} bytes=${status.bytes_served} ✓`);
+
+    // Attempt a second request with wrong balance (signature is for balance=1, but we send balance=2)
+    const paymentHeader2 = JSON.stringify({
+      channel_id: balanceUpdate.channel_id,
+      balance: 2,  // Wrong! Signature is for balance=1
+      signature: balanceUpdate.signature,
+    });
+
+    const blobResponse2 = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader2 },
+    });
+    expect(blobResponse2.status).toBe(402);
+    const errorData = JSON.parse(blobResponse2.headers.get('X-Cashu-Channel')!);
+    expect(errorData.error).toBe('invalid signature');
+    console.log(`Failed payment rejected: ${errorData.error} ✓`);
+
+    // Check status has NOT changed
+    const statusResponse2 = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const status2 = await statusResponse2.json();
+
+    expect(status2.balance).toBe(1);  // Still 1, not 2
+    expect(status2.blobs_served).toBe(1);  // Still 1, not 2
+    expect(status2.bytes_served).toBe(content.length);  // Still same
+
+    console.log(`Channel status unchanged after failed payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} ✓`);
+  });
 });
