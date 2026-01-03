@@ -38,11 +38,36 @@ function isPaymentError(result: PaymentError | ValidPayment | null): result is P
   return result !== null && 'header' in result;
 }
 
+// Data types for channel stores
+interface ChannelFundingData {
+  paramsJson: string;
+  fundingProofsJson: string;
+  sharedSecret: string;
+  secretKey: string;  // Server's secret key used for this channel
+}
+
+interface ChannelUsage {
+  blobsServed: number;
+  bytesServed: number;
+}
+
+// Store interfaces for dependency injection
+interface FundingStore {
+  get(channelId: string): ChannelFundingData | null;
+  insert(channelId: string, data: ChannelFundingData): void;
+}
+
+interface UsageStore {
+  get(channelId: string): ChannelUsage | null;
+}
+
 // Validate a payment and return error info if invalid, or valid payment info if successful
 // Returns null if payments are not required
 function validatePayment(
   paymentHeader: string | undefined,
-  blobSize: number
+  blobSize: number,
+  fundingStore: FundingStore,
+  usageStore: UsageStore
 ): PaymentError | ValidPayment | null {
   // Check if channel payments are enabled
   if (!config.channel?.enabled) {
@@ -166,7 +191,7 @@ function validatePayment(
     }
 
     // Channel funding is valid - cache it
-    channelFunding.insert(payment.channel_id, {
+    fundingStore.insert(payment.channel_id, {
       paramsJson,
       fundingProofsJson,
       sharedSecret,
@@ -175,7 +200,7 @@ function validatePayment(
   }
 
   // Look up cached funding (either just inserted above, or from a previous request)
-  const funding = channelFunding.get(payment.channel_id);
+  const funding = fundingStore.get(payment.channel_id);
   if (!funding) {
     return {
       header: { error: "unknown channel", size: blobSize },
@@ -219,7 +244,7 @@ function validatePayment(
   }
 
   // Get existing usage (defaults to zero for new channels)
-  const usage = channelUsage.get(payment.channel_id);
+  const usage = usageStore.get(payment.channel_id);
   const previousBlobs = usage?.blobsServed ?? 0;
   const previousBytes = usage?.bytesServed ?? 0;
 
@@ -250,14 +275,6 @@ function validatePayment(
 // This is stored separately so we can skip re-validation for known channels.
 // ============================================================================
 
-interface ChannelFundingData {
-  paramsJson: string;
-  fundingProofsJson: string;
-  sharedSecret: string;
-  secretKey: string;  // Server's secret key used for this channel
-}
-
-// In-memory implementation (can be swapped for on-disk later)
 const channelFundingStore = new Map<string, ChannelFundingData>();
 
 const channelFunding = {
@@ -304,11 +321,6 @@ const channelBalance = {
 // Channel Usage Store
 // Tracks blobs and bytes served per channel (for analytics/logging)
 // ============================================================================
-
-interface ChannelUsage {
-  blobsServed: number;
-  bytesServed: number;
-}
 
 const channelUsageStore = new Map<string, ChannelUsage>();
 
@@ -369,7 +381,7 @@ router.get("/:hash", range, async (ctx, next) => {
     }
 
     // Validate payment
-    const paymentResult = validatePayment(paymentHeader, storageResult.size);
+    const paymentResult = validatePayment(paymentHeader, storageResult.size, channelFunding, channelUsage);
     if (isPaymentError(paymentResult)) {
       ctx.status = 402;
       ctx.set("X-Cashu-Channel", JSON.stringify(paymentResult.header));
