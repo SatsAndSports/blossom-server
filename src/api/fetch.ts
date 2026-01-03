@@ -31,6 +31,7 @@ interface PaymentError {
 interface ValidPayment {
   channelId: string;
   balance: number;
+  signature: string;
 }
 
 function isPaymentError(result: PaymentError | ValidPayment | null): result is PaymentError {
@@ -205,7 +206,7 @@ function validatePayment(
     };
   }
 
-  return { channelId: payment.channel_id, balance: payment.balance };
+  return { channelId: payment.channel_id, balance: payment.balance, signature: payment.signature };
 }
 
 // ============================================================================
@@ -238,45 +239,59 @@ const channelFunding = {
 };
 
 // ============================================================================
-// Channel Counters Store
-// Mutable counters for tracking channel usage (separate from immutable funding data)
+// Channel Balance Store
+// Tracks the last known balance and signature for each channel
 // ============================================================================
 
-interface ChannelCounters {
-  blobsServed: number;
-  bytesServed: number;
-  lastBalance: number;
+interface ChannelBalance {
+  balance: number;
+  signature: string;
 }
 
-const channelCountersStore = new Map<string, ChannelCounters>();
+const channelBalanceStore = new Map<string, ChannelBalance>();
 
-const channelCounters = {
-  get(channelId: string): ChannelCounters | null {
-    return channelCountersStore.get(channelId) ?? null;
+const channelBalance = {
+  get(channelId: string): ChannelBalance | null {
+    return channelBalanceStore.get(channelId) ?? null;
   },
 
-  getOrCreate(channelId: string): ChannelCounters {
-    let counters = channelCountersStore.get(channelId);
-    if (!counters) {
-      counters = { blobsServed: 0, bytesServed: 0, lastBalance: 0 };
-      channelCountersStore.set(channelId, counters);
+  update(channelId: string, balance: number, signature: string): void {
+    const current = channelBalanceStore.get(channelId);
+    if (!current || balance > current.balance) {
+      channelBalanceStore.set(channelId, { balance, signature });
+      paymentLog("channel=%s balance updated: %d -> %d",
+        channelId.substring(0, 8), current?.balance ?? 0, balance);
     }
-    return counters;
   },
+};
 
-  updateBalance(channelId: string, newBalance: number): void {
-    const counters = this.getOrCreate(channelId);
-    if (newBalance > counters.lastBalance) {
-      counters.lastBalance = newBalance;
-    }
+// ============================================================================
+// Channel Usage Store
+// Tracks blobs and bytes served per channel (for analytics/logging)
+// ============================================================================
+
+interface ChannelUsage {
+  blobsServed: number;
+  bytesServed: number;
+}
+
+const channelUsageStore = new Map<string, ChannelUsage>();
+
+const channelUsage = {
+  get(channelId: string): ChannelUsage | null {
+    return channelUsageStore.get(channelId) ?? null;
   },
 
   recordBlobServed(channelId: string, size: number): void {
-    const counters = this.getOrCreate(channelId);
-    counters.blobsServed += 1;
-    counters.bytesServed += size;
+    let usage = channelUsageStore.get(channelId);
+    if (!usage) {
+      usage = { blobsServed: 0, bytesServed: 0 };
+      channelUsageStore.set(channelId, usage);
+    }
+    usage.blobsServed += 1;
+    usage.bytesServed += size;
     paymentLog("channel=%s served blob size=%d total: blobs=%d bytes=%d",
-      channelId.substring(0, 8), size, counters.blobsServed, counters.bytesServed);
+      channelId.substring(0, 8), size, usage.blobsServed, usage.bytesServed);
   },
 };
 
@@ -327,10 +342,10 @@ router.get("/:hash", range, async (ctx, next) => {
       return;
     }
 
-    // Update counters if payment was validated
+    // Update stores if payment was validated
     if (paymentResult) {
-      channelCounters.updateBalance(paymentResult.channelId, paymentResult.balance);
-      channelCounters.recordBlobServed(paymentResult.channelId, storageResult.size);
+      channelBalance.update(paymentResult.channelId, paymentResult.balance, paymentResult.signature);
+      channelUsage.recordBlobServed(paymentResult.channelId, storageResult.size);
     }
 
     const redirect = getStorageRedirect(storageResult);
