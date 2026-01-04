@@ -666,6 +666,63 @@ describe('Channel validation errors', () => {
     expect(headerData.error).toBe('invalid signature');
     console.log('invalid signature (balance mismatch): 402 ✓');
   });
+
+  it('returns 402 when balance exceeds capacity', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint a funded channel (capacity = 100)
+    const channel = await mintFundedChannel('sat');
+    console.log(`Channel capacity: ${channel.capacity}`);
+
+    // First, establish the channel with a valid payment
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(1)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    // Establish channel with valid payment
+    const establishRes = await fetch(`${BASE_URL}/${hash}`, {
+      headers: {
+        'X-Cashu-Channel': JSON.stringify({
+          channel_id: balanceUpdate.channel_id,
+          balance: balanceUpdate.amount,
+          signature: balanceUpdate.signature,
+          params: channel.channelParams,
+          funding_proofs: channel.proofs,
+        }),
+      },
+    });
+    expect(establishRes.status).toBe(200);
+
+    // Now send a request with balance exceeding capacity (fake signature is fine
+    // because capacity check happens before signature verification)
+    const paymentHeader = JSON.stringify({
+      channel_id: channel.channelId,
+      balance: 101,  // Exceeds capacity of 100
+      signature: 'fake_signature',
+    });
+
+    const response = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+
+    expect(response.status).toBe(402);
+    const headerData = JSON.parse(response.headers.get('X-Cashu-Channel')!);
+    expect(headerData.error).toBe('balance exceeds capacity');
+    expect(headerData.capacity).toBe(100);
+    expect(headerData.balance).toBe(101);
+    console.log('balance exceeds capacity: 402 ✓');
+  });
 });
 
 describe('Channel status endpoint', () => {

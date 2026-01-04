@@ -208,6 +208,17 @@ function validatePayment(
     };
   }
 
+  // Parse params for validation checks
+  const params = JSON.parse(funding.paramsJson);
+
+  // Check balance doesn't exceed capacity
+  if (payment.balance > params.capacity) {
+    return {
+      header: { error: "balance exceeds capacity", size: blobSize, capacity: params.capacity, balance: payment.balance },
+      body: { error: "Payment required", reason: "balance exceeds capacity", capacity: params.capacity },
+    };
+  }
+
   // Verify signature
   let signatureValid = false;
   try {
@@ -232,7 +243,6 @@ function validatePayment(
   }
 
   // Check balance covers usage + this request
-  const params = JSON.parse(funding.paramsJson);
   const unit = params.unit;
   const pricing = config.channel.pricing[unit];
   if (!pricing) {
