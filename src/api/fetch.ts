@@ -358,8 +358,30 @@ function validatePayment(
 
   if (payment.balance < amountDue) {
     return {
-      header: { error: "insufficient balance", size: blobSize, amount_due: amountDue, balance: payment.balance },
-      body: { error: "Payment required", reason: "insufficient balance", amount_due: amountDue },
+      header: {
+        error: "insufficient balance",
+        size: blobSize,
+        amount_due: amountDue,
+        balance: payment.balance,
+        // Debug info: usage and pricing
+        total_blobs: totalBlobs,
+        total_bytes: totalBytes,
+        pricing: {
+          per_request_ppk: pricing.perRequestPpk,
+          per_megabyte_ppk: pricing.perMegabytePpk,
+        },
+      },
+      body: {
+        error: "Payment required",
+        reason: "insufficient balance",
+        amount_due: amountDue,
+        total_blobs: totalBlobs,
+        total_bytes: totalBytes,
+        pricing: {
+          per_request_ppk: pricing.perRequestPpk,
+          per_megabyte_ppk: pricing.perMegabytePpk,
+        },
+      },
     };
   }
 
