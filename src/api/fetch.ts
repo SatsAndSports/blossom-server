@@ -75,6 +75,39 @@ export function calculateAmountDue(
   );
 }
 
+// Resolve full keysetInfo from startup cache or channel funding cache
+// Returns null if keyset is not available from either source
+function getFullKeysetInfo(
+  mintUrl: string,
+  keysetId: string,
+  unit: string,
+  inputFeePpk: number,
+  channelId: string,
+  fundingStore: FundingStore
+): any | null {
+  const cachedKeys = getKeysetKeys(mintUrl, keysetId);
+
+  if (cachedKeys) {
+    // Build from startup cache
+    return {
+      keysetId,
+      unit,
+      keys: cachedKeys,
+      inputFeePpk,
+      amounts: Object.keys(cachedKeys).map(Number).sort((a, b) => b - a),
+    };
+  }
+
+  // Keyset rotated out - try channel funding cache
+  const existingFunding = fundingStore.get(channelId);
+  if (existingFunding) {
+    paymentLog("Using cached keysetInfo for rotated keyset %s", keysetId);
+    return JSON.parse(existingFunding.keysetInfoJson);
+  }
+
+  return null;
+}
+
 // Validate a payment and return error info if invalid, or valid payment info if successful
 // Returns null if payments are not required
 function validatePayment(
@@ -158,28 +191,25 @@ function validatePayment(
       };
     }
 
-    // Check keyset is from approved mint
+    // Resolve keysetInfo from startup cache or channel funding cache
     const mintUrl = payment.params.mint;
     const keysetId = payment.params.keyset_id;
-    const cachedKeys = getKeysetKeys(mintUrl, keysetId);
+    const keysetInfo = getFullKeysetInfo(
+      mintUrl,
+      keysetId,
+      payment.params.unit,
+      payment.params.input_fee_ppk || 0,
+      payment.channel_id,
+      fundingStore
+    );
 
-    if (!cachedKeys) {
+    if (!keysetInfo) {
       paymentLog("channel validation FAILED: keyset %s not from approved mint %s", keysetId, mintUrl);
       return {
         header: { error: "keyset not from approved mint", size: blobSize, mint: mintUrl, keyset_id: keysetId },
         body: { error: "Payment required", reason: "keyset not from approved mint" },
       };
     }
-
-    // Build complete keyset info for verification and storage
-    const unit = payment.params.unit;
-    const keysetInfo = {
-      keysetId: keysetId,
-      unit: unit,
-      keys: cachedKeys,
-      inputFeePpk: payment.params.input_fee_ppk || 0,
-      amounts: Object.keys(cachedKeys).map(Number).sort((a, b) => b - a),
-    };
 
     // Run full channel verification (DLEQ, keyset ID match)
     try {
