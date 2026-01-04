@@ -57,17 +57,19 @@ async function fetchKeysetInfo(mintUrl: string, keysetId: string): Promise<any> 
 }
 
 // Helper to mint a funded channel - returns everything needed to make payments
-async function mintFundedChannel() {
+async function mintFundedChannel(unit: string) {
   // Get channel params from server
   const paramsRes = await fetch(`${BASE_URL}/channel/params`);
   const serverParams = await paramsRes.json();
   const charliePubkey = serverParams.receiver_pubkey;
 
-  // Get first available mint and keyset
+  // Get keyset for the specified unit
   const mintUrl = Object.keys(serverParams.mints_units_keysets)[0];
-  const units = serverParams.mints_units_keysets[mintUrl];
-  const unit = Object.keys(units)[0];
-  const keysetId = units[unit][0];
+  const unitKeysets = serverParams.mints_units_keysets[mintUrl][unit];
+  if (!unitKeysets || unitKeysets.length === 0) {
+    throw new Error(`No keyset found for unit "${unit}" at ${mintUrl}`);
+  }
+  const keysetId = unitKeysets[0];
 
   // Generate Alice's keypair
   const alice = generateKeypair();
@@ -177,7 +179,7 @@ describe('New channel payment', () => {
     console.log(`Uploaded blob: ${hash.substring(0, 16)}... (${content.length} bytes)`);
 
     // Step 2: Mint a funded channel
-    const channel = await mintFundedChannel();
+    const channel = await mintFundedChannel('sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
     console.log(`Channel capacity: ${channel.capacity} sats`);
 
@@ -217,6 +219,57 @@ describe('New channel payment', () => {
     console.log('Blob content verified ✓');
   });
 
+  it('accepts valid payment with usd channel', async () => {
+    // Step 1: Upload a blob
+    const { content, hash } = generateBlob();
+    const uploadRes = await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+    expect(uploadRes.status).toBe(200);
+    console.log(`Uploaded blob: ${hash.substring(0, 16)}... (${content.length} bytes)`);
+
+    // Step 2: Mint a funded channel with USD
+    const channel = await mintFundedChannel('usd');
+    console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
+    console.log(`Channel unit: ${channel.channelParams.unit}`);
+
+    // Step 3: Create a balance update (paying 1 cent for this request)
+    const balance = 1;
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(balance)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+    console.log(`Signed balance update: balance=${balanceUpdate.amount}, sig=${balanceUpdate.signature.substring(0, 16)}...`);
+
+    // Step 4: Request the blob with payment header
+    const paymentHeader = JSON.stringify({
+      channel_id: balanceUpdate.channel_id,
+      balance: balanceUpdate.amount,
+      signature: balanceUpdate.signature,
+      params: channel.channelParams,
+      funding_proofs: channel.proofs,
+    });
+
+    const response = await fetch(`${BASE_URL}/${hash}`, {
+      headers: {
+        'X-Cashu-Channel': paymentHeader,
+      },
+    });
+
+    console.log(`Response status: ${response.status}`);
+
+    expect(response.status).toBe(200);
+    const fetched = Buffer.from(await response.arrayBuffer());
+    expect(fetched.equals(content)).toBe(true);
+    console.log('USD channel payment accepted ✓');
+  });
+
   it('returns 402 without payment, then 200 with valid payment', async () => {
     // Step 1: Upload a blob
     const { content, hash } = generateBlob();
@@ -239,7 +292,7 @@ describe('New channel payment', () => {
     console.log(`Got 402 without payment ✓ (size=${headerData.size})`);
 
     // Step 3: Mint a funded channel
-    const channel = await mintFundedChannel();
+    const channel = await mintFundedChannel('sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Step 4: Create a balance update
@@ -286,7 +339,7 @@ describe('New channel payment', () => {
     console.log(`Uploaded blob: ${hash.substring(0, 16)}... (${content.length} bytes)`);
 
     // Step 2: Mint a funded channel
-    const channel = await mintFundedChannel();
+    const channel = await mintFundedChannel('sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Step 3: Tamper with a DLEQ proof
@@ -432,7 +485,7 @@ describe('Channel validation errors', () => {
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel();
+    const channel = await mintFundedChannel('sat');
 
     // Create a valid balance update
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
@@ -476,7 +529,7 @@ describe('Channel validation errors', () => {
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel();
+    const channel = await mintFundedChannel('sat');
 
     // Tamper with keyset_id in params
     const tamperedParams = { ...channel.channelParams, keyset_id: '00deadbeef123456' };
@@ -516,7 +569,7 @@ describe('Channel validation errors', () => {
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel();
+    const channel = await mintFundedChannel('sat');
 
     // Create a valid balance update for balance=1
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
@@ -559,7 +612,7 @@ describe('Channel status endpoint', () => {
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel();
+    const channel = await mintFundedChannel('sat');
 
     // Create a balance update to establish the channel (but don't fetch a blob yet)
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
@@ -641,7 +694,7 @@ describe('Channel status endpoint', () => {
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel();
+    const channel = await mintFundedChannel('sat');
 
     // Create a balance update and make a successful payment
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
