@@ -44,6 +44,7 @@ interface ChannelFundingData {
   fundingProofsJson: string;
   sharedSecret: string;
   secretKey: string;  // Server's secret key used for this channel
+  keysetInfoJson: string;  // Complete keyset info (keysetId, unit, keys, inputFeePpk, amounts)
 }
 
 interface ChannelUsage {
@@ -170,11 +171,14 @@ function validatePayment(
       };
     }
 
-    // Build keyset info for verification
+    // Build complete keyset info for verification and storage
+    const unit = payment.params.unit;
     const keysetInfo = {
       keysetId: keysetId,
+      unit: unit,
       keys: cachedKeys,
       inputFeePpk: payment.params.input_fee_ppk || 0,
+      amounts: Object.keys(cachedKeys).map(Number).sort((a, b) => b - a),
     };
 
     // Run full channel verification (DLEQ, keyset ID match)
@@ -209,6 +213,7 @@ function validatePayment(
       fundingProofsJson,
       sharedSecret,
       secretKey: config.channel.secretKey,
+      keysetInfoJson: JSON.stringify(keysetInfo),
     });
   }
 
