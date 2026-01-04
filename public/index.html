@@ -1060,9 +1060,24 @@
                 return channelRequestCounts.get(this.channelId) || 0;
             }
 
-            // Balance owed is the request count (1 sat per request)
+            // Balance owed based on request count and current pricing
+            // Uses globalMaxBlobSize to estimate worst-case per-megabyte cost
             get balance() {
-                return this.requestCount;
+                const pricing = getCurrentPricing();
+                if (!pricing || !pricing.perRequestPpk) {
+                    // Fallback: assume 1 unit per request if pricing unknown
+                    return this.requestCount;
+                }
+                // Calculate per-request cost
+                const requestCost = this.requestCount * pricing.perRequestPpk;
+                // Calculate per-megabyte cost using global max blob size (worst case per request)
+                let sizeCost = 0;
+                if (globalMaxBlobSize && pricing.perMegabytePpk) {
+                    const maxMegabytes = globalMaxBlobSize / 1_000_000;
+                    sizeCost = this.requestCount * maxMegabytes * pricing.perMegabytePpk;
+                }
+                // Total in ppk, convert to units: ceil((requestCost + sizeCost) / 1000)
+                return Math.ceil((requestCost + sizeCost) / 1000);
             }
 
             // Create payment header for a segment (sync for HLS.js xhrSetup)
@@ -1255,6 +1270,8 @@
             if (!currentChannel) {
                 throw new Error('No payment channel available');
             }
+            // Increment request count before creating payment
+            incrementChannelRequestCount(currentChannel.channelId, currentServer + '/' + hash);
             const response = await fetch(currentServer + '/' + hash, {
                 headers: { 'X-Cashu-Channel': createPayment() }
             });
@@ -1290,6 +1307,10 @@
 
         // Current video title (for display)
         let currentVideoTitle = null;
+
+        // Global max blob size across all videos (for payment calculation)
+        // Set once when video list loads, used for worst-case cost estimation
+        let globalMaxBlobSize = null;
 
         // Update quality selector with current level
         function updateQualityLabel(levelIndex) {
@@ -1367,6 +1388,22 @@
                             xhr.addEventListener('load', function() {
                                 if (xhr.status >= 200 && xhr.status < 300) {
                                     channelsSentParams.add(channelId);
+                                } else if (xhr.status === 402) {
+                                    // Log 402 details for debugging
+                                    try {
+                                        const errorBody = JSON.parse(xhr.responseText);
+                                        log(`402 Payment Required: ${errorBody.reason}`, 'error');
+                                        if (errorBody.amount_due !== undefined) {
+                                            log(`  amount_due=${errorBody.amount_due}, balance=${currentChannel.balance}`, 'error');
+                                        }
+                                        // Also log the X-Cashu-Channel response header
+                                        const channelHeader = xhr.getResponseHeader('X-Cashu-Channel');
+                                        if (channelHeader) {
+                                            log(`  header: ${channelHeader}`, 'error');
+                                        }
+                                    } catch (e) {
+                                        log(`402 response: ${xhr.responseText}`, 'error');
+                                    }
                                 }
                             });
                         }
@@ -1686,6 +1723,12 @@
                 if (data.videos.length === 0) {
                     listDiv.innerHTML = '<em>No videos available</em>';
                     return;
+                }
+
+                // Calculate global max blob size across all videos for payment estimation
+                globalMaxBlobSize = Math.max(...data.videos.map(v => v.max_blob_size || 0));
+                if (globalMaxBlobSize > 0) {
+                    log(`Max blob size across all videos: ${(globalMaxBlobSize / 1_000_000).toFixed(2)} MB`);
                 }
 
                 for (const video of data.videos) {
