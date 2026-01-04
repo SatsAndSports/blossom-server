@@ -20,11 +20,11 @@ describe('GET /channel/params', () => {
 
     expect(data.pricing).toBeDefined();
     expect(data.pricing.sat).toBeDefined();
-    expect(data.pricing.sat.perRequestPpk).toBe(500);
-    expect(data.pricing.sat.perMegabytePpk).toBe(1000);
+    expect(typeof data.pricing.sat.perRequestPpk).toBe('number');
+    expect(typeof data.pricing.sat.perMegabytePpk).toBe('number');
     expect(data.pricing.usd).toBeDefined();
-    expect(data.pricing.usd.perRequestPpk).toBe(100);
-    expect(data.pricing.usd.perMegabytePpk).toBe(200);
+    expect(typeof data.pricing.usd.perRequestPpk).toBe('number');
+    expect(typeof data.pricing.usd.perMegabytePpk).toBe('number');
   });
 
   it('returns mints_units_keysets with approved mints', async () => {

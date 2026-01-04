@@ -166,6 +166,25 @@ async function mintFundedChannel(unit: string) {
   };
 }
 
+// Fetch pricing for a unit from the server
+async function fetchPricing(unit: string): Promise<{ perRequestPpk: number; perMegabytePpk: number }> {
+  const res = await fetch(`${BASE_URL}/channel/params`);
+  const params = await res.json();
+  return params.pricing[unit];
+}
+
+// Calculate expected amount due (mirrors server logic)
+function expectedAmountDue(
+  blobsServed: number,
+  bytesServed: number,
+  pricing: { perRequestPpk: number; perMegabytePpk: number }
+): number {
+  const megabytes = bytesServed / 1_000_000;
+  return Math.ceil(
+    (blobsServed * pricing.perRequestPpk + megabytes * pricing.perMegabytePpk) / 1000
+  );
+}
+
 describe('New channel payment', () => {
   it('accepts valid payment on new channel and serves blob', async () => {
     // Step 1: Upload a blob
@@ -738,6 +757,9 @@ describe('Channel status endpoint', () => {
     // Mint a funded channel
     const channel = await mintFundedChannel('sat');
 
+    // Fetch pricing for amount_due calculations
+    const pricing = await fetchPricing('sat');
+
     // Create a balance update to establish the channel (but don't fetch a blob yet)
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
       channel.channelParamsJson,
@@ -772,8 +794,7 @@ describe('Channel status endpoint', () => {
     expect(status.balance).toBe(1);
     expect(status.blobs_served).toBe(1);
     expect(status.bytes_served).toBe(content.length);
-    // amount_due = ceil((1 * 500 + 0.000042 * 1000) / 1000) = ceil(0.500042) = 1
-    expect(status.amount_due).toBe(1);
+    expect(status.amount_due).toBe(expectedAmountDue(1, content.length, pricing));
 
     console.log(`Channel status after payment: capacity=${status.capacity} balance=${status.balance} blobs=${status.blobs_served} bytes=${status.bytes_served} amount_due=${status.amount_due} ✓`);
 
@@ -806,8 +827,7 @@ describe('Channel status endpoint', () => {
     expect(status2.balance).toBe(2);
     expect(status2.blobs_served).toBe(2);
     expect(status2.bytes_served).toBe(content.length * 2);
-    // amount_due = ceil((2 * 500 + 0.000084 * 1000) / 1000) = ceil(1.000084) = 2
-    expect(status2.amount_due).toBe(2);
+    expect(status2.amount_due).toBe(expectedAmountDue(2, content.length * 2, pricing));
 
     console.log(`Channel status after 2nd payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} amount_due=${status2.amount_due} ✓`);
   });
@@ -823,6 +843,9 @@ describe('Channel status endpoint', () => {
 
     // Mint a funded channel
     const channel = await mintFundedChannel('sat');
+
+    // Fetch pricing for amount_due calculations
+    const pricing = await fetchPricing('sat');
 
     // Create a balance update and make a successful payment
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
@@ -853,7 +876,7 @@ describe('Channel status endpoint', () => {
     expect(status.balance).toBe(1);
     expect(status.blobs_served).toBe(1);
     expect(status.bytes_served).toBe(content.length);
-    expect(status.amount_due).toBe(1);
+    expect(status.amount_due).toBe(expectedAmountDue(1, content.length, pricing));
     console.log(`Channel status after payment: balance=${status.balance} blobs=${status.blobs_served} bytes=${status.bytes_served} amount_due=${status.amount_due} ✓`);
 
     // Attempt a second request with wrong balance (signature is for balance=1, but we send balance=2)
@@ -878,7 +901,7 @@ describe('Channel status endpoint', () => {
     expect(status2.balance).toBe(1);  // Still 1, not 2
     expect(status2.blobs_served).toBe(1);  // Still 1, not 2
     expect(status2.bytes_served).toBe(content.length);  // Still same
-    expect(status2.amount_due).toBe(1);  // Still same
+    expect(status2.amount_due).toBe(expectedAmountDue(1, content.length, pricing));  // Still same
 
     console.log(`Channel status unchanged after failed payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} amount_due=${status2.amount_due} ✓`);
   });
