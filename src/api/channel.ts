@@ -182,13 +182,18 @@ router.get("/channel/:channel_id/status", async (ctx) => {
   }
 
   const channelId = ctx.params.channel_id;
-  const status = getChannelStatus(channelId);
 
-  if (!status) {
-    ctx.status = 404;
-    ctx.body = { error: "unknown channel" };
-    return;
+  try {
+    const status = getChannelStatus(channelId);
+    ctx.body = status;
+  } catch (e) {
+    const message = (e as Error).message;
+    if (message === "unknown channel") {
+      ctx.status = 404;
+      ctx.body = { error: "unknown channel" };
+    } else {
+      ctx.status = 500;
+      ctx.body = { error: message };
+    }
   }
-
-  ctx.body = status;
 });

@@ -772,8 +772,10 @@ describe('Channel status endpoint', () => {
     expect(status.balance).toBe(1);
     expect(status.blobs_served).toBe(1);
     expect(status.bytes_served).toBe(content.length);
+    // amount_due = ceil((1 * 500 + 0.000042 * 1000) / 1000) = ceil(0.500042) = 1
+    expect(status.amount_due).toBe(1);
 
-    console.log(`Channel status after payment: capacity=${status.capacity} balance=${status.balance} blobs=${status.blobs_served} bytes=${status.bytes_served} ✓`);
+    console.log(`Channel status after payment: capacity=${status.capacity} balance=${status.balance} blobs=${status.blobs_served} bytes=${status.bytes_served} amount_due=${status.amount_due} ✓`);
 
     // Make another request for the same blob with balance=2
     const balanceUpdate2Json = spilman_channel_sender_create_signed_balance_update(
@@ -804,8 +806,10 @@ describe('Channel status endpoint', () => {
     expect(status2.balance).toBe(2);
     expect(status2.blobs_served).toBe(2);
     expect(status2.bytes_served).toBe(content.length * 2);
+    // amount_due = ceil((2 * 500 + 0.000084 * 1000) / 1000) = ceil(1.000084) = 2
+    expect(status2.amount_due).toBe(2);
 
-    console.log(`Channel status after 2nd payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} ✓`);
+    console.log(`Channel status after 2nd payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} amount_due=${status2.amount_due} ✓`);
   });
 
   it('does not update status when payment fails', async () => {
@@ -849,7 +853,8 @@ describe('Channel status endpoint', () => {
     expect(status.balance).toBe(1);
     expect(status.blobs_served).toBe(1);
     expect(status.bytes_served).toBe(content.length);
-    console.log(`Channel status after payment: balance=${status.balance} blobs=${status.blobs_served} bytes=${status.bytes_served} ✓`);
+    expect(status.amount_due).toBe(1);
+    console.log(`Channel status after payment: balance=${status.balance} blobs=${status.blobs_served} bytes=${status.bytes_served} amount_due=${status.amount_due} ✓`);
 
     // Attempt a second request with wrong balance (signature is for balance=1, but we send balance=2)
     const paymentHeader2 = JSON.stringify({
@@ -873,7 +878,8 @@ describe('Channel status endpoint', () => {
     expect(status2.balance).toBe(1);  // Still 1, not 2
     expect(status2.blobs_served).toBe(1);  // Still 1, not 2
     expect(status2.bytes_served).toBe(content.length);  // Still same
+    expect(status2.amount_due).toBe(1);  // Still same
 
-    console.log(`Channel status unchanged after failed payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} ✓`);
+    console.log(`Channel status unchanged after failed payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} amount_due=${status2.amount_due} ✓`);
   });
 });

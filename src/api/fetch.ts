@@ -61,6 +61,19 @@ interface UsageStore {
   get(channelId: string): ChannelUsage | null;
 }
 
+// Calculate amount due based on usage and pricing
+// Used by validatePayment() and getChannelStatus()
+export function calculateAmountDue(
+  blobsServed: number,
+  bytesServed: number,
+  pricing: { perRequestPpk: number; perMegabytePpk: number }
+): number {
+  const megabytes = bytesServed / 1_000_000;
+  return Math.ceil(
+    (blobsServed * pricing.perRequestPpk + megabytes * pricing.perMegabytePpk) / 1000
+  );
+}
+
 // Validate a payment and return error info if invalid, or valid payment info if successful
 // Returns null if payments are not required
 function validatePayment(
@@ -261,10 +274,7 @@ function validatePayment(
   // Compute total due including this request
   const totalBlobs = previousBlobs + 1;
   const totalBytes = previousBytes + blobSize;
-  const totalMegabytes = totalBytes / 1_000_000;
-  const amountDue = Math.ceil(
-    (totalBlobs * pricing.perRequestPpk + totalMegabytes * pricing.perMegabytePpk) / 1000
-  );
+  const amountDue = calculateAmountDue(totalBlobs, totalBytes, pricing);
 
   paymentLog("channel=%s usage: blobs=%d bytes=%d amountDue=%d balance=%d",
     payment.channel_id.substring(0, 8), totalBlobs, totalBytes, amountDue, payment.balance);
@@ -362,24 +372,38 @@ export interface ChannelStatus {
   balance: number;
   blobs_served: number;
   bytes_served: number;
+  amount_due: number;
 }
 
-export function getChannelStatus(channelId: string): ChannelStatus | null {
+export function getChannelStatus(channelId: string): ChannelStatus {
   const funding = channelFunding.get(channelId);
   if (!funding) {
-    return null;
+    throw new Error("unknown channel");
   }
 
   const params = JSON.parse(funding.paramsJson);
   const balance = channelBalance.get(channelId);
   const usage = channelUsage.get(channelId);
 
+  const blobsServed = usage?.blobsServed ?? 0;
+  const bytesServed = usage?.bytesServed ?? 0;
+
+  // Get pricing for this channel's unit
+  const unit = params.unit;
+  const pricing = config.channel.pricing[unit];
+  if (!pricing) {
+    throw new Error(`No pricing configured for unit: ${unit}`);
+  }
+
+  const amountDue = calculateAmountDue(blobsServed, bytesServed, pricing);
+
   return {
     channel_id: channelId,
     capacity: params.capacity,
     balance: balance?.balance ?? 0,
-    blobs_served: usage?.blobsServed ?? 0,
-    bytes_served: usage?.bytesServed ?? 0,
+    blobs_served: blobsServed,
+    bytes_served: bytesServed,
+    amount_due: amountDue,
   };
 }
 
