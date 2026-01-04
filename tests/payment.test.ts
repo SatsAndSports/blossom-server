@@ -519,6 +519,32 @@ describe('Channel validation errors', () => {
     console.log('channel_id mismatch: 402 ✓');
   });
 
+  it('returns 402 for unknown channel', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Send payment header with random channel_id (no params/funding_proofs)
+    const paymentHeader = JSON.stringify({
+      channel_id: randomBytes(32).toString('hex'),
+      balance: 1,
+      signature: 'fake_signature',
+    });
+
+    const response = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+
+    expect(response.status).toBe(402);
+    const headerData = JSON.parse(response.headers.get('X-Cashu-Channel')!);
+    expect(headerData.error).toBe('unknown channel');
+    console.log('unknown channel: 402 ✓');
+  });
+
   it('returns 402 when keyset is not from approved mint', async () => {
     // Upload a blob
     const { content, hash } = generateBlob();
