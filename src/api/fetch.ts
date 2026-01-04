@@ -34,8 +34,18 @@ interface ValidPayment {
   signature: string;
 }
 
+// Result of core channel validation (without blob-specific checks)
+interface ValidatedChannel {
+  funding: ChannelFundingData;
+  params: any;  // parsed from funding.paramsJson
+}
+
 function isPaymentError(result: PaymentError | ValidPayment | null): result is PaymentError {
   return result !== null && 'header' in result;
+}
+
+function isValidatedChannel(result: ValidatedChannel | PaymentError): result is ValidatedChannel {
+  return 'funding' in result;
 }
 
 // Data types for channel stores
@@ -108,6 +118,150 @@ function getFullKeysetInfo(
   return null;
 }
 
+// Core channel validation: verify funding (DLEQ) and signature
+// Used by validatePayment() and will be used by channel close endpoint
+// Does NOT check blob-specific things like usage or amount_due
+function validateChannelAndSignature(
+  channelId: string,
+  balance: number,
+  signature: string,
+  paramsObj: any | undefined,
+  fundingProofsObj: any | undefined,
+  blobSize: number,  // for error responses
+  fundingStore: FundingStore
+): ValidatedChannel | PaymentError {
+  // If params and funding proofs are provided, validate and cache them
+  // (clients may include these on any request, not just the first)
+  if (paramsObj && fundingProofsObj) {
+    const paramsJson = JSON.stringify(paramsObj);
+    const fundingProofsJson = JSON.stringify(fundingProofsObj);
+    const alicePubkey = paramsObj.alice_pubkey;
+
+    if (!config.channel.secretKey) {
+      return {
+        header: { error: "server misconfigured", size: blobSize },
+        body: { error: "Payment required", reason: "server misconfigured" },
+      };
+    }
+
+    const sharedSecret = compute_shared_secret(config.channel.secretKey, alicePubkey);
+    const computedChannelId = channel_parameters_get_channel_id(paramsJson, sharedSecret);
+    const channelIdMatch = computedChannelId === channelId;
+    paymentLog("channel_id verify: computed=%s provided=%s match=%s",
+      computedChannelId.substring(0, 8),
+      channelId?.substring(0, 8),
+      channelIdMatch ? "YES" : "NO"
+    );
+
+    if (!channelIdMatch) {
+      return {
+        header: { error: "channel_id mismatch", size: blobSize },
+        body: { error: "Payment required", reason: "channel_id mismatch" },
+      };
+    }
+
+    // Resolve keysetInfo from startup cache or channel funding cache
+    const mintUrl = paramsObj.mint;
+    const keysetId = paramsObj.keyset_id;
+    const keysetInfo = getFullKeysetInfo(
+      mintUrl,
+      keysetId,
+      paramsObj.unit,
+      paramsObj.input_fee_ppk || 0,
+      channelId,
+      fundingStore
+    );
+
+    if (!keysetInfo) {
+      paymentLog("channel validation FAILED: keyset %s not from approved mint %s", keysetId, mintUrl);
+      return {
+        header: { error: "keyset not from approved mint", size: blobSize, mint: mintUrl, keyset_id: keysetId },
+        body: { error: "Payment required", reason: "keyset not from approved mint" },
+      };
+    }
+
+    // Run full channel verification (DLEQ, keyset ID match)
+    try {
+      const verificationResultJson = verify_channel(
+        paramsJson,
+        sharedSecret,
+        fundingProofsJson,
+        JSON.stringify(keysetInfo)
+      );
+      const verificationResult = JSON.parse(verificationResultJson);
+      paymentLog("channel validation: valid=%s errors=%d", verificationResult.valid, verificationResult.errors.length);
+
+      if (!verificationResult.valid) {
+        paymentLog("channel validation FAILED: %s", JSON.stringify(verificationResult.errors));
+        return {
+          header: { error: "channel validation failed", size: blobSize, validation_errors: verificationResult.errors },
+          body: { error: "Payment required", reason: "channel validation failed", details: verificationResult.errors },
+        };
+      }
+    } catch (e) {
+      paymentLog("channel validation ERROR: %s", (e as Error).message);
+      return {
+        header: { error: "channel validation error", size: blobSize, message: (e as Error).message },
+        body: { error: "Payment required", reason: "channel validation error" },
+      };
+    }
+
+    // Channel funding is valid - cache it
+    fundingStore.insert(channelId, {
+      paramsJson,
+      fundingProofsJson,
+      sharedSecret,
+      secretKey: config.channel.secretKey,
+      keysetInfoJson: JSON.stringify(keysetInfo),
+    });
+  }
+
+  // Look up cached funding (either just inserted above, or from a previous request)
+  const funding = fundingStore.get(channelId);
+  if (!funding) {
+    return {
+      header: { error: "unknown channel", size: blobSize },
+      body: { error: "Payment required", reason: "unknown channel - provide params and funding_proofs" },
+    };
+  }
+
+  // Parse params for validation checks
+  const params = JSON.parse(funding.paramsJson);
+
+  // Check balance doesn't exceed capacity
+  if (balance > params.capacity) {
+    return {
+      header: { error: "balance exceeds capacity", size: blobSize, capacity: params.capacity, balance: balance },
+      body: { error: "Payment required", reason: "balance exceeds capacity", capacity: params.capacity },
+    };
+  }
+
+  // Verify signature
+  let signatureValid = false;
+  try {
+    signatureValid = verify_balance_update_signature(
+      funding.paramsJson,
+      funding.sharedSecret,
+      funding.fundingProofsJson,
+      channelId,
+      BigInt(balance),
+      signature
+    );
+    paymentLog("signature verify: %s", signatureValid ? "VALID" : "INVALID");
+  } catch (e) {
+    paymentLog("signature verify: ERROR - %s", (e as Error).message);
+  }
+
+  if (!signatureValid) {
+    return {
+      header: { error: "invalid signature", size: blobSize },
+      body: { error: "Payment required", reason: "invalid signature" },
+    };
+  }
+
+  return { funding, params };
+}
+
 // Validate a payment and return error info if invalid, or valid payment info if successful
 // Returns null if payments are not required
 function validatePayment(
@@ -161,134 +315,22 @@ function validatePayment(
     };
   }
 
-  // If params and funding proofs are provided, validate and cache them
-  // (clients may include these on any request, not just the first)
-  if (payment.params && payment.funding_proofs) {
-    const paramsJson = JSON.stringify(payment.params);
-    const fundingProofsJson = JSON.stringify(payment.funding_proofs);
-    const alicePubkey = payment.params.alice_pubkey;
+  // Validate channel funding (DLEQ) and signature
+  const validationResult = validateChannelAndSignature(
+    payment.channel_id,
+    payment.balance,
+    payment.signature,
+    payment.params,
+    payment.funding_proofs,
+    blobSize,
+    fundingStore
+  );
 
-    if (!config.channel.secretKey) {
-      return {
-        header: { error: "server misconfigured", size: blobSize },
-        body: { error: "Payment required", reason: "server misconfigured" },
-      };
-    }
-
-    const sharedSecret = compute_shared_secret(config.channel.secretKey, alicePubkey);
-    const computedChannelId = channel_parameters_get_channel_id(paramsJson, sharedSecret);
-    const channelIdMatch = computedChannelId === payment.channel_id;
-    paymentLog("channel_id verify: computed=%s provided=%s match=%s",
-      computedChannelId.substring(0, 8),
-      payment.channel_id?.substring(0, 8),
-      channelIdMatch ? "YES" : "NO"
-    );
-
-    if (!channelIdMatch) {
-      return {
-        header: { error: "channel_id mismatch", size: blobSize },
-        body: { error: "Payment required", reason: "channel_id mismatch" },
-      };
-    }
-
-    // Resolve keysetInfo from startup cache or channel funding cache
-    const mintUrl = payment.params.mint;
-    const keysetId = payment.params.keyset_id;
-    const keysetInfo = getFullKeysetInfo(
-      mintUrl,
-      keysetId,
-      payment.params.unit,
-      payment.params.input_fee_ppk || 0,
-      payment.channel_id,
-      fundingStore
-    );
-
-    if (!keysetInfo) {
-      paymentLog("channel validation FAILED: keyset %s not from approved mint %s", keysetId, mintUrl);
-      return {
-        header: { error: "keyset not from approved mint", size: blobSize, mint: mintUrl, keyset_id: keysetId },
-        body: { error: "Payment required", reason: "keyset not from approved mint" },
-      };
-    }
-
-    // Run full channel verification (DLEQ, keyset ID match)
-    try {
-      const verificationResultJson = verify_channel(
-        paramsJson,
-        sharedSecret,
-        fundingProofsJson,
-        JSON.stringify(keysetInfo)
-      );
-      const verificationResult = JSON.parse(verificationResultJson);
-      paymentLog("channel validation: valid=%s errors=%d", verificationResult.valid, verificationResult.errors.length);
-
-      if (!verificationResult.valid) {
-        paymentLog("channel validation FAILED: %s", JSON.stringify(verificationResult.errors));
-        return {
-          header: { error: "channel validation failed", size: blobSize, validation_errors: verificationResult.errors },
-          body: { error: "Payment required", reason: "channel validation failed", details: verificationResult.errors },
-        };
-      }
-    } catch (e) {
-      paymentLog("channel validation ERROR: %s", (e as Error).message);
-      return {
-        header: { error: "channel validation error", size: blobSize, message: (e as Error).message },
-        body: { error: "Payment required", reason: "channel validation error" },
-      };
-    }
-
-    // Channel funding is valid - cache it
-    fundingStore.insert(payment.channel_id, {
-      paramsJson,
-      fundingProofsJson,
-      sharedSecret,
-      secretKey: config.channel.secretKey,
-      keysetInfoJson: JSON.stringify(keysetInfo),
-    });
+  if (!isValidatedChannel(validationResult)) {
+    return validationResult;  // Return the PaymentError
   }
 
-  // Look up cached funding (either just inserted above, or from a previous request)
-  const funding = fundingStore.get(payment.channel_id);
-  if (!funding) {
-    return {
-      header: { error: "unknown channel", size: blobSize },
-      body: { error: "Payment required", reason: "unknown channel - provide params and funding_proofs" },
-    };
-  }
-
-  // Parse params for validation checks
-  const params = JSON.parse(funding.paramsJson);
-
-  // Check balance doesn't exceed capacity
-  if (payment.balance > params.capacity) {
-    return {
-      header: { error: "balance exceeds capacity", size: blobSize, capacity: params.capacity, balance: payment.balance },
-      body: { error: "Payment required", reason: "balance exceeds capacity", capacity: params.capacity },
-    };
-  }
-
-  // Verify signature
-  let signatureValid = false;
-  try {
-    signatureValid = verify_balance_update_signature(
-      funding.paramsJson,
-      funding.sharedSecret,
-      funding.fundingProofsJson,
-      payment.channel_id,
-      BigInt(payment.balance),
-      payment.signature
-    );
-    paymentLog("signature verify: %s", signatureValid ? "VALID" : "INVALID");
-  } catch (e) {
-    paymentLog("signature verify: ERROR - %s", (e as Error).message);
-  }
-
-  if (!signatureValid) {
-    return {
-      header: { error: "invalid signature", size: blobSize },
-      body: { error: "Payment required", reason: "invalid signature" },
-    };
-  }
+  const { params } = validationResult;
 
   // Check balance covers usage + this request
   const unit = params.unit;
