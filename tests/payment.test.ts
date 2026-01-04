@@ -744,6 +744,490 @@ describe('Channel validation errors', () => {
   });
 });
 
+describe('Channel closing', () => {
+  it('closes a channel with zero balance (unknown channel)', async () => {
+    // Alice mints a funded channel but never uses it
+    // She can close immediately with balance=0
+    const channel = await mintFundedChannel('sat');
+    console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
+
+    // Create a balance update for balance=0 (closing unused channel)
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(0)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+    console.log(`Signed balance update for close: balance=0`);
+
+    // Close the channel (server doesn't know about it yet, so include params and funding_proofs)
+    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: 0,
+        signature: balanceUpdate.signature,
+        params: channel.channelParams,
+        funding_proofs: channel.proofs,
+      }),
+    });
+
+    console.log(`Close response status: ${closeResponse.status}`);
+    expect(closeResponse.status).toBe(200);
+
+    const closeResult = await closeResponse.json();
+    console.log(`Close result: ${JSON.stringify(closeResult)}`);
+    expect(closeResult.success).toBe(true);
+    expect(closeResult.channel_id).toBe(channel.channelId);
+    // total_value should be the full channel capacity minus fees
+    expect(closeResult.total_value).toBeGreaterThan(0);
+    console.log(`Channel closed with total_value=${closeResult.total_value} ✓`);
+
+    // Verify status shows closed=true and closed_amount=0 after close
+    const statusAfter = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusAfterJson = await statusAfter.json();
+    console.log(`Status after close: closed=${statusAfterJson.closed} closed_amount=${statusAfterJson.closed_amount}`);
+    expect(statusAfterJson.closed).toBe(true);
+    expect(statusAfterJson.closed_amount).toBe(0);
+  });
+
+  it('closes a channel after usage (known channel)', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint a funded channel
+    const channel = await mintFundedChannel('sat');
+    console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
+
+    // Make a payment (balance=1)
+    const balanceUpdate1Json = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(1)
+    );
+    const balanceUpdate1 = JSON.parse(balanceUpdate1Json);
+
+    const paymentHeader = JSON.stringify({
+      channel_id: balanceUpdate1.channel_id,
+      balance: balanceUpdate1.amount,
+      signature: balanceUpdate1.signature,
+      params: channel.channelParams,
+      funding_proofs: channel.proofs,
+    });
+
+    const blobResponse = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+    expect(blobResponse.status).toBe(200);
+    console.log(`Blob fetched with balance=1 ✓`);
+
+    // Get current amount_due from status (before close)
+    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const status = await statusResponse.json();
+    const amountDue = status.amount_due;
+    console.log(`Status before close: amount_due=${amountDue} closed=${status.closed}`);
+    expect(status.closed).toBe(false);
+
+    // Create balance update for closing (balance = amount_due)
+    const closeBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(amountDue)
+    );
+    const closeBalanceUpdate = JSON.parse(closeBalanceUpdateJson);
+
+    // Close the channel (server already knows about it, so no need for params/funding_proofs)
+    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: amountDue,
+        signature: closeBalanceUpdate.signature,
+      }),
+    });
+
+    console.log(`Close response status: ${closeResponse.status}`);
+    expect(closeResponse.status).toBe(200);
+
+    const closeResult = await closeResponse.json();
+    console.log(`Close result: ${JSON.stringify(closeResult)}`);
+    expect(closeResult.success).toBe(true);
+    expect(closeResult.channel_id).toBe(channel.channelId);
+    expect(closeResult.total_value).toBeGreaterThan(0);
+    console.log(`Channel closed with total_value=${closeResult.total_value} ✓`);
+
+    // Verify status shows closed=true and closed_amount=amountDue after close
+    const statusAfter = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusAfterJson = await statusAfter.json();
+    console.log(`Status after close: closed=${statusAfterJson.closed} closed_amount=${statusAfterJson.closed_amount}`);
+    expect(statusAfterJson.closed).toBe(true);
+    expect(statusAfterJson.closed_amount).toBe(amountDue);
+  });
+
+  it('rejects close with balance less than amount_due', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint a funded channel and make a payment
+    const channel = await mintFundedChannel('sat');
+
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(1)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    const paymentHeader = JSON.stringify({
+      channel_id: balanceUpdate.channel_id,
+      balance: balanceUpdate.amount,
+      signature: balanceUpdate.signature,
+      params: channel.channelParams,
+      funding_proofs: channel.proofs,
+    });
+
+    await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+
+    // Get amount_due
+    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const status = await statusResponse.json();
+    const amountDue = status.amount_due;
+    console.log(`amount_due=${amountDue}`);
+
+    // Try to close with balance=0 (less than amount_due)
+    const zeroBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(0)
+    );
+    const zeroBalanceUpdate = JSON.parse(zeroBalanceUpdateJson);
+
+    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: 0,
+        signature: zeroBalanceUpdate.signature,
+      }),
+    });
+
+    expect(closeResponse.status).toBe(400);
+    const result = await closeResponse.json();
+    expect(result.error).toBe('balance must equal amount_due for closing');
+    expect(result.balance).toBe(0);
+    expect(result.amount_due).toBe(amountDue);
+    console.log(`Close rejected with balance < amount_due ✓`);
+  });
+
+  it('rejects close with balance greater than amount_due', async () => {
+    // Mint a funded channel (no usage, so amount_due = 0)
+    const channel = await mintFundedChannel('sat');
+
+    // Create balance update for balance=10 (greater than amount_due of 0)
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(10)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: 10,
+        signature: balanceUpdate.signature,
+        params: channel.channelParams,
+        funding_proofs: channel.proofs,
+      }),
+    });
+
+    expect(closeResponse.status).toBe(400);
+    const result = await closeResponse.json();
+    expect(result.error).toBe('balance must equal amount_due for closing');
+    expect(result.balance).toBe(10);
+    expect(result.amount_due).toBe(0);
+    console.log(`Close rejected with balance > amount_due ✓`);
+  });
+
+  it('rejects close with invalid signature', async () => {
+    // Mint a funded channel
+    const channel = await mintFundedChannel('sat');
+
+    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: 0,
+        signature: 'invalid_signature_that_will_not_verify',
+        params: channel.channelParams,
+        funding_proofs: channel.proofs,
+      }),
+    });
+
+    expect(closeResponse.status).toBe(402);
+    const channelHeader = closeResponse.headers.get('X-Cashu-Channel');
+    expect(channelHeader).toBeDefined();
+    const headerData = JSON.parse(channelHeader!);
+    expect(headerData.error).toBe('invalid signature');
+    console.log(`Close rejected with invalid signature ✓`);
+  });
+
+  it('rejects close for unknown channel without params', async () => {
+    // Generate a random channel ID that the server doesn't know about
+    const fakeChannelId = randomBytes(32).toString('hex');
+
+    const closeResponse = await fetch(`${BASE_URL}/channel/${fakeChannelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: 0,
+        signature: 'any_signature',
+        // No params or funding_proofs provided
+      }),
+    });
+
+    expect(closeResponse.status).toBe(402);
+    const channelHeader = closeResponse.headers.get('X-Cashu-Channel');
+    expect(channelHeader).toBeDefined();
+    const headerData = JSON.parse(channelHeader!);
+    expect(headerData.error).toBe('unknown channel');
+    console.log(`Close rejected for unknown channel without params ✓`);
+  });
+
+  it('idempotent close with same amount succeeds', async () => {
+    // Mint and close a channel
+    const channel = await mintFundedChannel('sat');
+    console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
+
+    // Create balance update for balance=0
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(0)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    // First close
+    const closeResponse1 = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: 0,
+        signature: balanceUpdate.signature,
+        params: channel.channelParams,
+        funding_proofs: channel.proofs,
+      }),
+    });
+    expect(closeResponse1.status).toBe(200);
+    const closeResult1 = await closeResponse1.json();
+    expect(closeResult1.success).toBe(true);
+    expect(closeResult1.already_closed).toBe(false);
+    console.log(`First close succeeded: total_value=${closeResult1.total_value}`);
+
+    // Second close with same amount - should succeed with already_closed=true
+    const closeResponse2 = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: 0,
+        signature: balanceUpdate.signature,
+        params: channel.channelParams,
+        funding_proofs: channel.proofs,
+      }),
+    });
+    expect(closeResponse2.status).toBe(200);
+    const closeResult2 = await closeResponse2.json();
+    expect(closeResult2.success).toBe(true);
+    expect(closeResult2.already_closed).toBe(true);
+    expect(closeResult2.total_value).toBe(closeResult1.total_value);
+    console.log(`Second close succeeded (idempotent): already_closed=true ✓`);
+  });
+
+  it('rejects close of already-closed channel with different amount', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint and use a channel
+    const channel = await mintFundedChannel('sat');
+    console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
+
+    // Make a payment to establish usage
+    const paymentBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(1)
+    );
+    const paymentBalanceUpdate = JSON.parse(paymentBalanceUpdateJson);
+
+    const blobResponse = await fetch(`${BASE_URL}/${hash}`, {
+      headers: {
+        'X-Cashu-Channel': JSON.stringify({
+          channel_id: paymentBalanceUpdate.channel_id,
+          balance: paymentBalanceUpdate.amount,
+          signature: paymentBalanceUpdate.signature,
+          params: channel.channelParams,
+          funding_proofs: channel.proofs,
+        }),
+      },
+    });
+    expect(blobResponse.status).toBe(200);
+    console.log(`Blob fetched with balance=1`);
+
+    // Get amount_due
+    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const status = await statusResponse.json();
+    const amountDue = status.amount_due;
+    console.log(`amount_due=${amountDue}`);
+
+    // Close with correct amount_due
+    const closeBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(amountDue)
+    );
+    const closeBalanceUpdate = JSON.parse(closeBalanceUpdateJson);
+
+    const closeResponse1 = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: amountDue,
+        signature: closeBalanceUpdate.signature,
+      }),
+    });
+    expect(closeResponse1.status).toBe(200);
+    const closeResult1 = await closeResponse1.json();
+    expect(closeResult1.success).toBe(true);
+    console.log(`First close succeeded with amount_due=${amountDue}`);
+
+    // Try to close again with different amount (0 instead of amountDue)
+    const zeroBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(0)
+    );
+    const zeroBalanceUpdate = JSON.parse(zeroBalanceUpdateJson);
+
+    const closeResponse2 = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: 0,
+        signature: zeroBalanceUpdate.signature,
+      }),
+    });
+
+    expect(closeResponse2.status).toBe(400);
+    const closeResult2 = await closeResponse2.json();
+    expect(closeResult2.error).toBe('channel already closed with a different amount');
+    expect(closeResult2.closed_amount).toBe(amountDue);
+    expect(closeResult2.requested_amount).toBe(0);
+    console.log(`Second close rejected (different amount): closed_amount=${amountDue} requested=0 ✓`);
+  });
+
+  it('rejects payment on a closed channel', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint and close a channel
+    const channel = await mintFundedChannel('sat');
+    console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
+
+    // Close the channel with balance=0
+    const closeBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(0)
+    );
+    const closeBalanceUpdate = JSON.parse(closeBalanceUpdateJson);
+
+    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: 0,
+        signature: closeBalanceUpdate.signature,
+        params: channel.channelParams,
+        funding_proofs: channel.proofs,
+      }),
+    });
+    expect(closeResponse.status).toBe(200);
+    console.log(`Channel closed successfully`);
+
+    // Now try to use the closed channel to fetch a blob
+    const paymentBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(1)
+    );
+    const paymentBalanceUpdate = JSON.parse(paymentBalanceUpdateJson);
+
+    const paymentHeader = JSON.stringify({
+      channel_id: paymentBalanceUpdate.channel_id,
+      balance: paymentBalanceUpdate.amount,
+      signature: paymentBalanceUpdate.signature,
+    });
+
+    const blobResponse = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+
+    expect(blobResponse.status).toBe(402);
+    const channelHeader = blobResponse.headers.get('X-Cashu-Channel');
+    expect(channelHeader).toBeDefined();
+    const headerData = JSON.parse(channelHeader!);
+    expect(headerData.error).toBe('channel closed');
+    console.log(`Payment rejected on closed channel ✓`);
+  });
+});
+
 describe('Channel status endpoint', () => {
   it('returns status with zeroes before payment, then updated after payment', async () => {
     // Upload a blob

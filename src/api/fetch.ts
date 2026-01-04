@@ -23,7 +23,7 @@ import { getKeysetKeys } from "./channel.js";
 const paymentLog = logger.extend("payments");
 
 // Result of payment validation
-interface PaymentError {
+export interface PaymentError {
   header: Record<string, any>;  // JSON for X-Cashu-Channel header
   body: Record<string, any>;    // JSON for response body
 }
@@ -35,7 +35,7 @@ interface ValidPayment {
 }
 
 // Result of core channel validation (without blob-specific checks)
-interface ValidatedChannel {
+export interface ValidatedChannel {
   funding: ChannelFundingData;
   params: any;  // parsed from funding.paramsJson
 }
@@ -44,12 +44,12 @@ function isPaymentError(result: PaymentError | ValidPayment | null): result is P
   return result !== null && 'header' in result;
 }
 
-function isValidatedChannel(result: ValidatedChannel | PaymentError): result is ValidatedChannel {
+export function isValidatedChannel(result: ValidatedChannel | PaymentError): result is ValidatedChannel {
   return 'funding' in result;
 }
 
 // Data types for channel stores
-interface ChannelFundingData {
+export interface ChannelFundingData {
   paramsJson: string;
   fundingProofsJson: string;
   sharedSecret: string;
@@ -119,9 +119,9 @@ function getFullKeysetInfo(
 }
 
 // Core channel validation: verify funding (DLEQ) and signature
-// Used by validatePayment() and will be used by channel close endpoint
+// Used by validatePayment() and channel close endpoint
 // Does NOT check blob-specific things like usage or amount_due
-function validateChannelAndSignature(
+export function validateChannelAndSignature(
   channelId: string,
   balance: number,
   signature: string,
@@ -222,6 +222,15 @@ function validateChannelAndSignature(
     return {
       header: { error: "unknown channel", size: blobSize },
       body: { error: "Payment required", reason: "unknown channel - provide params and funding_proofs" },
+    };
+  }
+
+  // Check if channel has been closed
+  if (channelClosed.isClosed(channelId)) {
+    paymentLog("channel %s is closed, rejecting payment", channelId.substring(0, 8));
+    return {
+      header: { error: "channel closed", size: blobSize },
+      body: { error: "Payment required", reason: "channel closed - use a different channel" },
     };
   }
 
@@ -396,7 +405,7 @@ function validatePayment(
 
 const channelFundingStore = new Map<string, ChannelFundingData>();
 
-const channelFunding = {
+export const channelFunding = {
   get(channelId: string): ChannelFundingData | null {
     return channelFundingStore.get(channelId) ?? null;
   },
@@ -443,7 +452,7 @@ const channelBalance = {
 
 const channelUsageStore = new Map<string, ChannelUsage>();
 
-const channelUsage = {
+export const channelUsage = {
   get(channelId: string): ChannelUsage | null {
     return channelUsageStore.get(channelId) ?? null;
   },
@@ -462,6 +471,36 @@ const channelUsage = {
 };
 
 // ============================================================================
+// Closed Channels Store
+// Tracks channels that have been closed. We need to reject payments on closed
+// channels to prevent Alice from re-using a channel after Charlie redeemed it.
+// ============================================================================
+
+interface ClosedChannelData {
+  locktime: number;
+  closedAmount: number;
+  valueAfterStage1: number;
+}
+
+const channelClosedStore = new Map<string, ClosedChannelData>();
+
+export const channelClosed = {
+  isClosed(channelId: string): boolean {
+    return channelClosedStore.has(channelId);
+  },
+
+  markClosed(channelId: string, locktime: number, closedAmount: number, valueAfterStage1: number): void {
+    channelClosedStore.set(channelId, { locktime, closedAmount, valueAfterStage1 });
+    paymentLog("channelClosed: channel=%s locktime=%d closedAmount=%d valueAfterStage1=%d",
+      channelId.substring(0, 8), locktime, closedAmount, valueAfterStage1);
+  },
+
+  get(channelId: string): ClosedChannelData | null {
+    return channelClosedStore.get(channelId) ?? null;
+  },
+};
+
+// ============================================================================
 // Exported getters for channel status endpoint
 // ============================================================================
 
@@ -472,6 +511,8 @@ export interface ChannelStatus {
   blobs_served: number;
   bytes_served: number;
   amount_due: number;
+  closed: boolean;
+  closed_amount?: number;
 }
 
 export function getChannelStatus(channelId: string): ChannelStatus {
@@ -496,6 +537,8 @@ export function getChannelStatus(channelId: string): ChannelStatus {
 
   const amountDue = calculateAmountDue(blobsServed, bytesServed, pricing);
 
+  const closedData = channelClosed.get(channelId);
+
   return {
     channel_id: channelId,
     capacity: params.capacity,
@@ -503,6 +546,8 @@ export function getChannelStatus(channelId: string): ChannelStatus {
     blobs_served: blobsServed,
     bytes_served: bytesServed,
     amount_due: amountDue,
+    closed: closedData !== null,
+    ...(closedData && { closed_amount: closedData.closedAmount }),
   };
 }
 

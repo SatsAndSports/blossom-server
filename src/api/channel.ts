@@ -1,8 +1,18 @@
 import * as secp from "@noble/secp256k1";
+import { koaBody } from "koa-body";
 import { config } from "../config.js";
 import { router } from "./router.js";
 import logger from "../logger.js";
-import { getChannelStatus } from "./fetch.js";
+import {
+  getChannelStatus,
+  calculateAmountDue,
+  validateChannelAndSignature,
+  isValidatedChannel,
+  channelFunding,
+  channelUsage,
+  channelClosed,
+} from "./fetch.js";
+import { create_close_swap_request } from "../wasm/cdk_wasm.js";
 
 const log = logger.extend("channel-mint-setup");
 
@@ -196,4 +206,189 @@ router.get("/channel/:channel_id/status", async (ctx) => {
       ctx.body = { error: message };
     }
   }
+});
+
+const closeLog = logger.extend("channel-close");
+
+router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
+  if (!config.channel?.enabled) {
+    ctx.status = 404;
+    ctx.body = { error: "Channel payments not enabled" };
+    return;
+  }
+
+  const channelId = ctx.params.channel_id;
+  const body = ctx.request.body as any;
+
+  // Validate required fields
+  if (typeof body.balance !== "number" || Number.isNaN(body.balance)) {
+    ctx.status = 400;
+    ctx.body = { error: "invalid or missing balance" };
+    return;
+  }
+  if (typeof body.signature !== "string" || !body.signature) {
+    ctx.status = 400;
+    ctx.body = { error: "invalid or missing signature" };
+    return;
+  }
+
+  closeLog("Close request for channel=%s balance=%d", channelId.substring(0, 8), body.balance);
+
+  // Check if channel is already closed FIRST (for idempotent closing)
+  // This must happen before validateChannelAndSignature because that function
+  // rejects closed channels (which is correct for payments, but not for close)
+  const closedData = channelClosed.get(channelId);
+  if (closedData !== null) {
+    if (body.balance === closedData.closedAmount) {
+      // Idempotent close - same amount, return success
+      closeLog("Channel already closed with same amount: channel=%s amount=%d",
+        channelId.substring(0, 8), closedData.closedAmount);
+      ctx.status = 200;
+      ctx.body = {
+        success: true,
+        channel_id: channelId,
+        total_value: closedData.valueAfterStage1,
+        already_closed: true,
+      };
+      return;
+    } else {
+      // Different amount - reject
+      closeLog("Channel already closed with different amount: channel=%s closed=%d requested=%d",
+        channelId.substring(0, 8), closedData.closedAmount, body.balance);
+      ctx.status = 400;
+      ctx.body = {
+        error: "channel already closed with a different amount",
+        closed_amount: closedData.closedAmount,
+        requested_amount: body.balance,
+      };
+      return;
+    }
+  }
+
+  // Validate channel and signature (handles both known and unknown channels)
+  const validationResult = validateChannelAndSignature(
+    channelId,
+    body.balance,
+    body.signature,
+    body.params,
+    body.funding_proofs,
+    0,  // blobSize not relevant for close
+    channelFunding
+  );
+
+  if (!isValidatedChannel(validationResult)) {
+    closeLog("Validation failed: %s", validationResult.body.reason);
+    ctx.status = 402;
+    ctx.set("X-Cashu-Channel", JSON.stringify(validationResult.header));
+    ctx.body = validationResult.body;
+    return;
+  }
+
+  const { funding, params: channelParams } = validationResult;
+
+  // Calculate amount_due from usage
+  const usage = channelUsage.get(channelId);
+  const blobsServed = usage?.blobsServed ?? 0;
+  const bytesServed = usage?.bytesServed ?? 0;
+  const pricing = config.channel.pricing[channelParams.unit];
+
+  if (!pricing) {
+    closeLog("Unsupported unit: %s", channelParams.unit);
+    ctx.status = 400;
+    ctx.body = { error: "unsupported unit", unit: channelParams.unit };
+    return;
+  }
+
+  const amountDue = calculateAmountDue(blobsServed, bytesServed, pricing);
+  closeLog("Usage: blobs=%d bytes=%d amount_due=%d", blobsServed, bytesServed, amountDue);
+
+  // Verify balance === amount_due (exact match required for closing)
+  if (body.balance !== amountDue) {
+    closeLog("Balance mismatch: balance=%d amount_due=%d", body.balance, amountDue);
+    ctx.status = 400;
+    ctx.body = {
+      error: "balance must equal amount_due for closing",
+      balance: body.balance,
+      amount_due: amountDue,
+    };
+    return;
+  }
+
+  // Create fully-signed swap request using WASM
+  let swapRequestJson: string;
+  let expectedTotal: number;
+  try {
+    const result = JSON.parse(create_close_swap_request(
+      funding.paramsJson,
+      funding.keysetInfoJson,
+      funding.secretKey,
+      funding.fundingProofsJson,
+      channelId,
+      BigInt(body.balance),
+      body.signature
+    ));
+    swapRequestJson = JSON.stringify(result.swap_request);
+    expectedTotal = result.expected_total;
+    closeLog("Swap request created, expected_total=%d", expectedTotal);
+  } catch (e) {
+    closeLog("Failed to create swap request: %s", (e as Error).message);
+    ctx.status = 400;
+    ctx.body = { error: "failed to create swap request", reason: (e as Error).message };
+    return;
+  }
+
+  // Submit swap to mint
+  const mintUrl = channelParams.mint;
+  let swapResponse: any;
+  try {
+    closeLog("Submitting swap to mint: %s", mintUrl);
+    const response = await fetch(`${mintUrl}/v1/swap`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: swapRequestJson,
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      closeLog("Mint rejected swap: %s", errorText);
+      ctx.status = 502;
+      ctx.body = { error: "mint rejected swap", mint_error: errorText };
+      return;
+    }
+    swapResponse = await response.json();
+    closeLog("Swap response received: %d signatures", swapResponse.signatures?.length ?? 0);
+  } catch (e) {
+    closeLog("Failed to contact mint: %s", (e as Error).message);
+    ctx.status = 502;
+    ctx.body = { error: "failed to contact mint", reason: (e as Error).message };
+    return;
+  }
+
+  // Verify response: total output amounts === expected_total
+  const signatures = swapResponse.signatures || [];
+  const actualTotal = signatures.reduce((sum: number, sig: any) => sum + (sig.amount || 0), 0);
+
+  if (actualTotal !== expectedTotal) {
+    closeLog("Total mismatch: expected=%d actual=%d", expectedTotal, actualTotal);
+    ctx.status = 500;
+    ctx.body = {
+      error: "swap response total mismatch",
+      expected: expectedTotal,
+      actual: actualTotal,
+    };
+    return;
+  }
+
+  closeLog("Channel closed successfully: channel=%s total_value=%d", channelId.substring(0, 8), actualTotal);
+
+  // Mark channel as closed (prevents reuse until locktime expires)
+  channelClosed.markClosed(channelId, channelParams.locktime, body.balance, actualTotal);
+
+  // Success
+  ctx.status = 200;
+  ctx.body = {
+    success: true,
+    channel_id: channelId,
+    total_value: actualTotal,
+    already_closed: false,
+  };
 });
