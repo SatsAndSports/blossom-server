@@ -389,6 +389,47 @@ describe('New channel payment', () => {
     expect(headerData.validation_errors[0].type).toBe('InvalidDleq');
     console.log('Tampered DLEQ rejected with 402 ✓');
   });
+
+  it('returns 402 when proof amount has no mint key', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint a funded channel
+    const channel = await mintFundedChannel('sat');
+    console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
+
+    // Tamper with proof amount to a non-existent denomination
+    const tamperedProofs = JSON.parse(JSON.stringify(channel.proofs));
+    const originalAmount = tamperedProofs[0].amount;
+    tamperedProofs[0].amount = 3;  // Not a power of 2, no mint key exists
+    console.log(`Tampered amount: ${originalAmount} -> 3`);
+
+    // Send directly with tampered proofs - server will fail on channel validation
+    // before checking signature, so we can use a fake signature
+    const paymentHeader = JSON.stringify({
+      channel_id: channel.channelId,
+      balance: 1,
+      signature: 'fake_signature',
+      params: channel.channelParams,
+      funding_proofs: tamperedProofs,
+    });
+
+    const response = await fetch(`${BASE_URL}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+
+    expect(response.status).toBe(402);
+    const headerData = JSON.parse(response.headers.get('X-Cashu-Channel')!);
+    expect(headerData.error).toBe('channel validation failed');
+    expect(headerData.validation_errors).toBeDefined();
+    expect(headerData.validation_errors[0].type).toBe('MissingMintKey');
+    console.log('MissingMintKey (invalid amount): 402 ✓');
+  });
 });
 
 describe('Payment header validation', () => {
