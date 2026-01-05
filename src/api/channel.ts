@@ -12,7 +12,7 @@ import {
   channelUsage,
   channelClosed,
 } from "./fetch.js";
-import { create_close_swap_request } from "../wasm/cdk_wasm.js";
+import { create_close_swap_request, unblind_and_verify_dleq } from "../wasm/cdk_wasm.js";
 
 const log = logger.extend("channel-mint-setup");
 
@@ -317,6 +317,7 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   // Create fully-signed swap request using WASM
   let swapRequestJson: string;
   let expectedTotal: number;
+  let secretsWithBlinding: any[];
   try {
     const result = JSON.parse(create_close_swap_request(
       funding.paramsJson,
@@ -329,7 +330,8 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     ));
     swapRequestJson = JSON.stringify(result.swap_request);
     expectedTotal = result.expected_total;
-    closeLog("Swap request created, expected_total=%d", expectedTotal);
+    secretsWithBlinding = result.secrets_with_blinding;
+    closeLog("Swap request created, expected_total=%d, secrets=%d", expectedTotal, secretsWithBlinding.length);
   } catch (e) {
     closeLog("Failed to create swap request: %s", (e as Error).message);
     ctx.status = 400;
@@ -363,10 +365,37 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     return;
   }
 
-  // Verify response: total output amounts === expected_total
-  const signatures = swapResponse.signatures || [];
-  const actualTotal = signatures.reduce((sum: number, sig: any) => sum + (sig.amount || 0), 0);
+  // Unblind signatures and verify DLEQ proofs
+  let unblindResult: {
+    receiver_proofs: any[];
+    sender_proofs: any[];
+    receiver_sum_after_stage1: number;
+    sender_sum_after_stage1: number;
+  };
+  try {
+    unblindResult = JSON.parse(unblind_and_verify_dleq(
+      JSON.stringify(swapResponse.signatures || []),
+      JSON.stringify(secretsWithBlinding),
+      funding.paramsJson,
+      funding.keysetInfoJson,
+      BigInt(body.balance)
+    ));
+    closeLog(
+      "Unblinded and DLEQ verified: receiver=%d proofs (%d nominal), sender=%d proofs (%d nominal)",
+      unblindResult.receiver_proofs.length,
+      unblindResult.receiver_sum_after_stage1,
+      unblindResult.sender_proofs.length,
+      unblindResult.sender_sum_after_stage1
+    );
+  } catch (e) {
+    closeLog("Unblind/DLEQ verification failed: %s", (e as Error).message || e);
+    ctx.status = 500;
+    ctx.body = { error: "unblind verification failed", reason: String(e) };
+    return;
+  }
 
+  // Verify total matches expected
+  const actualTotal = unblindResult.receiver_sum_after_stage1 + unblindResult.sender_sum_after_stage1;
   if (actualTotal !== expectedTotal) {
     closeLog("Total mismatch: expected=%d actual=%d", expectedTotal, actualTotal);
     ctx.status = 500;
