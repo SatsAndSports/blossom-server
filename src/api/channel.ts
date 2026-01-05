@@ -378,6 +378,7 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
       JSON.stringify(secretsWithBlinding),
       funding.paramsJson,
       funding.keysetInfoJson,
+      funding.sharedSecret,
       BigInt(body.balance)
     ));
     closeLog(

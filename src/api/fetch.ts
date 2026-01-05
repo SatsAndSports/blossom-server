@@ -258,7 +258,8 @@ export function validateChannelAndSignature(
     );
     paymentLog("signature verify: %s", signatureValid ? "VALID" : "INVALID");
   } catch (e) {
-    paymentLog("signature verify: ERROR - %s", (e as Error).message);
+    const errMsg = e instanceof Error ? e.message : String(e);
+    paymentLog("signature verify: ERROR - %s", errMsg);
   }
 
   if (!signatureValid) {
