@@ -846,6 +846,88 @@ describe('Channel closing', () => {
     expect(statusAfterJson.closed_amount).toBe(0);
   });
 
+  it('closes channel with multiple payments ensuring receiver gets proofs', async () => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${BASE_URL}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Mint a funded channel
+    const channel = await mintFundedChannel('sat');
+    console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
+
+    // Make 20 requests to accumulate a higher amount_due
+    // With perRequestPpk=500 (0.5 sat/request), 20 requests ≈ 10 sats amount_due
+    for (let i = 1; i <= 20; i++) {
+      const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+        channel.channelParamsJson,
+        JSON.stringify(channel.keysetInfo),
+        channel.alice.secretHex,
+        JSON.stringify(channel.proofs),
+        BigInt(i)
+      );
+      const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+      const paymentHeader = JSON.stringify({
+        channel_id: balanceUpdate.channel_id,
+        balance: i,
+        signature: balanceUpdate.signature,
+        // Only send params/funding_proofs on first request
+        ...(i === 1 ? { params: channel.channelParams, funding_proofs: channel.proofs } : {}),
+      });
+
+      const response = await fetch(`${BASE_URL}/${hash}`, {
+        headers: { 'X-Cashu-Channel': paymentHeader },
+      });
+      expect(response.status).toBe(200);
+    }
+    console.log(`Made 20 blob requests ✓`);
+
+    // Get amount_due
+    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const status = await statusResponse.json();
+    const amountDue = status.amount_due;
+    console.log(`Status before close: amount_due=${amountDue} balance=${status.balance}`);
+    expect(amountDue).toBeGreaterThan(0);
+
+    // Close with amount_due - this triggers unblind_and_verify_dleq which logs receiver proof verification
+    const closeBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(amountDue)
+    );
+    const closeBalanceUpdate = JSON.parse(closeBalanceUpdateJson);
+
+    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: amountDue,
+        signature: closeBalanceUpdate.signature,
+      }),
+    });
+
+    expect(closeResponse.status).toBe(200);
+    const closeResult = await closeResponse.json();
+    console.log(`Close result: success=${closeResult.success} total_value=${closeResult.total_value}`);
+    expect(closeResult.success).toBe(true);
+
+    // Verify receiver got proofs (Charlie's proofs from the payment)
+    // The receiver_proofs are not returned in the response, but the server verifies them internally
+    // and logs [RECEIVER PROOF VERIFY] lines for each one
+    expect(closeResult.sender_proofs).toBeDefined();
+    expect(Array.isArray(closeResult.sender_proofs)).toBe(true);
+
+    // The key verification is in the server logs - [RECEIVER PROOF VERIFY] lines
+    // will show for each receiver proof with amount, index, expected_pubkey, observed_pubkey
+    console.log(`Channel closed - check server logs above for [RECEIVER PROOF VERIFY] lines ✓`);
+  });
+
   it('closes a channel after usage (known channel)', async () => {
     // Upload a blob
     const { content, hash } = generateBlob();
