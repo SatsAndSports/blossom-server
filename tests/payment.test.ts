@@ -854,8 +854,39 @@ describe('Channel closing', () => {
 
     // Make 20 requests to accumulate a higher amount_due
     // Each request uses the precise amount_due for that many blobs/bytes
+    // Before each valid payment, attempt with 1 sat too few (if amount_due >= 1)
     for (let i = 1; i <= 20; i++) {
       const balance = server.getAmountDue('sat', i, content.length * i);
+
+      // Attempt payment with 1 sat too few (should get 402 insufficient balance)
+      if (balance >= 1) {
+        const insufficientBalance = balance - 1;
+        const insufficientBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+          channel.channelParamsJson,
+          JSON.stringify(channel.keysetInfo),
+          channel.alice.secretHex,
+          JSON.stringify(channel.proofs),
+          BigInt(insufficientBalance)
+        );
+        const insufficientBalanceUpdate = JSON.parse(insufficientBalanceUpdateJson);
+
+        const insufficientPaymentHeader = JSON.stringify({
+          channel_id: insufficientBalanceUpdate.channel_id,
+          balance: insufficientBalance,
+          signature: insufficientBalanceUpdate.signature,
+          // Only send params/funding_proofs on first request
+          ...(i === 1 ? { params: channel.channelParams, funding_proofs: channel.proofs } : {}),
+        });
+
+        const insufficientResponse = await fetch(`${server.baseUrl}/${hash}`, {
+          headers: { 'X-Cashu-Channel': insufficientPaymentHeader },
+        });
+        expect(insufficientResponse.status).toBe(402);
+        const errorHeader = JSON.parse(insufficientResponse.headers.get('X-Cashu-Channel')!);
+        expect(errorHeader.error).toBe('insufficient balance');
+      }
+
+      // Now make the valid payment
       const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
         channel.channelParamsJson,
         JSON.stringify(channel.keysetInfo),
@@ -869,7 +900,7 @@ describe('Channel closing', () => {
         channel_id: balanceUpdate.channel_id,
         balance: balance,
         signature: balanceUpdate.signature,
-        // Only send params/funding_proofs on first request
+        // Only send params/funding_proofs on first request (but we may have sent them in the insufficient attempt)
         ...(i === 1 ? { params: channel.channelParams, funding_proofs: channel.proofs } : {}),
       });
 
@@ -878,7 +909,7 @@ describe('Channel closing', () => {
       });
       expect(response.status).toBe(200);
     }
-    console.log(`Made 20 blob requests ✓`);
+    console.log(`Made 20 blob requests (with insufficient balance checks) ✓`);
 
     // Get amount_due
     const statusResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
