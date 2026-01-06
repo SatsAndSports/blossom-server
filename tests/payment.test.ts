@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { test, describe, expect } from './fixtures';
 import { createHash, randomBytes } from 'crypto';
 import * as secp from '@noble/secp256k1';
 
@@ -12,9 +12,7 @@ import {
   get_sender_blinded_secret_key_for_stage2_output,
 } from '../src/wasm/cdk_wasm.js';
 
-const TEST_PORT = 3099;
-const BASE_URL = `http://localhost:${TEST_PORT}`;
-const MINT_URL = 'http://localhost:3338';
+
 
 // Generate a random keypair for Alice
 function generateKeypair(): { secretHex: string; pubkeyHex: string } {
@@ -64,16 +62,26 @@ async function fetchKeysetInfo(mintUrl: string, keysetId: string): Promise<any> 
   };
 }
 
+// Server type for fixture
+interface Server {
+  baseUrl: string;
+  mintUrl: string;
+  channelParams: {
+    receiver_pubkey: string;
+    pricing: Record<string, { perRequestPpk: number; perMegabytePpk: number }>;
+    mints_units_keysets: Record<string, Record<string, string[]>>;
+  };
+  getPricing(unit: string): { perRequestPpk: number; perMegabytePpk: number } | undefined;
+}
+
 // Helper to mint a funded channel - returns everything needed to make payments
-async function mintFundedChannel(unit: string) {
-  // Get channel params from server
-  const paramsRes = await fetch(`${BASE_URL}/channel/params`);
-  const serverParams = await paramsRes.json();
-  const charliePubkey = serverParams.receiver_pubkey;
+async function mintFundedChannel(server: Server, unit: string) {
+  // Use cached channel params from server fixture
+  const charliePubkey = server.channelParams.receiver_pubkey;
 
   // Get keyset for the specified unit
-  const mintUrl = Object.keys(serverParams.mints_units_keysets)[0];
-  const unitKeysets = serverParams.mints_units_keysets[mintUrl][unit];
+  const mintUrl = server.mintUrl;
+  const unitKeysets = server.channelParams.mints_units_keysets[mintUrl]?.[unit];
   if (!unitKeysets || unitKeysets.length === 0) {
     throw new Error(`No keyset found for unit "${unit}" at ${mintUrl}`);
   }
@@ -174,12 +182,7 @@ async function mintFundedChannel(unit: string) {
   };
 }
 
-// Fetch pricing for a unit from the server
-async function fetchPricing(unit: string): Promise<{ perRequestPpk: number; perMegabytePpk: number }> {
-  const res = await fetch(`${BASE_URL}/channel/params`);
-  const params = await res.json();
-  return params.pricing[unit];
-}
+
 
 // Calculate expected amount due (mirrors server logic)
 function expectedAmountDue(
@@ -194,10 +197,10 @@ function expectedAmountDue(
 }
 
 describe('New channel payment', () => {
-  it('accepts valid payment on new channel and serves blob', async () => {
+  test('accepts valid payment on new channel and serves blob', async ({ server }) => {
     // Step 1: Upload a blob
     const { content, hash } = generateBlob();
-    const uploadRes = await fetch(`${BASE_URL}/upload`, {
+    const uploadRes = await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
@@ -206,7 +209,7 @@ describe('New channel payment', () => {
     console.log(`Uploaded blob: ${hash.substring(0, 16)}... (${content.length} bytes)`);
 
     // Step 2: Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
     console.log(`Channel capacity: ${channel.capacity} sats`);
 
@@ -232,7 +235,7 @@ describe('New channel payment', () => {
       funding_proofs: channel.proofs,
     });
 
-    const response = await fetch(`${BASE_URL}/${hash}`, {
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
       headers: {
         'X-Cashu-Channel': paymentHeader,
       },
@@ -246,10 +249,10 @@ describe('New channel payment', () => {
     console.log('Blob content verified ✓');
   });
 
-  it('accepts valid payment with usd channel', async () => {
+  test('accepts valid payment with usd channel', async ({ server }) => {
     // Step 1: Upload a blob
     const { content, hash } = generateBlob();
-    const uploadRes = await fetch(`${BASE_URL}/upload`, {
+    const uploadRes = await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
@@ -258,7 +261,7 @@ describe('New channel payment', () => {
     console.log(`Uploaded blob: ${hash.substring(0, 16)}... (${content.length} bytes)`);
 
     // Step 2: Mint a funded channel with USD
-    const channel = await mintFundedChannel('usd');
+    const channel = await mintFundedChannel(server, 'usd');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
     console.log(`Channel unit: ${channel.channelParams.unit}`);
 
@@ -283,7 +286,7 @@ describe('New channel payment', () => {
       funding_proofs: channel.proofs,
     });
 
-    const response = await fetch(`${BASE_URL}/${hash}`, {
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
       headers: {
         'X-Cashu-Channel': paymentHeader,
       },
@@ -297,10 +300,10 @@ describe('New channel payment', () => {
     console.log('USD channel payment accepted ✓');
   });
 
-  it('returns 402 without payment, then 200 with valid payment', async () => {
+  test('returns 402 without payment, then 200 with valid payment', async ({ server }) => {
     // Step 1: Upload a blob
     const { content, hash } = generateBlob();
-    const uploadRes = await fetch(`${BASE_URL}/upload`, {
+    const uploadRes = await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
@@ -309,7 +312,7 @@ describe('New channel payment', () => {
     console.log(`Uploaded blob: ${hash.substring(0, 16)}... (${content.length} bytes)`);
 
     // Step 2: Request blob WITHOUT payment - should get 402
-    const noPaymentResponse = await fetch(`${BASE_URL}/${hash}`);
+    const noPaymentResponse = await fetch(`${server.baseUrl}/${hash}`);
     expect(noPaymentResponse.status).toBe(402);
     const channelHeader = noPaymentResponse.headers.get('X-Cashu-Channel');
     expect(channelHeader).toBeDefined();
@@ -319,7 +322,7 @@ describe('New channel payment', () => {
     console.log(`Got 402 without payment ✓ (size=${headerData.size})`);
 
     // Step 3: Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Step 4: Create a balance update
@@ -342,7 +345,7 @@ describe('New channel payment', () => {
       funding_proofs: channel.proofs,
     });
 
-    const paidResponse = await fetch(`${BASE_URL}/${hash}`, {
+    const paidResponse = await fetch(`${server.baseUrl}/${hash}`, {
       headers: {
         'X-Cashu-Channel': paymentHeader,
       },
@@ -354,10 +357,10 @@ describe('New channel payment', () => {
     console.log('Got 200 with payment, blob content verified ✓');
   });
 
-  it('returns 402 when DLEQ proof is tampered', async () => {
+  test('returns 402 when DLEQ proof is tampered', async ({ server }) => {
     // Step 1: Upload a blob
     const { content, hash } = generateBlob();
-    const uploadRes = await fetch(`${BASE_URL}/upload`, {
+    const uploadRes = await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
@@ -366,7 +369,7 @@ describe('New channel payment', () => {
     console.log(`Uploaded blob: ${hash.substring(0, 16)}... (${content.length} bytes)`);
 
     // Step 2: Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Step 3: Tamper with a DLEQ proof
@@ -395,7 +398,7 @@ describe('New channel payment', () => {
       funding_proofs: tamperedProofs,
     });
 
-    const response = await fetch(`${BASE_URL}/${hash}`, {
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
       headers: {
         'X-Cashu-Channel': paymentHeader,
       },
@@ -417,17 +420,17 @@ describe('New channel payment', () => {
     console.log('Tampered DLEQ rejected with 402 ✓');
   });
 
-  it('returns 402 when proof amount has no mint key', async () => {
+  test('returns 402 when proof amount has no mint key', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Tamper with proof amount to a non-existent denomination
@@ -446,7 +449,7 @@ describe('New channel payment', () => {
       funding_proofs: tamperedProofs,
     });
 
-    const response = await fetch(`${BASE_URL}/${hash}`, {
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader },
     });
 
@@ -460,10 +463,10 @@ describe('New channel payment', () => {
 });
 
 describe('Payment header validation', () => {
-  it('returns 402 for invalid or missing header fields', async () => {
+  test('returns 402 for invalid or missing header fields', async ({ server }) => {
     // Upload a blob to test against
     const { content, hash } = generateBlob();
-    const uploadRes = await fetch(`${BASE_URL}/upload`, {
+    const uploadRes = await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
@@ -524,7 +527,7 @@ describe('Payment header validation', () => {
     ];
 
     for (const tc of testCases) {
-      const response = await fetch(`${BASE_URL}/${hash}`, {
+      const response = await fetch(`${server.baseUrl}/${hash}`, {
         headers: { 'X-Cashu-Channel': tc.header },
       });
 
@@ -543,17 +546,17 @@ describe('Payment header validation', () => {
 });
 
 describe('Channel validation errors', () => {
-  it('returns 402 when channel_id does not match params', async () => {
+  test('returns 402 when channel_id does not match params', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
 
     // Create a valid balance update
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
@@ -577,7 +580,7 @@ describe('Channel validation errors', () => {
       funding_proofs: channel.proofs,
     });
 
-    const response = await fetch(`${BASE_URL}/${hash}`, {
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader },
     });
 
@@ -587,10 +590,10 @@ describe('Channel validation errors', () => {
     console.log('channel_id mismatch: 402 ✓');
   });
 
-  it('returns 402 for unknown channel', async () => {
+  test('returns 402 for unknown channel', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
@@ -603,7 +606,7 @@ describe('Channel validation errors', () => {
       signature: 'fake_signature',
     });
 
-    const response = await fetch(`${BASE_URL}/${hash}`, {
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader },
     });
 
@@ -613,17 +616,17 @@ describe('Channel validation errors', () => {
     console.log('unknown channel: 402 ✓');
   });
 
-  it('returns 402 when keyset is not from approved mint', async () => {
+  test('returns 402 when keyset is not from approved mint', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
 
     // Tamper with keyset_id in params
     const tamperedParams = { ...channel.channelParams, keyset_id: '00deadbeef123456' };
@@ -643,7 +646,7 @@ describe('Channel validation errors', () => {
       funding_proofs: channel.proofs,
     });
 
-    const response = await fetch(`${BASE_URL}/${hash}`, {
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader },
     });
 
@@ -653,17 +656,17 @@ describe('Channel validation errors', () => {
     console.log('keyset not from approved mint: 402 ✓');
   });
 
-  it('returns 402 when signature does not match balance', async () => {
+  test('returns 402 when signature does not match balance', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
 
     // Create a valid balance update for balance=1
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
@@ -684,7 +687,7 @@ describe('Channel validation errors', () => {
       funding_proofs: channel.proofs,
     });
 
-    const response = await fetch(`${BASE_URL}/${hash}`, {
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader },
     });
 
@@ -694,17 +697,17 @@ describe('Channel validation errors', () => {
     console.log('invalid signature (balance mismatch): 402 ✓');
   });
 
-  it('returns 402 when balance exceeds capacity', async () => {
+  test('returns 402 when balance exceeds capacity', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint a funded channel (capacity = 100)
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
     console.log(`Channel capacity: ${channel.capacity}`);
 
     // First, establish the channel with a valid payment
@@ -718,7 +721,7 @@ describe('Channel validation errors', () => {
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
     // Establish channel with valid payment
-    const establishRes = await fetch(`${BASE_URL}/${hash}`, {
+    const establishRes = await fetch(`${server.baseUrl}/${hash}`, {
       headers: {
         'X-Cashu-Channel': JSON.stringify({
           channel_id: balanceUpdate.channel_id,
@@ -739,7 +742,7 @@ describe('Channel validation errors', () => {
       signature: 'fake_signature',
     });
 
-    const response = await fetch(`${BASE_URL}/${hash}`, {
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader },
     });
 
@@ -753,11 +756,11 @@ describe('Channel validation errors', () => {
 });
 
 describe('Channel closing', () => {
-  it('closes unused channel and verifies sender can derive secret keys for returned proofs', async () => {
+  test('closes unused channel and verifies sender can derive secret keys for returned proofs', async ({ server }) => {
     // Alice mints a funded channel but never uses it
     // She can close immediately with balance=0
     // After close, she should be able to derive the secret key for each returned proof
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Create a balance update for balance=0 (closing unused channel)
@@ -772,7 +775,7 @@ describe('Channel closing', () => {
     console.log(`Signed balance update for close: balance=0`);
 
     // Close the channel (server doesn't know about it yet, so include params and funding_proofs)
-    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+    const closeResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -839,24 +842,24 @@ describe('Channel closing', () => {
     console.log(`Alice can derive secret keys for all ${closeResult.sender_proofs.length} sender_proofs ✓`);
 
     // Verify status shows closed=true and closed_amount=0 after close
-    const statusAfter = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusAfter = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
     const statusAfterJson = await statusAfter.json();
     console.log(`Status after close: closed=${statusAfterJson.closed} closed_amount=${statusAfterJson.closed_amount}`);
     expect(statusAfterJson.closed).toBe(true);
     expect(statusAfterJson.closed_amount).toBe(0);
   });
 
-  it('closes channel with multiple payments ensuring receiver gets proofs', async () => {
+  test('closes channel with multiple payments ensuring receiver gets proofs', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Make 20 requests to accumulate a higher amount_due
@@ -879,7 +882,7 @@ describe('Channel closing', () => {
         ...(i === 1 ? { params: channel.channelParams, funding_proofs: channel.proofs } : {}),
       });
 
-      const response = await fetch(`${BASE_URL}/${hash}`, {
+      const response = await fetch(`${server.baseUrl}/${hash}`, {
         headers: { 'X-Cashu-Channel': paymentHeader },
       });
       expect(response.status).toBe(200);
@@ -887,7 +890,7 @@ describe('Channel closing', () => {
     console.log(`Made 20 blob requests ✓`);
 
     // Get amount_due
-    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
     const status = await statusResponse.json();
     const amountDue = status.amount_due;
     console.log(`Status before close: amount_due=${amountDue} balance=${status.balance}`);
@@ -903,7 +906,7 @@ describe('Channel closing', () => {
     );
     const closeBalanceUpdate = JSON.parse(closeBalanceUpdateJson);
 
-    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+    const closeResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -928,17 +931,17 @@ describe('Channel closing', () => {
     console.log(`Channel closed - check server logs above for [RECEIVER PROOF VERIFY] lines ✓`);
   });
 
-  it('closes a channel after usage (known channel)', async () => {
+  test('closes a channel after usage (known channel)', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Make a payment (balance=1)
@@ -959,14 +962,14 @@ describe('Channel closing', () => {
       funding_proofs: channel.proofs,
     });
 
-    const blobResponse = await fetch(`${BASE_URL}/${hash}`, {
+    const blobResponse = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader },
     });
     expect(blobResponse.status).toBe(200);
     console.log(`Blob fetched with balance=1 ✓`);
 
     // Get current amount_due from status (before close)
-    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
     const status = await statusResponse.json();
     const amountDue = status.amount_due;
     console.log(`Status before close: amount_due=${amountDue} closed=${status.closed}`);
@@ -983,7 +986,7 @@ describe('Channel closing', () => {
     const closeBalanceUpdate = JSON.parse(closeBalanceUpdateJson);
 
     // Close the channel (server already knows about it, so no need for params/funding_proofs)
-    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+    const closeResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1008,24 +1011,24 @@ describe('Channel closing', () => {
     console.log(`Channel closed with total_value=${closeResult.total_value}, sender_proofs=${closeResult.sender_proofs.length} (sum=${senderSum}) ✓`);
 
     // Verify status shows closed=true and closed_amount=amountDue after close
-    const statusAfter = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusAfter = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
     const statusAfterJson = await statusAfter.json();
     console.log(`Status after close: closed=${statusAfterJson.closed} closed_amount=${statusAfterJson.closed_amount}`);
     expect(statusAfterJson.closed).toBe(true);
     expect(statusAfterJson.closed_amount).toBe(amountDue);
   });
 
-  it('rejects close with balance less than amount_due', async () => {
+  test('rejects close with balance less than amount_due', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint a funded channel and make a payment
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
 
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
       channel.channelParamsJson,
@@ -1044,12 +1047,12 @@ describe('Channel closing', () => {
       funding_proofs: channel.proofs,
     });
 
-    await fetch(`${BASE_URL}/${hash}`, {
+    await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader },
     });
 
     // Get amount_due
-    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
     const status = await statusResponse.json();
     const amountDue = status.amount_due;
     console.log(`amount_due=${amountDue}`);
@@ -1064,7 +1067,7 @@ describe('Channel closing', () => {
     );
     const zeroBalanceUpdate = JSON.parse(zeroBalanceUpdateJson);
 
-    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+    const closeResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1081,9 +1084,9 @@ describe('Channel closing', () => {
     console.log(`Close rejected with balance < amount_due ✓`);
   });
 
-  it('rejects close with balance greater than amount_due', async () => {
+  test('rejects close with balance greater than amount_due', async ({ server }) => {
     // Mint a funded channel (no usage, so amount_due = 0)
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
 
     // Create balance update for balance=10 (greater than amount_due of 0)
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
@@ -1095,7 +1098,7 @@ describe('Channel closing', () => {
     );
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
-    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+    const closeResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1114,11 +1117,11 @@ describe('Channel closing', () => {
     console.log(`Close rejected with balance > amount_due ✓`);
   });
 
-  it('rejects close with invalid signature', async () => {
+  test('rejects close with invalid signature', async ({ server }) => {
     // Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
 
-    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+    const closeResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1137,11 +1140,11 @@ describe('Channel closing', () => {
     console.log(`Close rejected with invalid signature ✓`);
   });
 
-  it('rejects close for unknown channel without params', async () => {
+  test('rejects close for unknown channel without params', async ({ server }) => {
     // Generate a random channel ID that the server doesn't know about
     const fakeChannelId = randomBytes(32).toString('hex');
 
-    const closeResponse = await fetch(`${BASE_URL}/channel/${fakeChannelId}/close`, {
+    const closeResponse = await fetch(`${server.baseUrl}/channel/${fakeChannelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1159,9 +1162,9 @@ describe('Channel closing', () => {
     console.log(`Close rejected for unknown channel without params ✓`);
   });
 
-  it('idempotent close with same amount succeeds', async () => {
+  test('idempotent close with same amount succeeds', async ({ server }) => {
     // Mint and close a channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Create balance update for balance=0
@@ -1175,7 +1178,7 @@ describe('Channel closing', () => {
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
     // First close
-    const closeResponse1 = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+    const closeResponse1 = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1194,7 +1197,7 @@ describe('Channel closing', () => {
     console.log(`First close succeeded: total_value=${closeResult1.total_value}, sender_proofs=${closeResult1.sender_proofs.length}`);
 
     // Second close with same amount - should succeed with already_closed=true and return same sender_proofs
-    const closeResponse2 = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+    const closeResponse2 = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1216,17 +1219,17 @@ describe('Channel closing', () => {
     console.log(`Second close succeeded (idempotent): already_closed=true, sender_proofs=${closeResult2.sender_proofs.length} ✓`);
   });
 
-  it('rejects close of already-closed channel with different amount', async () => {
+  test('rejects close of already-closed channel with different amount', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint and use a channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Make a payment to establish usage
@@ -1239,7 +1242,7 @@ describe('Channel closing', () => {
     );
     const paymentBalanceUpdate = JSON.parse(paymentBalanceUpdateJson);
 
-    const blobResponse = await fetch(`${BASE_URL}/${hash}`, {
+    const blobResponse = await fetch(`${server.baseUrl}/${hash}`, {
       headers: {
         'X-Cashu-Channel': JSON.stringify({
           channel_id: paymentBalanceUpdate.channel_id,
@@ -1254,7 +1257,7 @@ describe('Channel closing', () => {
     console.log(`Blob fetched with balance=1`);
 
     // Get amount_due
-    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
     const status = await statusResponse.json();
     const amountDue = status.amount_due;
     console.log(`amount_due=${amountDue}`);
@@ -1269,7 +1272,7 @@ describe('Channel closing', () => {
     );
     const closeBalanceUpdate = JSON.parse(closeBalanceUpdateJson);
 
-    const closeResponse1 = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+    const closeResponse1 = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1292,7 +1295,7 @@ describe('Channel closing', () => {
     );
     const zeroBalanceUpdate = JSON.parse(zeroBalanceUpdateJson);
 
-    const closeResponse2 = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+    const closeResponse2 = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1309,17 +1312,17 @@ describe('Channel closing', () => {
     console.log(`Second close rejected (different amount): closed_amount=${amountDue} requested=0 ✓`);
   });
 
-  it('rejects payment on a closed channel', async () => {
+  test('rejects payment on a closed channel', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint and close a channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Close the channel with balance=0
@@ -1332,7 +1335,7 @@ describe('Channel closing', () => {
     );
     const closeBalanceUpdate = JSON.parse(closeBalanceUpdateJson);
 
-    const closeResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
+    const closeResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1361,7 +1364,7 @@ describe('Channel closing', () => {
       signature: paymentBalanceUpdate.signature,
     });
 
-    const blobResponse = await fetch(`${BASE_URL}/${hash}`, {
+    const blobResponse = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader },
     });
 
@@ -1375,20 +1378,20 @@ describe('Channel closing', () => {
 });
 
 describe('Channel status endpoint', () => {
-  it('returns status with zeroes before payment, then updated after payment', async () => {
+  test('returns status with zeroes before payment, then updated after payment', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
 
     // Fetch pricing for amount_due calculations
-    const pricing = await fetchPricing('sat');
+    const pricing = server.getPricing('sat')!;
 
     // Create a balance update to establish the channel (but don't fetch a blob yet)
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
@@ -1409,13 +1412,13 @@ describe('Channel status endpoint', () => {
     });
 
     // Make a paid request to establish the channel
-    const blobResponse = await fetch(`${BASE_URL}/${hash}`, {
+    const blobResponse = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader },
     });
     expect(blobResponse.status).toBe(200);
 
     // Check status after first payment
-    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
     expect(statusResponse.status).toBe(200);
 
     const status = await statusResponse.json();
@@ -1445,13 +1448,13 @@ describe('Channel status endpoint', () => {
       // No need to send params/funding_proofs again - server has them cached
     });
 
-    const blobResponse2 = await fetch(`${BASE_URL}/${hash}`, {
+    const blobResponse2 = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader2 },
     });
     expect(blobResponse2.status).toBe(200);
 
     // Check updated status
-    const statusResponse2 = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusResponse2 = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
     const status2 = await statusResponse2.json();
 
     expect(status2.balance).toBe(2);
@@ -1462,20 +1465,20 @@ describe('Channel status endpoint', () => {
     console.log(`Channel status after 2nd payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} amount_due=${status2.amount_due} ✓`);
   });
 
-  it('does not update status when payment fails', async () => {
+  test('does not update status when payment fails', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // Mint a funded channel
-    const channel = await mintFundedChannel('sat');
+    const channel = await mintFundedChannel(server, 'sat');
 
     // Fetch pricing for amount_due calculations
-    const pricing = await fetchPricing('sat');
+    const pricing = server.getPricing('sat')!;
 
     // Create a balance update and make a successful payment
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
@@ -1495,13 +1498,13 @@ describe('Channel status endpoint', () => {
       funding_proofs: channel.proofs,
     });
 
-    const blobResponse = await fetch(`${BASE_URL}/${hash}`, {
+    const blobResponse = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader },
     });
     expect(blobResponse.status).toBe(200);
 
     // Check status after first payment
-    const statusResponse = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
     const status = await statusResponse.json();
     expect(status.balance).toBe(1);
     expect(status.blobs_served).toBe(1);
@@ -1516,7 +1519,7 @@ describe('Channel status endpoint', () => {
       signature: balanceUpdate.signature,
     });
 
-    const blobResponse2 = await fetch(`${BASE_URL}/${hash}`, {
+    const blobResponse2 = await fetch(`${server.baseUrl}/${hash}`, {
       headers: { 'X-Cashu-Channel': paymentHeader2 },
     });
     expect(blobResponse2.status).toBe(402);
@@ -1525,7 +1528,7 @@ describe('Channel status endpoint', () => {
     console.log(`Failed payment rejected: ${errorData.error} ✓`);
 
     // Check status has NOT changed
-    const statusResponse2 = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
+    const statusResponse2 = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
     const status2 = await statusResponse2.json();
 
     expect(status2.balance).toBe(1);  // Still 1, not 2

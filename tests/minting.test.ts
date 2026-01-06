@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { test, describe, expect } from './fixtures';
 import { randomBytes } from 'crypto';
 import * as secp from '@noble/secp256k1';
 
@@ -11,10 +11,6 @@ import {
   verify_proof_dleq,
   verify_channel,
 } from '../src/wasm/cdk_wasm.js';
-
-const TEST_PORT = 3099;
-const BASE_URL = `http://localhost:${TEST_PORT}`;
-const MINT_URL = 'http://localhost:3338';
 
 // Generate a random keypair for Alice
 function generateKeypair(): { secretHex: string; pubkeyHex: string } {
@@ -54,18 +50,15 @@ async function fetchKeysetInfo(mintUrl: string, keysetId: string): Promise<any> 
 }
 
 describe('Minting flow', () => {
-  it('mints a funding token with deterministic outputs', async () => {
-    // Step 1: Get channel params from server
-    const paramsRes = await fetch(`${BASE_URL}/channel/params`);
-    expect(paramsRes.status).toBe(200);
-    const serverParams = await paramsRes.json();
-    const charliePubkey = serverParams.receiver_pubkey;
+  test('mints a funding token with deterministic outputs', async ({ server }) => {
+    // Step 1: Use cached channel params from fixture
+    const charliePubkey = server.channelParams.receiver_pubkey;
     expect(charliePubkey).toMatch(/^[0-9a-f]{66}$/);
 
     // Get first available mint and keyset
-    const mintUrl = Object.keys(serverParams.mints_units_keysets)[0];
+    const mintUrl = Object.keys(server.channelParams.mints_units_keysets)[0];
     expect(mintUrl).toBeDefined();
-    const units = serverParams.mints_units_keysets[mintUrl];
+    const units = server.channelParams.mints_units_keysets[mintUrl];
     const unit = Object.keys(units)[0]; // 'sat' or 'usd'
     const keysetId = units[unit][0];
     console.log(`Using mint=${mintUrl} unit=${unit} keyset=${keysetId}`);
@@ -217,18 +210,15 @@ describe('Minting flow', () => {
 });
 
 describe('Channel verification', () => {
-  it('detects tampered keyset keys', async () => {
-    // Step 1: Get channel params from server
-    const paramsRes = await fetch(`${BASE_URL}/channel/params`);
-    expect(paramsRes.status).toBe(200);
-    const serverParams = await paramsRes.json();
-    const charliePubkey = serverParams.receiver_pubkey;
+  test('detects tampered keyset keys', async ({ server }) => {
+    // Step 1: Use cached channel params from fixture
+    const charliePubkey = server.channelParams.receiver_pubkey;
     expect(charliePubkey).toMatch(/^[0-9a-f]{66}$/);
 
     // Get first available mint and keyset
-    const mintUrl = Object.keys(serverParams.mints_units_keysets)[0];
+    const mintUrl = Object.keys(server.channelParams.mints_units_keysets)[0];
     expect(mintUrl).toBeDefined();
-    const units = serverParams.mints_units_keysets[mintUrl];
+    const units = server.channelParams.mints_units_keysets[mintUrl];
     const unit = Object.keys(units)[0]; // 'sat' or 'usd'
     const keysetId = units[unit][0];
     console.log(`Using mint=${mintUrl} unit=${unit} keyset=${keysetId}`);
@@ -408,18 +398,15 @@ describe('Channel verification', () => {
     console.log('Restored keyset verified ✓');
   });
 
-  it('detects tampered DLEQ proofs', async () => {
-    // Step 1: Get channel params from server
-    const paramsRes = await fetch(`${BASE_URL}/channel/params`);
-    expect(paramsRes.status).toBe(200);
-    const serverParams = await paramsRes.json();
-    const charliePubkey = serverParams.receiver_pubkey;
+  test('detects tampered DLEQ proofs', async ({ server }) => {
+    // Step 1: Use cached channel params from fixture
+    const charliePubkey = server.channelParams.receiver_pubkey;
     expect(charliePubkey).toMatch(/^[0-9a-f]{66}$/);
 
     // Get first available mint and keyset
-    const mintUrl = Object.keys(serverParams.mints_units_keysets)[0];
+    const mintUrl = Object.keys(server.channelParams.mints_units_keysets)[0];
     expect(mintUrl).toBeDefined();
-    const units = serverParams.mints_units_keysets[mintUrl];
+    const units = server.channelParams.mints_units_keysets[mintUrl];
     const unit = Object.keys(units)[0]; // 'sat' or 'usd'
     const keysetId = units[unit][0];
     console.log(`Using mint=${mintUrl} unit=${unit} keyset=${keysetId}`);
@@ -599,16 +586,13 @@ describe('Channel verification', () => {
     console.log('Restored proofs verified ✓');
   });
 
-  it('collects multiple error types (keyset + DLEQ)', async () => {
-    // Step 1: Get channel params from server
-    const paramsRes = await fetch(`${BASE_URL}/channel/params`);
-    expect(paramsRes.status).toBe(200);
-    const serverParams = await paramsRes.json();
-    const charliePubkey = serverParams.receiver_pubkey;
+  test('collects multiple error types (keyset + DLEQ)', async ({ server }) => {
+    // Step 1: Use cached channel params from fixture
+    const charliePubkey = server.channelParams.receiver_pubkey;
 
     // Get first available mint and keyset
-    const mintUrl = Object.keys(serverParams.mints_units_keysets)[0];
-    const units = serverParams.mints_units_keysets[mintUrl];
+    const mintUrl = Object.keys(server.channelParams.mints_units_keysets)[0];
+    const units = server.channelParams.mints_units_keysets[mintUrl];
     const unit = Object.keys(units)[0];
     const keysetId = units[unit][0];
 

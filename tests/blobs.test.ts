@@ -1,8 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { test, describe, expect } from './fixtures';
 import { createHash, randomBytes } from 'crypto';
-
-const TEST_PORT = 3099;
-const BASE_URL = `http://localhost:${TEST_PORT}`;
 
 // Generate unique blob content for each test to avoid collisions
 function generateBlob(): { content: Buffer; hash: string } {
@@ -12,10 +9,10 @@ function generateBlob(): { content: Buffer; hash: string } {
 }
 
 describe('Blob operations', () => {
-  it('PUT uploads a blob and returns its hash', async () => {
+  test('PUT uploads a blob and returns its hash', async ({ server }) => {
     const { content, hash } = generateBlob();
 
-    const response = await fetch(`${BASE_URL}/upload`, {
+    const response = await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/octet-stream',
@@ -29,31 +26,31 @@ describe('Blob operations', () => {
     expect(data.size).toBe(content.length);
   });
 
-  it('HEAD checks if blob exists', async () => {
+  test('HEAD checks if blob exists', async ({ server }) => {
     const { content, hash } = generateBlob();
 
     // Upload first
-    await fetch(`${BASE_URL}/upload`, {
+    await fetch(`${server.baseUrl}/upload`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: content,
     });
 
     // HEAD request
-    const response = await fetch(`${BASE_URL}/${hash}`, { method: 'HEAD' });
+    const response = await fetch(`${server.baseUrl}/${hash}`, { method: 'HEAD' });
     expect(response.status).toBe(200);
     expect(response.headers.get('content-length')).toBe(String(content.length));
   });
 
-  it('GET returns 404 for non-existent blob', async () => {
+  test('GET returns 404 for non-existent blob', async ({ server }) => {
     const fakeHash = createHash('sha256').update('does-not-exist').digest('hex');
-    const response = await fetch(`${BASE_URL}/${fakeHash}`);
+    const response = await fetch(`${server.baseUrl}/${fakeHash}`);
     expect(response.status).toBe(404);
   });
 
-  it('HEAD returns 404 for non-existent blob', async () => {
+  test('HEAD returns 404 for non-existent blob', async ({ server }) => {
     const fakeHash = createHash('sha256').update('also-does-not-exist').digest('hex');
-    const response = await fetch(`${BASE_URL}/${fakeHash}`, { method: 'HEAD' });
+    const response = await fetch(`${server.baseUrl}/${fakeHash}`, { method: 'HEAD' });
     expect(response.status).toBe(404);
   });
 });
