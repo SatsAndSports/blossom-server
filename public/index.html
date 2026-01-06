@@ -1429,6 +1429,19 @@
                             xhr.addEventListener('load', function() {
                                 if (xhr.status >= 200 && xhr.status < 300) {
                                     channelsSentParams.add(channelId);
+                                    // Log amount_due from server response
+                                    const channelHeader = xhr.getResponseHeader('X-Cashu-Channel');
+                                    console.log('[DEBUG] X-Cashu-Channel header:', channelHeader);
+                                    if (channelHeader) {
+                                        try {
+                                            const data = JSON.parse(channelHeader);
+                                            log(`Server: balance=${data.balance} amount_due=${data.amount_due} capacity=${data.capacity}`, 'payment');
+                                        } catch (e) {
+                                            console.log('[DEBUG] Parse error:', e);
+                                        }
+                                    } else {
+                                        console.log('[DEBUG] No X-Cashu-Channel header in response');
+                                    }
                                 } else if (xhr.status === 402) {
                                     // Log 402 details for debugging
                                     try {
