@@ -184,17 +184,7 @@ async function mintFundedChannel(server: Server, unit: string) {
 
 
 
-// Calculate expected amount due (mirrors server logic)
-function expectedAmountDue(
-  blobsServed: number,
-  bytesServed: number,
-  pricing: { perRequestPpk: number; perMegabytePpk: number }
-): number {
-  const megabytes = bytesServed / 1_000_000;
-  return Math.ceil(
-    (blobsServed * pricing.perRequestPpk + megabytes * pricing.perMegabytePpk) / 1000
-  );
-}
+
 
 describe('New channel payment', () => {
   test('accepts valid payment on new channel and serves blob', async ({ server }) => {
@@ -863,20 +853,21 @@ describe('Channel closing', () => {
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
     // Make 20 requests to accumulate a higher amount_due
-    // With perRequestPpk=500 (0.5 sat/request), 20 requests ≈ 10 sats amount_due
+    // Each request uses the precise amount_due for that many blobs/bytes
     for (let i = 1; i <= 20; i++) {
+      const balance = server.getAmountDue('sat', i, content.length * i);
       const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
         channel.channelParamsJson,
         JSON.stringify(channel.keysetInfo),
         channel.alice.secretHex,
         JSON.stringify(channel.proofs),
-        BigInt(i)
+        BigInt(balance)
       );
       const balanceUpdate = JSON.parse(balanceUpdateJson);
 
       const paymentHeader = JSON.stringify({
         channel_id: balanceUpdate.channel_id,
-        balance: i,
+        balance: balance,
         signature: balanceUpdate.signature,
         // Only send params/funding_proofs on first request
         ...(i === 1 ? { params: channel.channelParams, funding_proofs: channel.proofs } : {}),
@@ -1390,9 +1381,6 @@ describe('Channel status endpoint', () => {
     // Mint a funded channel
     const channel = await mintFundedChannel(server, 'sat');
 
-    // Fetch pricing for amount_due calculations
-    const pricing = server.getPricing('sat')!;
-
     // Create a balance update to establish the channel (but don't fetch a blob yet)
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
       channel.channelParamsJson,
@@ -1427,7 +1415,7 @@ describe('Channel status endpoint', () => {
     expect(status.balance).toBe(1);
     expect(status.blobs_served).toBe(1);
     expect(status.bytes_served).toBe(content.length);
-    expect(status.amount_due).toBe(expectedAmountDue(1, content.length, pricing));
+    expect(status.amount_due).toBe(server.getAmountDue('sat', 1, content.length));
 
     console.log(`Channel status after payment: capacity=${status.capacity} balance=${status.balance} blobs=${status.blobs_served} bytes=${status.bytes_served} amount_due=${status.amount_due} ✓`);
 
@@ -1460,7 +1448,7 @@ describe('Channel status endpoint', () => {
     expect(status2.balance).toBe(2);
     expect(status2.blobs_served).toBe(2);
     expect(status2.bytes_served).toBe(content.length * 2);
-    expect(status2.amount_due).toBe(expectedAmountDue(2, content.length * 2, pricing));
+    expect(status2.amount_due).toBe(server.getAmountDue('sat', 2, content.length * 2));
 
     console.log(`Channel status after 2nd payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} amount_due=${status2.amount_due} ✓`);
   });
@@ -1476,9 +1464,6 @@ describe('Channel status endpoint', () => {
 
     // Mint a funded channel
     const channel = await mintFundedChannel(server, 'sat');
-
-    // Fetch pricing for amount_due calculations
-    const pricing = server.getPricing('sat')!;
 
     // Create a balance update and make a successful payment
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
@@ -1509,7 +1494,7 @@ describe('Channel status endpoint', () => {
     expect(status.balance).toBe(1);
     expect(status.blobs_served).toBe(1);
     expect(status.bytes_served).toBe(content.length);
-    expect(status.amount_due).toBe(expectedAmountDue(1, content.length, pricing));
+    expect(status.amount_due).toBe(server.getAmountDue('sat', 1, content.length));
     console.log(`Channel status after payment: balance=${status.balance} blobs=${status.blobs_served} bytes=${status.bytes_served} amount_due=${status.amount_due} ✓`);
 
     // Attempt a second request with wrong balance (signature is for balance=1, but we send balance=2)
@@ -1534,7 +1519,7 @@ describe('Channel status endpoint', () => {
     expect(status2.balance).toBe(1);  // Still 1, not 2
     expect(status2.blobs_served).toBe(1);  // Still 1, not 2
     expect(status2.bytes_served).toBe(content.length);  // Still same
-    expect(status2.amount_due).toBe(expectedAmountDue(1, content.length, pricing));  // Still same
+    expect(status2.amount_due).toBe(server.getAmountDue('sat', 1, content.length));  // Still same
 
     console.log(`Channel status unchanged after failed payment: balance=${status2.balance} blobs=${status2.blobs_served} bytes=${status2.bytes_served} amount_due=${status2.amount_due} ✓`);
   });

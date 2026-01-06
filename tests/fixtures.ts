@@ -21,6 +21,7 @@ interface Server {
   mintUrl: string;
   channelParams: ChannelParams;
   getPricing(unit: string): Pricing | undefined;
+  getAmountDue(unit: string, blobsServed: number, bytesServed: number): number;
 }
 
 export const test = base.extend<{
@@ -40,6 +41,14 @@ export const test = base.extend<{
         channelParams,
         getPricing(unit: string) {
           return this.channelParams.pricing[unit];
+        },
+        getAmountDue(unit: string, blobsServed: number, bytesServed: number): number {
+          const pricing = this.getPricing(unit);
+          if (!pricing) throw new Error(`No pricing configured for unit "${unit}"`);
+          const megabytes = bytesServed / 1_000_000;
+          return Math.ceil(
+            (blobsServed * pricing.perRequestPpk + megabytes * pricing.perMegabytePpk) / 1000
+          );
         },
       };
 
