@@ -13,6 +13,7 @@ import {
   channelClosed,
 } from "./fetch.js";
 import { create_close_swap_request, unblind_and_verify_dleq } from "../wasm/cdk_wasm.js";
+import { validatePaymentFields } from "../helpers/payment-validation.js";
 
 const log = logger.extend("channel-mint-setup");
 
@@ -220,26 +221,27 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   const channelId = ctx.params.channel_id;
   const body = ctx.request.body as any;
 
+  // Copy channel_id from URL params so we can use shared validation
+  body.channel_id = channelId;
+
   // Validate required fields
-  if (typeof body.balance !== "number" || Number.isNaN(body.balance) || body.balance < 0 || !Number.isInteger(body.balance)) {
+  const fieldValidation = validatePaymentFields(body);
+  if (!fieldValidation.valid) {
     ctx.status = 400;
-    ctx.body = { error: "invalid or missing balance" };
-    return;
-  }
-  if (typeof body.signature !== "string" || !body.signature) {
-    ctx.status = 400;
-    ctx.body = { error: "invalid or missing signature" };
+    ctx.body = { error: fieldValidation.error };
     return;
   }
 
-  closeLog("Close request for channel=%s balance=%d", channelId.substring(0, 8), body.balance);
+  const { balance, signature } = fieldValidation.fields;
+
+  closeLog("Close request for channel=%s balance=%d", channelId.substring(0, 8), balance);
 
   // Check if channel is already closed FIRST (for idempotent closing)
   // This must happen before validateChannelAndSignature because that function
   // rejects closed channels (which is correct for payments, but not for close)
   const closedData = channelClosed.get(channelId);
   if (closedData !== null) {
-    if (body.balance === closedData.closedAmount) {
+    if (balance === closedData.closedAmount) {
       // Idempotent close - same amount, return success with cached sender proofs
       closeLog("Channel already closed with same amount: channel=%s amount=%d",
         channelId.substring(0, 8), closedData.closedAmount);
@@ -255,12 +257,12 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     } else {
       // Different amount - reject
       closeLog("Channel already closed with different amount: channel=%s closed=%d requested=%d",
-        channelId.substring(0, 8), closedData.closedAmount, body.balance);
+        channelId.substring(0, 8), closedData.closedAmount, balance);
       ctx.status = 400;
       ctx.body = {
         error: "channel already closed with a different amount",
         closed_amount: closedData.closedAmount,
-        requested_amount: body.balance,
+        requested_amount: balance,
       };
       return;
     }
@@ -269,8 +271,8 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   // Validate channel and signature (handles both known and unknown channels)
   const validationResult = validateChannelAndSignature(
     channelId,
-    body.balance,
-    body.signature,
+    balance,
+    signature,
     body.params,
     body.funding_proofs,
     0,  // blobSize not relevant for close
@@ -304,12 +306,12 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   closeLog("Usage: blobs=%d bytes=%d amount_due=%d", blobsServed, bytesServed, amountDue);
 
   // Verify balance === amount_due (exact match required for closing)
-  if (body.balance !== amountDue) {
-    closeLog("Balance mismatch: balance=%d amount_due=%d", body.balance, amountDue);
+  if (balance !== amountDue) {
+    closeLog("Balance mismatch: balance=%d amount_due=%d", balance, amountDue);
     ctx.status = 400;
     ctx.body = {
       error: "balance must equal amount_due for closing",
-      balance: body.balance,
+      balance: balance,
       amount_due: amountDue,
     };
     return;
@@ -326,8 +328,8 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
       funding.secretKey,
       funding.fundingProofsJson,
       channelId,
-      BigInt(body.balance),
-      body.signature
+      BigInt(balance),
+      signature
     ));
     swapRequestJson = JSON.stringify(result.swap_request);
     expectedTotal = result.expected_total;
@@ -380,7 +382,7 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
       funding.paramsJson,
       funding.keysetInfoJson,
       funding.sharedSecret,
-      BigInt(body.balance)
+      BigInt(balance)
     ));
     closeLog(
       "Unblinded and DLEQ verified: receiver=%d proofs (%d nominal), sender=%d proofs (%d nominal)",
@@ -419,7 +421,7 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   channelClosed.markClosed(
     channelId,
     channelParams.locktime,
-    body.balance,
+    balance,
     actualTotal,
     receiverProofsJson,
     senderProofsJson

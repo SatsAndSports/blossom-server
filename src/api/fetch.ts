@@ -19,6 +19,7 @@ import logger from "../logger.js";
 import { log, router } from "./router.js";
 import { channel_parameters_get_channel_id, compute_shared_secret, verify_balance_update_signature, verify_channel } from "../wasm/cdk_wasm.js";
 import { getKeysetKeys } from "./channel.js";
+import { validatePaymentFields } from "../helpers/payment-validation.js";
 
 const paymentLog = logger.extend("payments");
 
@@ -306,30 +307,21 @@ function validatePayment(
   }
 
   // Check required fields
-  if (typeof payment.channel_id !== "string" || !payment.channel_id) {
+  const fieldValidation = validatePaymentFields(payment);
+  if (!fieldValidation.valid) {
     return {
-      header: { error: "invalid or missing channel_id", size: blobSize },
-      body: { error: "Payment required", reason: "invalid or missing channel_id" },
-    };
-  }
-  if (typeof payment.balance !== "number" || Number.isNaN(payment.balance) || payment.balance < 0 || !Number.isInteger(payment.balance)) {
-    return {
-      header: { error: "invalid or missing balance", size: blobSize },
-      body: { error: "Payment required", reason: "invalid or missing balance" },
-    };
-  }
-  if (typeof payment.signature !== "string" || !payment.signature) {
-    return {
-      header: { error: "invalid or missing signature", size: blobSize },
-      body: { error: "Payment required", reason: "invalid or missing signature" },
+      header: { error: fieldValidation.error, size: blobSize },
+      body: { error: "Payment required", reason: fieldValidation.error },
     };
   }
 
+  const { channelId, balance, signature } = fieldValidation.fields;
+
   // Validate channel funding (DLEQ) and signature
   const validationResult = validateChannelAndSignature(
-    payment.channel_id,
-    payment.balance,
-    payment.signature,
+    channelId,
+    balance,
+    signature,
     payment.params,
     payment.funding_proofs,
     blobSize,
