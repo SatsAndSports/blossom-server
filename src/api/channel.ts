@@ -240,7 +240,7 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   const closedData = channelClosed.get(channelId);
   if (closedData !== null) {
     if (body.balance === closedData.closedAmount) {
-      // Idempotent close - same amount, return success
+      // Idempotent close - same amount, return success with cached sender proofs
       closeLog("Channel already closed with same amount: channel=%s amount=%d",
         channelId.substring(0, 8), closedData.closedAmount);
       ctx.status = 200;
@@ -248,6 +248,7 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
         success: true,
         channel_id: channelId,
         total_value: closedData.valueAfterStage1,
+        sender_proofs: JSON.parse(closedData.senderProofsJson),
         already_closed: true,
       };
       return;
@@ -410,15 +411,27 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
 
   closeLog("Channel closed successfully: channel=%s total_value=%d", channelId.substring(0, 8), actualTotal);
 
-  // Mark channel as closed (prevents reuse until locktime expires)
-  channelClosed.markClosed(channelId, channelParams.locktime, body.balance, actualTotal);
+  // Stringify proofs for storage
+  const receiverProofsJson = JSON.stringify(unblindResult.receiver_proofs);
+  const senderProofsJson = JSON.stringify(unblindResult.sender_proofs);
 
-  // Success
+  // Mark channel as closed (prevents reuse until locktime expires)
+  channelClosed.markClosed(
+    channelId,
+    channelParams.locktime,
+    body.balance,
+    actualTotal,
+    receiverProofsJson,
+    senderProofsJson
+  );
+
+  // Success - return sender proofs so Alice can claim her change
   ctx.status = 200;
   ctx.body = {
     success: true,
     channel_id: channelId,
     total_value: actualTotal,
+    sender_proofs: unblindResult.sender_proofs,
     already_closed: false,
   };
 });

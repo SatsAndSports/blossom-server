@@ -778,12 +778,24 @@ describe('Channel closing', () => {
     expect(closeResponse.status).toBe(200);
 
     const closeResult = await closeResponse.json();
-    console.log(`Close result: ${JSON.stringify(closeResult)}`);
+    console.log(`Close result: success=${closeResult.success} total_value=${closeResult.total_value}`);
     expect(closeResult.success).toBe(true);
     expect(closeResult.channel_id).toBe(channel.channelId);
     // total_value should be the full channel capacity minus fees
     expect(closeResult.total_value).toBeGreaterThan(0);
-    console.log(`Channel closed with total_value=${closeResult.total_value} ✓`);
+    // sender_proofs should be returned (Alice's change - full capacity since balance=0)
+    expect(closeResult.sender_proofs).toBeDefined();
+    expect(Array.isArray(closeResult.sender_proofs)).toBe(true);
+    expect(closeResult.sender_proofs.length).toBeGreaterThan(0);
+    // Each proof should have required fields
+    for (const proof of closeResult.sender_proofs) {
+      expect(proof.amount).toBeDefined();
+      expect(proof.id).toBeDefined();
+      expect(proof.secret).toBeDefined();
+      expect(proof.C).toBeDefined();
+    }
+    const senderSum = closeResult.sender_proofs.reduce((sum: number, p: any) => sum + p.amount, 0);
+    console.log(`Channel closed with total_value=${closeResult.total_value}, sender_proofs=${closeResult.sender_proofs.length} (sum=${senderSum}) ✓`);
 
     // Verify status shows closed=true and closed_amount=0 after close
     const statusAfter = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
@@ -861,11 +873,16 @@ describe('Channel closing', () => {
     expect(closeResponse.status).toBe(200);
 
     const closeResult = await closeResponse.json();
-    console.log(`Close result: ${JSON.stringify(closeResult)}`);
+    console.log(`Close result: success=${closeResult.success} total_value=${closeResult.total_value}`);
     expect(closeResult.success).toBe(true);
     expect(closeResult.channel_id).toBe(channel.channelId);
     expect(closeResult.total_value).toBeGreaterThan(0);
-    console.log(`Channel closed with total_value=${closeResult.total_value} ✓`);
+    // sender_proofs should be returned (Alice's change)
+    expect(closeResult.sender_proofs).toBeDefined();
+    expect(Array.isArray(closeResult.sender_proofs)).toBe(true);
+    // Since we used some balance, sender_proofs should have proofs (unless we used entire capacity)
+    const senderSum = closeResult.sender_proofs.reduce((sum: number, p: any) => sum + p.amount, 0);
+    console.log(`Channel closed with total_value=${closeResult.total_value}, sender_proofs=${closeResult.sender_proofs.length} (sum=${senderSum}) ✓`);
 
     // Verify status shows closed=true and closed_amount=amountDue after close
     const statusAfter = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
@@ -1049,9 +1066,11 @@ describe('Channel closing', () => {
     const closeResult1 = await closeResponse1.json();
     expect(closeResult1.success).toBe(true);
     expect(closeResult1.already_closed).toBe(false);
-    console.log(`First close succeeded: total_value=${closeResult1.total_value}`);
+    expect(closeResult1.sender_proofs).toBeDefined();
+    expect(Array.isArray(closeResult1.sender_proofs)).toBe(true);
+    console.log(`First close succeeded: total_value=${closeResult1.total_value}, sender_proofs=${closeResult1.sender_proofs.length}`);
 
-    // Second close with same amount - should succeed with already_closed=true
+    // Second close with same amount - should succeed with already_closed=true and return same sender_proofs
     const closeResponse2 = await fetch(`${BASE_URL}/channel/${channel.channelId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1067,7 +1086,11 @@ describe('Channel closing', () => {
     expect(closeResult2.success).toBe(true);
     expect(closeResult2.already_closed).toBe(true);
     expect(closeResult2.total_value).toBe(closeResult1.total_value);
-    console.log(`Second close succeeded (idempotent): already_closed=true ✓`);
+    // Idempotent close should return the same sender_proofs
+    expect(closeResult2.sender_proofs).toBeDefined();
+    expect(Array.isArray(closeResult2.sender_proofs)).toBe(true);
+    expect(closeResult2.sender_proofs.length).toBe(closeResult1.sender_proofs.length);
+    console.log(`Second close succeeded (idempotent): already_closed=true, sender_proofs=${closeResult2.sender_proofs.length} ✓`);
   });
 
   it('rejects close of already-closed channel with different amount', async () => {

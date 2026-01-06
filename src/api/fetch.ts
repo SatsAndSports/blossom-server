@@ -481,6 +481,8 @@ interface ClosedChannelData {
   locktime: number;
   closedAmount: number;
   valueAfterStage1: number;
+  receiverProofsJson: string;  // Charlie's proofs (P2PK to his blinded pubkey)
+  senderProofsJson: string;    // Alice's proofs (her change)
 }
 
 const channelClosedStore = new Map<string, ClosedChannelData>();
@@ -490,10 +492,24 @@ export const channelClosed = {
     return channelClosedStore.has(channelId);
   },
 
-  markClosed(channelId: string, locktime: number, closedAmount: number, valueAfterStage1: number): void {
-    channelClosedStore.set(channelId, { locktime, closedAmount, valueAfterStage1 });
-    paymentLog("channelClosed: channel=%s locktime=%d closedAmount=%d valueAfterStage1=%d",
-      channelId.substring(0, 8), locktime, closedAmount, valueAfterStage1);
+  markClosed(
+    channelId: string,
+    locktime: number,
+    closedAmount: number,
+    valueAfterStage1: number,
+    receiverProofsJson: string,
+    senderProofsJson: string
+  ): void {
+    channelClosedStore.set(channelId, {
+      locktime,
+      closedAmount,
+      valueAfterStage1,
+      receiverProofsJson,
+      senderProofsJson,
+    });
+    paymentLog("channelClosed: channel=%s locktime=%d closedAmount=%d valueAfterStage1=%d receiverProofs=%d senderProofs=%d",
+      channelId.substring(0, 8), locktime, closedAmount, valueAfterStage1,
+      JSON.parse(receiverProofsJson).length, JSON.parse(senderProofsJson).length);
   },
 
   get(channelId: string): ClosedChannelData | null {
