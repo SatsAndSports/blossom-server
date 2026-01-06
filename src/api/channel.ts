@@ -221,7 +221,7 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   const body = ctx.request.body as any;
 
   // Validate required fields
-  if (typeof body.balance !== "number" || Number.isNaN(body.balance)) {
+  if (typeof body.balance !== "number" || Number.isNaN(body.balance) || body.balance < 0 || !Number.isInteger(body.balance)) {
     ctx.status = 400;
     ctx.body = { error: "invalid or missing balance" };
     return;

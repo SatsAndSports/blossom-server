@@ -312,7 +312,7 @@ function validatePayment(
       body: { error: "Payment required", reason: "invalid or missing channel_id" },
     };
   }
-  if (typeof payment.balance !== "number" || Number.isNaN(payment.balance)) {
+  if (typeof payment.balance !== "number" || Number.isNaN(payment.balance) || payment.balance < 0 || !Number.isInteger(payment.balance)) {
     return {
       header: { error: "invalid or missing balance", size: blobSize },
       body: { error: "Payment required", reason: "invalid or missing balance" },

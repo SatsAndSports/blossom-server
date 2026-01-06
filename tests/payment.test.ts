@@ -500,6 +500,16 @@ describe('Payment header validation', () => {
         expectedError: 'invalid or missing balance',
       },
       {
+        name: 'negative balance',
+        header: JSON.stringify({ channel_id: 'abc123', balance: -1, signature: 'def456' }),
+        expectedError: 'invalid or missing balance',
+      },
+      {
+        name: 'non-integer balance',
+        header: JSON.stringify({ channel_id: 'abc123', balance: 1.5, signature: 'def456' }),
+        expectedError: 'invalid or missing balance',
+      },
+      {
         name: 'missing signature',
         header: JSON.stringify({ channel_id: 'abc123', balance: 1 }),
         expectedError: 'invalid or missing signature',
