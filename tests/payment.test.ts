@@ -237,6 +237,70 @@ describe('New channel payment', () => {
     const fetched = Buffer.from(await response.arrayBuffer());
     expect(fetched.equals(content)).toBe(true);
     console.log('Blob content verified ✓');
+
+    // Verify response header
+    const responseHeader = response.headers.get('X-Cashu-Channel');
+    expect(responseHeader).toBeTruthy();
+    const headerData = JSON.parse(responseHeader!);
+    expect(headerData.channel_id).toBe(channel.channelId);
+    expect(headerData.balance).toBe(balance);
+    expect(headerData.amount_due).toBe(server.getAmountDue('sat', 1, content.length));
+    expect(headerData.capacity).toBe(channel.capacity);
+    console.log(`Response header: channel_id=${headerData.channel_id.substring(0, 8)}... balance=${headerData.balance} amount_due=${headerData.amount_due} capacity=${headerData.capacity} ✓`);
+  });
+
+  test('response header shows balance higher than amount_due when pre-paying', async ({ server }) => {
+    // Step 1: Upload a blob
+    const { content, hash } = generateBlob();
+    const uploadRes = await fetch(`${server.baseUrl}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+    expect(uploadRes.status).toBe(200);
+
+    // Step 2: Mint a funded channel
+    const channel = await mintFundedChannel(server, 'sat');
+
+    // Step 3: Create a balance update with pre-payment (10 sats, but only need 1)
+    const balance = 10;
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(balance)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    // Step 4: Request the blob with pre-payment
+    const paymentHeader = JSON.stringify({
+      channel_id: balanceUpdate.channel_id,
+      balance: balanceUpdate.amount,
+      signature: balanceUpdate.signature,
+      params: channel.channelParams,
+      funding_proofs: channel.proofs,
+    });
+
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
+      headers: {
+        'X-Cashu-Channel': paymentHeader,
+      },
+    });
+
+    expect(response.status).toBe(200);
+
+    // Verify response header shows balance > amount_due
+    const responseHeader = response.headers.get('X-Cashu-Channel');
+    expect(responseHeader).toBeTruthy();
+    const headerData = JSON.parse(responseHeader!);
+
+    const expectedAmountDue = server.getAmountDue('sat', 1, content.length);
+    expect(headerData.balance).toBe(balance);  // 10 (what client sent)
+    expect(headerData.amount_due).toBe(expectedAmountDue);  // 1 (what server charged)
+    expect(headerData.balance).toBeGreaterThan(headerData.amount_due);
+
+    console.log(`Pre-payment: balance=${headerData.balance} amount_due=${headerData.amount_due} (credit=${headerData.balance - headerData.amount_due}) ✓`);
   });
 
   test('accepts valid payment with usd channel', async ({ server }) => {

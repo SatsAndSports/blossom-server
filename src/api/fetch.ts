@@ -33,6 +33,8 @@ interface ValidPayment {
   channelId: string;
   balance: number;
   signature: string;
+  amountDue: number;
+  capacity: number;
 }
 
 // Result of core channel validation (without blob-specific checks)
@@ -387,7 +389,13 @@ function validatePayment(
     };
   }
 
-  return { channelId: payment.channel_id, balance: payment.balance, signature: payment.signature };
+  return {
+    channelId: payment.channel_id,
+    balance: payment.balance,
+    signature: payment.signature,
+    amountDue,
+    capacity: params.capacity,
+  };
 }
 
 // ============================================================================
@@ -611,6 +619,14 @@ router.get("/:hash", range, async (ctx, next) => {
     if (paymentResult) {
       channelBalance.update(paymentResult.channelId, paymentResult.balance, paymentResult.signature);
       channelUsage.recordBlobServed(paymentResult.channelId, storageResult.size);
+
+      // Add payment confirmation header
+      ctx.set("X-Cashu-Channel", JSON.stringify({
+        channel_id: paymentResult.channelId,
+        balance: paymentResult.balance,
+        amount_due: paymentResult.amountDue,
+        capacity: paymentResult.capacity,
+      }));
     }
 
     const redirect = getStorageRedirect(storageResult);
