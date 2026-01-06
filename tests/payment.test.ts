@@ -9,6 +9,7 @@ import {
   create_funding_outputs,
   construct_proofs,
   spilman_channel_sender_create_signed_balance_update,
+  get_sender_blinded_secret_key_for_stage2_output,
 } from '../src/wasm/cdk_wasm.js';
 
 const TEST_PORT = 3099;
@@ -22,6 +23,13 @@ function generateKeypair(): { secretHex: string; pubkeyHex: string } {
   const pubkeyBytes = secp.getPublicKey(secretBytes, true); // compressed
   const pubkeyHex = Buffer.from(pubkeyBytes).toString('hex');
   return { secretHex, pubkeyHex };
+}
+
+// Derive compressed pubkey from secret key
+function secretKeyToPubkey(secretHex: string): string {
+  const secretBytes = Buffer.from(secretHex, 'hex');
+  const pubkeyBytes = secp.getPublicKey(secretBytes, true); // compressed
+  return Buffer.from(pubkeyBytes).toString('hex');
 }
 
 // Generate unique blob content
@@ -745,9 +753,10 @@ describe('Channel validation errors', () => {
 });
 
 describe('Channel closing', () => {
-  it('closes a channel with zero balance (unknown channel)', async () => {
+  it('closes unused channel and verifies sender can derive secret keys for returned proofs', async () => {
     // Alice mints a funded channel but never uses it
     // She can close immediately with balance=0
+    // After close, she should be able to derive the secret key for each returned proof
     const channel = await mintFundedChannel('sat');
     console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
 
@@ -796,6 +805,38 @@ describe('Channel closing', () => {
     }
     const senderSum = closeResult.sender_proofs.reduce((sum: number, p: any) => sum + p.amount, 0);
     console.log(`Channel closed with total_value=${closeResult.total_value}, sender_proofs=${closeResult.sender_proofs.length} (sum=${senderSum}) ✓`);
+
+    // Verify Alice can derive the secret key for each sender_proof
+    // The proofs are sorted smallest-amount-first, then by index within each amount
+    const indexByAmount: Record<number, number> = {};
+    for (const proof of closeResult.sender_proofs) {
+      const amount = proof.amount;
+      const index = indexByAmount[amount] ?? 0;
+      indexByAmount[amount] = index + 1;
+
+      // Get Alice's blinded secret key for this specific output
+      const blindedSecretHex = get_sender_blinded_secret_key_for_stage2_output(
+        channel.channelParamsJson,
+        JSON.stringify(channel.keysetInfo),
+        channel.alice.secretHex,
+        BigInt(amount),
+        index
+      );
+
+      // Derive pubkey from the secret key
+      const derivedPubkey = secretKeyToPubkey(blindedSecretHex);
+
+      // Parse the P2PK secret from the proof to get the locked pubkey
+      // Secret format is: ["P2PK", {"nonce": "...", "data": "pubkey_hex", ...}]
+      const secretArr = JSON.parse(proof.secret);
+      expect(Array.isArray(secretArr)).toBe(true);
+      expect(secretArr[0]).toBe('P2PK');
+      const lockedPubkey = secretArr[1].data;
+
+      // Verify they match
+      expect(derivedPubkey).toBe(lockedPubkey);
+    }
+    console.log(`Alice can derive secret keys for all ${closeResult.sender_proofs.length} sender_proofs ✓`);
 
     // Verify status shows closed=true and closed_amount=0 after close
     const statusAfter = await fetch(`${BASE_URL}/channel/${channel.channelId}/status`);
