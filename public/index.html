@@ -815,7 +815,7 @@
         // IndexedDB Channel Storage
         // ============================================
         const DB_NAME = 'cashu_channels';
-        const DB_VERSION = 5;  // Bumped to add server_url and alice_pubkey
+        const DB_VERSION = 6;  // Bumped to add bytes to request_counts
         const STORE_NAME = 'channels';
         const REQUEST_COUNTS_STORE = 'request_counts';
         const VIDEO_POSITIONS_STORE = 'video_positions';
@@ -981,7 +981,8 @@
         // Request Counts Storage
         // ============================================
 
-        // In-memory request count per channel - tracks how much we owe for payment
+        // In-memory request count and bytes per channel - tracks how much we owe for payment
+        // Map<channel_id, { count: number, bytes: number }>
         const channelRequestCounts = new Map();
 
         // Load all request counts from IndexedDB into memory
@@ -992,7 +993,10 @@
                 const request = store.getAll();
                 request.onsuccess = () => {
                     for (const record of request.result) {
-                        channelRequestCounts.set(record.channel_id, record.count);
+                        channelRequestCounts.set(record.channel_id, {
+                            count: record.count,
+                            bytes: record.bytes || 0
+                        });
                     }
                     resolve();
                 };
@@ -1000,27 +1004,59 @@
             });
         }
 
-        // Persist request count to IndexedDB (biggest wins)
-        function persistRequestCount(channelId, newCount) {
+        // Persist request count and bytes to IndexedDB
+        function persistRequestCounts(channelId, count, bytes) {
             const tx = db.transaction(REQUEST_COUNTS_STORE, 'readwrite');
             const store = tx.objectStore(REQUEST_COUNTS_STORE);
-            const getRequest = store.get(channelId);
-            getRequest.onsuccess = () => {
-                const existing = getRequest.result;
-                if (!existing || newCount > existing.count) {
-                    store.put({ channel_id: channelId, count: newCount });
-                }
-            };
+            store.put({ channel_id: channelId, count, bytes });
         }
 
         // url parameter is only used for logging
+        // Increments count by 1 and adds globalMaxBlobSize to bytes (worst case)
         function incrementChannelRequestCount(channelId, url) {
-            const count = (channelRequestCounts.get(channelId) || 0) + 1;
-            channelRequestCounts.set(channelId, count);
-            persistRequestCount(channelId, count);
+            const current = channelRequestCounts.get(channelId) || { count: 0, bytes: 0 };
+            const newCount = current.count + 1;
+            const newBytes = current.bytes + (globalMaxBlobSize || 0);
+            channelRequestCounts.set(channelId, { count: newCount, bytes: newBytes });
+            persistRequestCounts(channelId, newCount, newBytes);
             const path = '/' + url.split('/').pop();
-            console.log('channelRequestCount:', count, 'channel_id:', channelId, 'url_path:', path);
-            return count;
+            console.log('channelRequestCount:', newCount, 'bytes:', newBytes, 'channel_id:', channelId, 'url_path:', path);
+            return { count: newCount, bytes: newBytes };
+        }
+
+        // Correct bytes estimate after successful response (subtract worst-case overage)
+        function correctChannelBytes(channelId, actualSize) {
+            const current = channelRequestCounts.get(channelId);
+            if (!current) return;
+
+            const worstCase = globalMaxBlobSize || 0;
+            const correction = worstCase - actualSize;
+            if (correction > 0) {
+                const newBytes = current.bytes - correction;
+                channelRequestCounts.set(channelId, { count: current.count, bytes: newBytes });
+                persistRequestCounts(channelId, current.count, newBytes);
+                log(`Corrected bytes: -${correction} (worst-case ${worstCase}, actual ${actualSize})`, 'payment');
+            }
+        }
+
+        // Handle successful payment response - parse header, log, and correct bytes
+        // channelId: the channel ID for bytes correction
+        // getHeader: function that takes header name and returns value (works with both fetch Response and XHR)
+        function handlePaymentResponse(channelId, getHeader) {
+            const channelHeader = getHeader('X-Cashu-Channel');
+            if (!channelHeader) return null;
+
+            try {
+                const data = JSON.parse(channelHeader);
+                log(`Server: balance=${data.balance} amount_due=${data.amount_due} capacity=${data.capacity} size=${data.size}`, 'payment');
+                if (data.size !== undefined) {
+                    correctChannelBytes(channelId, data.size);
+                }
+                return data;
+            } catch (e) {
+                console.log('[DEBUG] Parse error:', e);
+                return null;
+            }
         }
 
         // ============================================
@@ -1098,25 +1134,28 @@
 
             // Get current number of requests made with this channel
             get requestCount() {
-                return channelRequestCounts.get(this.channelId) || 0;
+                const data = channelRequestCounts.get(this.channelId);
+                return data ? data.count : 0;
             }
 
-            // Balance owed based on request count and current pricing
-            // Uses globalMaxBlobSize to estimate worst-case per-megabyte cost
+            // Get current bytes tracked for this channel
+            get trackedBytes() {
+                const data = channelRequestCounts.get(this.channelId);
+                return data ? data.bytes : 0;
+            }
+
+            // Balance owed based on request count and tracked bytes
             get balance() {
+                const data = channelRequestCounts.get(this.channelId) || { count: 0, bytes: 0 };
                 const pricing = getCurrentPricing();
                 if (!pricing || !pricing.perRequestPpk) {
                     // Fallback: assume 1 unit per request if pricing unknown
-                    return this.requestCount;
+                    return data.count;
                 }
                 // Calculate per-request cost
-                const requestCost = this.requestCount * pricing.perRequestPpk;
-                // Calculate per-megabyte cost using global max blob size (worst case per request)
-                let sizeCost = 0;
-                if (globalMaxBlobSize && pricing.perMegabytePpk) {
-                    const maxMegabytes = globalMaxBlobSize / 1_000_000;
-                    sizeCost = this.requestCount * maxMegabytes * pricing.perMegabytePpk;
-                }
+                const requestCost = data.count * pricing.perRequestPpk;
+                // Calculate per-megabyte cost from tracked bytes
+                const sizeCost = (data.bytes / 1_000_000) * (pricing.perMegabytePpk || 0);
                 // Total in ppk, convert to units: ceil((requestCost + sizeCost) / 1000)
                 return Math.ceil((requestCost + sizeCost) / 1000);
             }
@@ -1311,14 +1350,19 @@
             if (!currentChannel) {
                 throw new Error('No payment channel available');
             }
-            // Increment request count before creating payment
-            incrementChannelRequestCount(currentChannel.channelId, currentServer + '/' + hash);
+            const channelId = currentChannel.channelId;
+            // Increment request count before creating payment (adds worst-case bytes)
+            incrementChannelRequestCount(channelId, currentServer + '/' + hash);
             const response = await fetch(currentServer + '/' + hash, {
                 headers: { 'X-Cashu-Channel': createPayment() }
             });
             if (!response.ok) {
                 throw new Error(`Failed to fetch blob: ${response.status}`);
             }
+
+            // Handle payment response (log + correct bytes)
+            handlePaymentResponse(channelId, (name) => response.headers.get(name));
+
             const blob = await response.blob();
             return URL.createObjectURL(blob);
         }
@@ -1429,19 +1473,8 @@
                             xhr.addEventListener('load', function() {
                                 if (xhr.status >= 200 && xhr.status < 300) {
                                     channelsSentParams.add(channelId);
-                                    // Log amount_due from server response
-                                    const channelHeader = xhr.getResponseHeader('X-Cashu-Channel');
-                                    console.log('[DEBUG] X-Cashu-Channel header:', channelHeader);
-                                    if (channelHeader) {
-                                        try {
-                                            const data = JSON.parse(channelHeader);
-                                            log(`Server: balance=${data.balance} amount_due=${data.amount_due} capacity=${data.capacity}`, 'payment');
-                                        } catch (e) {
-                                            console.log('[DEBUG] Parse error:', e);
-                                        }
-                                    } else {
-                                        console.log('[DEBUG] No X-Cashu-Channel header in response');
-                                    }
+                                    // Handle payment response (log + correct bytes)
+                                    handlePaymentResponse(channelId, (name) => xhr.getResponseHeader(name));
                                 } else if (xhr.status === 402) {
                                     // Log 402 details for debugging
                                     try {

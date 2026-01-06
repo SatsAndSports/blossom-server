@@ -246,7 +246,8 @@ describe('New channel payment', () => {
     expect(headerData.balance).toBe(balance);
     expect(headerData.amount_due).toBe(server.getAmountDue('sat', 1, content.length));
     expect(headerData.capacity).toBe(channel.capacity);
-    console.log(`Response header: channel_id=${headerData.channel_id.substring(0, 8)}... balance=${headerData.balance} amount_due=${headerData.amount_due} capacity=${headerData.capacity} ✓`);
+    expect(headerData.size).toBe(content.length);
+    console.log(`Response header: channel_id=${headerData.channel_id.substring(0, 8)}... balance=${headerData.balance} amount_due=${headerData.amount_due} capacity=${headerData.capacity} size=${headerData.size} ✓`);
   });
 
   test('response header shows balance higher than amount_due when pre-paying', async ({ server }) => {

@@ -626,6 +626,7 @@ router.get("/:hash", range, async (ctx, next) => {
         balance: paymentResult.balance,
         amount_due: paymentResult.amountDue,
         capacity: paymentResult.capacity,
+        size: storageResult.size,
       }));
     }
 
