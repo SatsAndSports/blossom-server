@@ -504,6 +504,23 @@
         #share-copied.visible {
             opacity: 1;
         }
+        #toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #c33;
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: 4px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1000;
+            pointer-events: none;
+            font-weight: bold;
+        }
+        #toast.visible {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -597,6 +614,8 @@
         </div>
     </div>
 
+    <div id="toast"></div>
+
     <script type="module">
         import * as secp from 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm';
         import initWasm, { channel_parameters_get_channel_id, compute_shared_secret, create_funding_outputs, spilman_channel_sender_create_signed_balance_update } from '/wasm/cdk_wasm.js';
@@ -614,6 +633,14 @@
                 bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
             }
             return bytes;
+        }
+
+        // Show a toast notification
+        function showToast(message, duration = 5000) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('visible');
+            setTimeout(() => toast.classList.remove('visible'), duration);
         }
 
         // ============================================
@@ -1353,8 +1380,19 @@
             const channelId = currentChannel.channelId;
             // Increment request count before creating payment (adds worst-case bytes)
             incrementChannelRequestCount(channelId, currentServer + '/' + hash);
+
+            let payment;
+            try {
+                payment = createPayment();
+            } catch (e) {
+                document.getElementById('video').pause();
+                log('Channel exhausted: capacity reached', 'error');
+                showToast('Channel exhausted - video paused');
+                throw e;
+            }
+
             const response = await fetch(currentServer + '/' + hash, {
-                headers: { 'X-Cashu-Channel': createPayment() }
+                headers: { 'X-Cashu-Channel': payment }
             });
             if (!response.ok) {
                 throw new Error(`Failed to fetch blob: ${response.status}`);
@@ -1459,7 +1497,16 @@
                             const channelId = currentChannel.channelId;
                             incrementChannelRequestCount(channelId, url);
 
-                            const payment = createPayment();
+                            let payment;
+                            try {
+                                payment = createPayment();
+                            } catch (e) {
+                                document.getElementById('video').pause();
+                                log('Channel exhausted: capacity reached', 'error');
+                                showToast('Channel exhausted - video paused');
+                                return;
+                            }
+
                             xhr.setRequestHeader('X-Cashu-Channel', payment);
                             const hash = url.split('/').pop().substring(0, 8);
                             log(`Payment: balance=${currentChannel.balance} for ${hash}...`, 'payment');
