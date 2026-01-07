@@ -935,42 +935,6 @@
             });
         }
 
-        // Get channels by status
-        async function getChannelsByStatus(status) {
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(STORE_NAME, 'readonly');
-                const store = tx.objectStore(STORE_NAME);
-                const index = store.index('status');
-                const request = index.getAll(status);
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
-        }
-
-        // Get channels expiring before a timestamp
-        async function getChannelsExpiringBefore(timestamp) {
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(STORE_NAME, 'readonly');
-                const store = tx.objectStore(STORE_NAME);
-                const index = store.index('expiry');
-                const range = IDBKeyRange.upperBound(timestamp);
-                const request = index.getAll(range);
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
-        }
-
-        // Delete a channel
-        async function deleteChannel(channelId) {
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(STORE_NAME, 'readwrite');
-                const store = tx.objectStore(STORE_NAME);
-                const request = store.delete(channelId);
-                request.onsuccess = () => resolve();
-                request.onerror = () => reject(request.error);
-            });
-        }
-
         // Find a channel matching alice's secret, charlie's pubkey, unit, keyset_id, and fee
         // Returns the first matching channel_id, or null if none exists
         async function findChannelByParams(aliceSecret, charliePubkey, unit, keysetId, inputFeePpk) {
@@ -1806,20 +1770,6 @@
             const requestCost = count * (pricing.perRequestPpk || 0) / 1000;
             const sizeCost = (size / 1000000) * (pricing.perMegabytePpk || 0) / 1000;
             return requestCost + sizeCost;
-        }
-
-        // Build per-quality cost breakdown for tooltip
-        function buildQualityCostTooltip(video) {
-            if (!video.quality_stats) return null;
-            const qs = video.quality_stats;
-            const lines = [];
-            for (const [name, data] of Object.entries(qs.qualities)) {
-                const cost = estimateQualityCost(video, name);
-                if (cost !== null) {
-                    lines.push(`${name}: ${formatCost(cost)}`);
-                }
-            }
-            return lines.join('\n');
         }
 
         // Format cost with appropriate unit label
