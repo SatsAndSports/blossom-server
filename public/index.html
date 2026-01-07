@@ -2423,9 +2423,10 @@
 
                 log(`Found ${data.videos.length} videos`);
 
-                // Auto-play video from URL hash if present
+                // Auto-play video from URL hash if present (but not if modal is open)
+                const modalOpen = document.getElementById('channel-modal').classList.contains('visible');
                 const { masterHash, startTime } = parseUrlHash();
-                if (masterHash) {
+                if (masterHash && !modalOpen) {
                     // Find matching video to get metadata
                     const matchingVideo = data.videos.find(v => v.master_hash === masterHash);
                     const spriteMetaHash = matchingVideo?.sprite_meta_hash || null;
@@ -2765,9 +2766,6 @@
                 
                 // Refresh channel list to show selection
                 await renderChannelList();
-                
-                // Load videos for this server
-                await loadVideos();
             } else {
                 modalLog('Failed to load channel', 'error');
                 clearSelectedChannelId(server, unit);
@@ -2895,10 +2893,32 @@
         });
 
         // Server/unit dropdown change
-        document.getElementById('modal-server-select').onchange = (e) => {
+        document.getElementById('modal-server-select').onchange = async (e) => {
             const [server, unit] = e.target.value.split('|');
             channelModalServerUnit = { server, unit };
+            
+            // Update globals
+            currentServer = server;
+            currentUnit = unit;
+            document.getElementById('balance-unit').textContent = getUnitLabel(unit);
+            
+            // Set charlie for new server
+            setCharlieFromServerInfo();
+            
+            // Check for saved channel selection for this server/unit
+            const selectedChannelId = getSelectedChannelId(server, unit);
+            if (selectedChannelId) {
+                currentChannel = await FundedChannel.load(selectedChannelId);
+                if (!currentChannel) {
+                    clearSelectedChannelId(server, unit);
+                }
+            } else {
+                currentChannel = null;
+            }
+            
+            updateStatus();
             renderChannelList();
+            await loadVideos();
         };
 
         // Close buttons (X in header and Close button at bottom)
