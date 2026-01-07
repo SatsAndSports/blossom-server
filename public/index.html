@@ -842,7 +842,7 @@
         // IndexedDB Channel Storage
         // ============================================
         const DB_NAME = 'cashu_channels';
-        const DB_VERSION = 6;  // Bumped to add bytes to request_counts
+        const DB_VERSION = 7;  // Bumped to add status field to channels
         const STORE_NAME = 'channels';
         const REQUEST_COUNTS_STORE = 'request_counts';
         const VIDEO_POSITIONS_STORE = 'video_positions';
@@ -887,6 +887,7 @@
                     store.createIndex('charlie_pubkey', 'charlie_pubkey', { unique: false });
                     store.createIndex('server_url', 'server_url', { unique: false });
                     store.createIndex('mint', 'mint', { unique: false });
+                    store.createIndex('status', 'status', { unique: false });
 
                     // Create request_counts object store
                     if (!database.objectStoreNames.contains(REQUEST_COUNTS_STORE)) {
@@ -948,11 +949,12 @@
                 request.onerror = () => reject(request.error);
             });
 
-            // Filter by charlie_pubkey and other params
+            // Filter by charlie_pubkey, status, and other params
             for (const channel of channels) {
                 try {
-                    // Quick check on indexed field first
+                    // Quick check on indexed fields first
                     if (channel.charlie_pubkey !== charliePubkey) continue;
+                    if (channel.status !== 'active') continue;
 
                     const senderData = JSON.parse(channel.sender_json);
                     const params = JSON.parse(senderData.channel_params.params_json);
@@ -1178,7 +1180,8 @@
                     alice_secret: alice.secretHex,
                     charlie_pubkey: params.charlie_pubkey,
                     server_url: currentServer,
-                    mint: params.mint
+                    mint: params.mint,
+                    status: 'active'
                 };
             }
 
@@ -2097,7 +2100,7 @@
                 const channels = await getAllChannels();
                 await loadRequestCounts();
                 cleanupOldPositions(); // Async, no need to await
-                log(`IndexedDB initialized (${channels.length} channels, ${channelRequestCounts.size} request counts)`);
+                log(`IndexedDB initialized (${channels.length} channels, request counts for ${channelRequestCounts.size} channels)`);
             } catch (e) {
                 log(`Failed to initialize IndexedDB: ${e}`, 'error');
             }
