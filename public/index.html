@@ -504,6 +504,60 @@
         #share-copied.visible {
             opacity: 1;
         }
+        .error-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+        .error-modal.visible {
+            display: flex;
+        }
+        .error-modal-content {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .error-modal h3 {
+            margin-top: 0;
+            color: #c33;
+        }
+        .error-modal pre {
+            background: #1a1a1a;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            padding: 12px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .error-modal button {
+            background: #c33;
+            color: #fff;
+            border: none;
+            padding: 10px 30px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 15px;
+        }
+        .error-modal button:hover {
+            background: #d44;
+        }
         #toast {
             position: fixed;
             top: 20px;
@@ -595,6 +649,20 @@
                         </div>
                     </div>
                 </div>
+                <div id="payment-error-modal" class="error-modal">
+                    <div class="error-modal-content">
+                        <h3>Payment Error (402)</h3>
+                        <pre id="payment-error-details"></pre>
+                        <button id="payment-error-ok">OK</button>
+                    </div>
+                </div>
+                <div id="error-modal" class="error-modal">
+                    <div class="error-modal-content">
+                        <h3>Error</h3>
+                        <pre id="error-details"></pre>
+                        <button id="error-ok">OK</button>
+                    </div>
+                </div>
             </div>
 
             <div id="status">
@@ -641,6 +709,50 @@
             toast.textContent = message;
             toast.classList.add('visible');
             setTimeout(() => toast.classList.remove('visible'), duration);
+        }
+
+        // Custom error for channel exhaustion
+        class ChannelExhaustedError extends Error {
+            constructor(balance, capacity) {
+                super(`Balance ${balance} exceeds capacity ${capacity}`);
+                this.name = 'ChannelExhaustedError';
+                this.balance = balance;
+                this.capacity = capacity;
+            }
+        }
+
+        // Handle channel exhaustion: pause video, show toast, mark status
+        async function handleChannelExhausted(channelId, balance, capacity) {
+            document.getElementById('video').pause();
+            log(`Channel exhausted: ${balance}/${capacity}`, 'error');
+            showToast(`Channel exhausted (${balance}/${capacity}) - video paused`);
+            await updateChannelStatus(channelId, 'exhausted');
+        }
+
+        // Show payment error modal (for 402 responses)
+        function showPaymentErrorModal(details) {
+            const modal = document.getElementById('payment-error-modal');
+            const detailsEl = document.getElementById('payment-error-details');
+            const lines = [];
+            if (details.reason) lines.push(`Reason: ${details.reason}`);
+            if (details.amount_due !== undefined) lines.push(`Amount due: ${details.amount_due}`);
+            if (details.balance !== undefined) lines.push(`Balance sent: ${details.balance}`);
+            if (details.channelId) lines.push(`Channel ID: ${details.channelId}`);
+            if (details.channelHeader) lines.push(`\nServer response header:\n${details.channelHeader}`);
+            detailsEl.textContent = lines.join('\n');
+            modal.classList.add('visible');
+        }
+
+        // Show generic error modal (for non-402 errors)
+        function showErrorModal(details) {
+            const modal = document.getElementById('error-modal');
+            const detailsEl = document.getElementById('error-details');
+            const lines = [];
+            if (details.message) lines.push(`Error: ${details.message}`);
+            if (details.status) lines.push(`Status: ${details.status}`);
+            if (details.url) lines.push(`URL: ${details.url}`);
+            detailsEl.textContent = lines.join('\n');
+            modal.classList.add('visible');
         }
 
         // ============================================
@@ -936,6 +1048,15 @@
             });
         }
 
+        // Update channel status in IndexedDB
+        async function updateChannelStatus(channelId, status) {
+            const record = await getChannel(channelId);
+            if (record) {
+                record.status = status;
+                await saveChannel(record);
+            }
+        }
+
         // Find a channel matching alice's secret, charlie's pubkey, unit, keyset_id, and fee
         // Returns the first matching channel_id, or null if none exists
         async function findChannelByParams(aliceSecret, charliePubkey, unit, keysetId, inputFeePpk) {
@@ -1154,8 +1275,13 @@
             }
 
             // Create payment header for a segment (sync for HLS.js xhrSetup)
+            // Throws ChannelExhaustedError if balance exceeds capacity
             createPayment() {
                 const balance = this.balance;
+                const capacity = this.params.capacity;
+                if (balance > capacity) {
+                    throw new ChannelExhaustedError(balance, capacity);
+                }
                 const balanceUpdate = this.sender.createSignedBalanceUpdate(balance);
                 const payload = {
                     channel_id: balanceUpdate.channel_id,
@@ -1345,23 +1471,48 @@
                 throw new Error('No payment channel available');
             }
             const channelId = currentChannel.channelId;
+            const url = currentServer + '/' + hash;
             // Increment request count before creating payment (adds worst-case bytes)
-            incrementChannelRequestCount(channelId, currentServer + '/' + hash);
+            incrementChannelRequestCount(channelId, url);
 
             let payment;
             try {
                 payment = createPayment();
             } catch (e) {
-                document.getElementById('video').pause();
-                log('Channel exhausted: capacity reached', 'error');
-                showToast('Channel exhausted - video paused');
+                if (e instanceof ChannelExhaustedError) {
+                    await handleChannelExhausted(channelId, e.balance, e.capacity);
+                } else {
+                    document.getElementById('video').pause();
+                    showErrorModal({ message: e.message, url });
+                }
                 throw e;
             }
 
-            const response = await fetch(currentServer + '/' + hash, {
+            const response = await fetch(url, {
                 headers: { 'X-Cashu-Channel': payment }
             });
+
+            if (response.status === 402) {
+                document.getElementById('video').pause();
+                try {
+                    const errorBody = await response.json();
+                    const channelHeader = response.headers.get('X-Cashu-Channel');
+                    showPaymentErrorModal({
+                        reason: errorBody.reason,
+                        amount_due: errorBody.amount_due,
+                        balance: currentChannel.balance,
+                        channelId: channelId,
+                        channelHeader: channelHeader
+                    });
+                } catch (parseErr) {
+                    showPaymentErrorModal({ reason: 'Failed to parse 402 response' });
+                }
+                throw new Error('Payment required (402)');
+            }
+
             if (!response.ok) {
+                document.getElementById('video').pause();
+                showErrorModal({ message: `HTTP ${response.status}`, status: response.status, url });
                 throw new Error(`Failed to fetch blob: ${response.status}`);
             }
 
@@ -1468,9 +1619,12 @@
                             try {
                                 payment = createPayment();
                             } catch (e) {
-                                document.getElementById('video').pause();
-                                log('Channel exhausted: capacity reached', 'error');
-                                showToast('Channel exhausted - video paused');
+                                if (e instanceof ChannelExhaustedError) {
+                                    handleChannelExhausted(channelId, e.balance, e.capacity);  // fire-and-wait is fine
+                                } else {
+                                    document.getElementById('video').pause();
+                                    showErrorModal({ message: e.message, url });
+                                }
                                 return;
                             }
 
@@ -1483,28 +1637,34 @@
                                 window.updatePaymentIndicator();
                             }
 
-                            // Mark params as sent only after successful response
+                            // Handle response: success, 402, or other errors
                             xhr.addEventListener('load', function() {
                                 if (xhr.status >= 200 && xhr.status < 300) {
                                     channelsSentParams.add(channelId);
                                     // Handle payment response (log + correct bytes)
                                     handlePaymentResponse(channelId, (name) => xhr.getResponseHeader(name));
                                 } else if (xhr.status === 402) {
-                                    // Log 402 details for debugging
+                                    // Payment error - pause and show modal
+                                    document.getElementById('video').pause();
                                     try {
                                         const errorBody = JSON.parse(xhr.responseText);
                                         log(`402 Payment Required: ${errorBody.reason}`, 'error');
-                                        if (errorBody.amount_due !== undefined) {
-                                            log(`  amount_due=${errorBody.amount_due}, balance=${currentChannel.balance}`, 'error');
-                                        }
-                                        // Also log the X-Cashu-Channel response header
                                         const channelHeader = xhr.getResponseHeader('X-Cashu-Channel');
-                                        if (channelHeader) {
-                                            log(`  header: ${channelHeader}`, 'error');
-                                        }
+                                        showPaymentErrorModal({
+                                            reason: errorBody.reason,
+                                            amount_due: errorBody.amount_due,
+                                            balance: currentChannel.balance,
+                                            channelId: channelId,
+                                            channelHeader: channelHeader
+                                        });
                                     } catch (e) {
                                         log(`402 response: ${xhr.responseText}`, 'error');
+                                        showPaymentErrorModal({ reason: xhr.responseText || 'Unknown 402 error' });
                                     }
+                                } else {
+                                    // Other error - pause and show modal
+                                    document.getElementById('video').pause();
+                                    showErrorModal({ message: `HTTP ${xhr.status}`, status: xhr.status, url });
                                 }
                             });
                         }
@@ -2230,6 +2390,24 @@
         document.getElementById('share-modal').onclick = (e) => {
             if (e.target.id === 'share-modal') {
                 document.getElementById('share-modal').classList.remove('visible');
+            }
+        };
+
+        // Error modals - OK buttons and click-outside-to-close
+        document.getElementById('payment-error-ok').onclick = () => {
+            document.getElementById('payment-error-modal').classList.remove('visible');
+        };
+        document.getElementById('payment-error-modal').onclick = (e) => {
+            if (e.target.id === 'payment-error-modal') {
+                document.getElementById('payment-error-modal').classList.remove('visible');
+            }
+        };
+        document.getElementById('error-ok').onclick = () => {
+            document.getElementById('error-modal').classList.remove('visible');
+        };
+        document.getElementById('error-modal').onclick = (e) => {
+            if (e.target.id === 'error-modal') {
+                document.getElementById('error-modal').classList.remove('visible');
             }
         };
 
