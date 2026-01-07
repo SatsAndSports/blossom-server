@@ -182,6 +182,7 @@ router.get("/channel/params", async (ctx) => {
     receiver_pubkey: receiverPubkey,
     pricing: config.channel.pricing,
     mints_units_keysets: mintsUnitsKeysetIds,
+    min_expiry_in_seconds: config.channel.minExpiryInSeconds,
   };
 });
 

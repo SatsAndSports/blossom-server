@@ -163,6 +163,17 @@ export function validateChannelAndSignature(
       };
     }
 
+    // Check capacity meets minimum requirement for this unit
+    const unitPricing = config.channel.pricing[paramsObj.unit];
+    const minCapacity = unitPricing?.minCapacity ?? 0;
+    if (paramsObj.capacity < minCapacity) {
+      paymentLog("channel validation FAILED: capacity %d < min_capacity %d (unit=%s)", paramsObj.capacity, minCapacity, paramsObj.unit);
+      return {
+        header: { error: "capacity too small", size: blobSize, capacity: paramsObj.capacity, min_capacity: minCapacity },
+        body: { error: "Payment required", reason: "capacity too small", capacity: paramsObj.capacity, min_capacity: minCapacity },
+      };
+    }
+
     // Resolve keysetInfo from startup cache or channel funding cache
     const mintUrl = paramsObj.mint;
     const keysetId = paramsObj.keyset_id;

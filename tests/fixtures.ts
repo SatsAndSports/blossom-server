@@ -8,12 +8,14 @@ const MINT_URL = 'http://localhost:3338';
 interface Pricing {
   perRequestPpk: number;
   perMegabytePpk: number;
+  minCapacity: number;
 }
 
 interface ChannelParams {
   receiver_pubkey: string;
   pricing: Record<string, Pricing>;
   mints_units_keysets: Record<string, Record<string, string[]>>;
+  min_expiry_in_seconds: number;
 }
 
 interface Server {
@@ -22,6 +24,7 @@ interface Server {
   channelParams: ChannelParams;
   getPricing(unit: string): Pricing | undefined;
   getAmountDue(unit: string, blobsServed: number, bytesServed: number): number;
+  getMinCapacity(unit: string): number;
 }
 
 export const test = base.extend<{
@@ -49,6 +52,9 @@ export const test = base.extend<{
           return Math.ceil(
             (blobsServed * pricing.perRequestPpk + megabytes * pricing.perMegabytePpk) / 1000
           );
+        },
+        getMinCapacity(unit: string): number {
+          return this.channelParams.pricing[unit]?.minCapacity ?? 0;
         },
       };
 

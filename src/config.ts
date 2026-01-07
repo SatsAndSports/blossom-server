@@ -68,7 +68,8 @@ export type Config = {
     enabled: boolean;
     secretKey: string;
     approvedMintsAndUnits: Record<string, string[]>;  // mint URL -> list of units
-    pricing: Record<string, { perRequestPpk: number; perMegabytePpk: number }>;  // unit -> pricing
+    pricing: Record<string, { perRequestPpk: number; perMegabytePpk: number; minCapacity: number }>;  // unit -> pricing
+    minExpiryInSeconds: number;  // minimum locktime in seconds
   };
 };
 
@@ -123,7 +124,7 @@ const defaultConfig: Config = {
   media: { enabled: false, requireAuth: true, requirePubkeyInRule: false },
   list: { requireAuth: false, allowListOthers: false },
   tor: { enabled: false, proxy: "" },
-  channel: { enabled: false, secretKey: "", approvedMintsAndUnits: {}, pricing: { sat: { perRequestPpk: 500, perMegabytePpk: 1000 } } },
+  channel: { enabled: false, secretKey: "", approvedMintsAndUnits: {}, pricing: { sat: { perRequestPpk: 500, perMegabytePpk: 1000, minCapacity: 100 }, usd: { perRequestPpk: 100, perMegabytePpk: 200, minCapacity: 10 } }, minExpiryInSeconds: 3600 },
 };
 
 const searchPlaces = ["config.yaml", "config.yml", "config.json"];

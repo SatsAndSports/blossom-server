@@ -161,6 +161,10 @@ channel:
     sat:
       perRequestPpk: 500    # 0.5 sats per request
       perMegabytePpk: 1000  # 1 sat per MB
+      minCapacity: 100      # minimum channel capacity in sats
     usd:
       perRequestPpk: 100    # 0.1 cents per request
       perMegabytePpk: 200   # 0.2 cents per MB
+      minCapacity: 10       # minimum channel capacity in cents
+  # minimum locktime in seconds (1 hour = 3600)
+  minExpiryInSeconds: 3600

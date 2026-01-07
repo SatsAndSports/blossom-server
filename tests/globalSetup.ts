@@ -57,9 +57,11 @@ channel:
     sat:
       perRequestPpk: 500
       perMegabytePpk: 1000
+      minCapacity: 100
     usd:
       perRequestPpk: 100
       perMegabytePpk: 200
+      minCapacity: 10
 `;
 
 async function waitForServer(port: number, timeoutMs: number = 10000): Promise<void> {
