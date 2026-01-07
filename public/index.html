@@ -2793,10 +2793,11 @@
             logEl.classList.add('visible');
 
             try {
-                // Get server info
-                const info = serverInfo[server];
+                // Refresh server params to ensure server is reachable and we have current pubkey
+                modalLog(`Checking server connection to ${server}...`);
+                const info = await fetchServerParams(server);
                 if (!info) {
-                    throw new Error('Server info not available');
+                    throw new Error('Cannot reach server');
                 }
 
                 // Get mint/keyset info
