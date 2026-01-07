@@ -930,7 +930,7 @@
                 <select id="modal-server-select"></select>
             </div>
             <div class="channel-tabs">
-                <button class="channel-tab active" data-tab="active">Active Channels</button>
+                <button class="channel-tab active" data-tab="open">Open Channels</button>
                 <button class="channel-tab" data-tab="other">Other Channels</button>
             </div>
             <div id="channel-list"></div>
@@ -1413,7 +1413,7 @@
                 if (channel.server_url !== serverUrl) continue;
                 if (channel.unit !== unit) continue;
 
-                if (channel.status === 'active') {
+                if (channel.status === 'open') {
                     active.push(channel);
                 } else {
                     other.push(channel);
@@ -1639,7 +1639,7 @@
                     charlie_pubkey: params.charlie_pubkey,
                     server_url: currentServer,
                     mint: params.mint,
-                    status: 'active',
+                    status: 'open',
                     unit: params.unit
                 };
             }
@@ -2618,7 +2618,7 @@
         // ============================================
         // Channel Management Modal
         // ============================================
-        let channelModalCurrentTab = 'active';
+        let channelModalCurrentTab = 'open';
         let channelModalServerUnit = null;  // { server, unit } currently selected in modal
 
         function showChannelModal() {
@@ -2687,7 +2687,7 @@
             
             try {
                 const { active, other } = await getChannelsForServer(alice.secretHex, server, unit);
-                const channels = channelModalCurrentTab === 'active' ? active : other;
+                const channels = channelModalCurrentTab === 'open' ? active : other;
                 
                 if (channels.length === 0) {
                     listEl.innerHTML = `<div class="no-channels">No ${channelModalCurrentTab} channels</div>`;
@@ -2718,7 +2718,7 @@
                                 Balance: ${balance}/${params.capacity} ${unit}<br>
                                 Expires: ${expiry}
                             </div>
-                            ${channelModalCurrentTab === 'active' ? `
+                            ${channelModalCurrentTab === 'open' ? `
                                 <div class="channel-actions">
                                     <button class="primary" onclick="selectChannel('${channel.channel_id}')">Select</button>
                                 </div>
