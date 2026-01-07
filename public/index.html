@@ -748,10 +748,9 @@
             const modal = document.getElementById('error-modal');
             const detailsEl = document.getElementById('error-details');
             const lines = [];
-            if (details.message) lines.push(`Error: ${details.message}`);
-            if (details.status) lines.push(`Status: ${details.status}`);
+            if (details.error !== undefined) lines.push(`Error: ${String(details.error)}`);
             if (details.url) lines.push(`URL: ${details.url}`);
-            detailsEl.textContent = lines.join('\n');
+            detailsEl.textContent = lines.join('\n\n');
             modal.classList.add('visible');
         }
 
@@ -1483,7 +1482,7 @@
                     await handleChannelExhausted(channelId, e.balance, e.capacity);
                 } else {
                     document.getElementById('video').pause();
-                    showErrorModal({ message: e.message, url });
+                    showErrorModal({ error: e, url });
                 }
                 throw e;
             }
@@ -1623,7 +1622,7 @@
                                     handleChannelExhausted(channelId, e.balance, e.capacity);  // fire-and-wait is fine
                                 } else {
                                     document.getElementById('video').pause();
-                                    showErrorModal({ message: e.message, url });
+                                    showErrorModal({ error: e, url });
                                 }
                                 return;
                             }
