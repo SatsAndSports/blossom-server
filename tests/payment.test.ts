@@ -355,6 +355,113 @@ describe('New channel payment', () => {
     console.log('USD channel payment accepted ✓');
   });
 
+  test('accepts multiple payments with msat channel', async ({ server }) => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${server.baseUrl}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+    console.log(`Uploaded blob: ${hash.substring(0, 16)}... (${content.length} bytes)`);
+
+    // Mint a funded channel with msat
+    const channel = await mintFundedChannel(server, 'msat');
+    console.log(`Channel ID: ${channel.channelId.substring(0, 16)}...`);
+    console.log(`Channel unit: ${channel.channelParams.unit}`);
+    console.log(`Channel capacity: ${channel.capacity} msat`);
+
+    // Make 20 requests to test msat payments
+    // Each request uses the precise amount_due for that many blobs/bytes
+    // Before each valid payment, attempt with 1 msat too few (if amount_due >= 1)
+    for (let i = 1; i <= 20; i++) {
+      const balance = server.getAmountDue('msat', i, content.length * i);
+
+      // Attempt payment with 1 msat too few (should get 402 insufficient balance)
+      if (balance >= 1) {
+        const insufficientBalance = balance - 1;
+        const insufficientBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+          channel.channelParamsJson,
+          JSON.stringify(channel.keysetInfo),
+          channel.alice.secretHex,
+          JSON.stringify(channel.proofs),
+          BigInt(insufficientBalance)
+        );
+        const insufficientBalanceUpdate = JSON.parse(insufficientBalanceUpdateJson);
+
+        const insufficientPaymentHeader = JSON.stringify({
+          channel_id: insufficientBalanceUpdate.channel_id,
+          balance: insufficientBalance,
+          signature: insufficientBalanceUpdate.signature,
+          // Only send params/funding_proofs on first request
+          ...(i === 1 ? { params: channel.channelParams, funding_proofs: channel.proofs } : {}),
+        });
+
+        const insufficientResponse = await fetch(`${server.baseUrl}/${hash}`, {
+          headers: { 'X-Cashu-Channel': insufficientPaymentHeader },
+        });
+        expect(insufficientResponse.status).toBe(402);
+        const errorHeader = JSON.parse(insufficientResponse.headers.get('X-Cashu-Channel')!);
+        expect(errorHeader.error).toBe('insufficient balance');
+      }
+
+      // Now make the valid payment
+      const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+        channel.channelParamsJson,
+        JSON.stringify(channel.keysetInfo),
+        channel.alice.secretHex,
+        JSON.stringify(channel.proofs),
+        BigInt(balance)
+      );
+      const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+      const paymentHeader = JSON.stringify({
+        channel_id: balanceUpdate.channel_id,
+        balance: balance,
+        signature: balanceUpdate.signature,
+        // Only send params/funding_proofs on first request (but we may have sent them in the insufficient attempt)
+        ...(i === 1 ? { params: channel.channelParams, funding_proofs: channel.proofs } : {}),
+      });
+
+      const response = await fetch(`${server.baseUrl}/${hash}`, {
+        headers: { 'X-Cashu-Channel': paymentHeader },
+      });
+      expect(response.status).toBe(200);
+    }
+    console.log(`Made 20 msat blob requests (with insufficient balance checks) ✓`);
+
+    // Get final status
+    const statusResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
+    const status = await statusResponse.json();
+    console.log(`Final status: amount_due=${status.amount_due} balance=${status.balance} msat`);
+    expect(status.amount_due).toBeGreaterThan(0);
+
+    // Close the channel
+    const closeBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(status.amount_due)
+    );
+    const closeBalanceUpdate = JSON.parse(closeBalanceUpdateJson);
+
+    const closeResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: status.amount_due,
+        signature: closeBalanceUpdate.signature,
+      }),
+    });
+
+    expect(closeResponse.status).toBe(200);
+    const closeResult = await closeResponse.json();
+    console.log(`Close result: success=${closeResult.success} total_value=${closeResult.total_value}`);
+    expect(closeResult.success).toBe(true);
+    console.log('msat channel payment + close accepted ✓');
+  });
+
   test('returns 402 without payment, then 200 with valid payment', async ({ server }) => {
     // Step 1: Upload a blob
     const { content, hash } = generateBlob();
