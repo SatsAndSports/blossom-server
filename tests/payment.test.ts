@@ -854,6 +854,139 @@ describe('Channel validation errors', () => {
     console.log(`capacity too small: 402 (capacity=${errorHeader.capacity} < min_capacity=${errorHeader.min_capacity}) ✓`);
   });
 
+  test('returns 402 when channel locktime is too soon', async ({ server }) => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${server.baseUrl}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // Get server's min_expiry_in_seconds
+    const minExpiryInSeconds = server.channelParams.min_expiry_in_seconds;
+    const tooSoonLocktime = Math.floor(Date.now() / 1000) + 60; // Only 1 minute from now
+    console.log(`Server min_expiry_in_seconds=${minExpiryInSeconds}, using locktime=${tooSoonLocktime} (60s from now)`);
+
+    // Generate Alice's keypair
+    const alice = generateKeypair();
+
+    // Get keyset for sat
+    const mintUrl = server.mintUrl;
+    const unitKeysets = server.channelParams.mints_units_keysets[mintUrl]?.['sat'];
+    if (!unitKeysets || unitKeysets.length === 0) {
+      throw new Error(`No keyset found for unit "sat" at ${mintUrl}`);
+    }
+    const keysetId = unitKeysets[0];
+    const keysetInfo = await fetchKeysetInfo(mintUrl, keysetId);
+
+    // Build channel parameters with locktime too soon
+    const setupTimestamp = Math.floor(Date.now() / 1000);
+    const senderNonce = randomBytes(32).toString('hex');
+
+    const channelParams = {
+      mint: mintUrl,
+      unit: 'sat',
+      capacity: 100,
+      keyset_id: keysetId,
+      input_fee_ppk: keysetInfo.inputFeePpk,
+      maximum_amount: 64,
+      setup_timestamp: setupTimestamp,
+      alice_pubkey: alice.pubkeyHex,
+      charlie_pubkey: server.channelParams.receiver_pubkey,
+      locktime: tooSoonLocktime,  // Too soon!
+      sender_nonce: senderNonce,
+    };
+    const channelParamsJson = JSON.stringify(channelParams);
+
+    // Generate funding outputs
+    const fundingOutputsJson = create_funding_outputs(
+      channelParamsJson,
+      alice.secretHex,
+      JSON.stringify(keysetInfo)
+    );
+    const fundingOutputs = JSON.parse(fundingOutputsJson);
+
+    // Create mint quote
+    const quoteRes = await fetch(`${mintUrl}/v1/mint/quote/bolt11`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount: fundingOutputs.funding_token_nominal,
+        unit: 'sat',
+      }),
+    });
+    const quote = await quoteRes.json();
+
+    // Wait for payment (FakeWallet auto-pays)
+    for (let i = 0; i < 30; i++) {
+      const statusRes = await fetch(`${mintUrl}/v1/mint/quote/bolt11/${quote.quote}`);
+      const status = await statusRes.json();
+      if (status.state === 'PAID') break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    // Mint with our blinded messages
+    const mintReq = {
+      quote: quote.quote,
+      outputs: fundingOutputs.blinded_messages.map((bm: any) => ({
+        amount: bm.amount,
+        id: bm.id,
+        B_: bm.B_,
+      })),
+    };
+
+    const mintRes = await fetch(`${mintUrl}/v1/mint/bolt11`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mintReq),
+    });
+    const mintData = await mintRes.json();
+
+    // Construct proofs (unblind signatures)
+    const proofsJson = construct_proofs(
+      JSON.stringify(mintData.signatures),
+      JSON.stringify(fundingOutputs.secrets_with_blinding),
+      JSON.stringify(keysetInfo)
+    );
+    const proofs = JSON.parse(proofsJson);
+
+    // Compute shared secret and channel ID
+    const sharedSecret = compute_shared_secret(alice.secretHex, server.channelParams.receiver_pubkey);
+    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret);
+
+    // Create balance update
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channelParamsJson,
+      JSON.stringify(keysetInfo),
+      alice.secretHex,
+      JSON.stringify(proofs),
+      BigInt(1)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    // Send payment with too-soon locktime
+    const paymentHeader = JSON.stringify({
+      channel_id: balanceUpdate.channel_id,
+      balance: balanceUpdate.amount,
+      signature: balanceUpdate.signature,
+      params: channelParams,
+      funding_proofs: proofs,
+    });
+
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+
+    expect(response.status).toBe(402);
+    const errorHeader = JSON.parse(response.headers.get('X-Cashu-Channel')!);
+    expect(errorHeader.error).toBe('locktime too soon');
+    expect(errorHeader.locktime).toBe(tooSoonLocktime);
+    expect(errorHeader.min_expiry_in_seconds).toBe(minExpiryInSeconds);
+    expect(errorHeader.seconds_remaining).toBeLessThan(minExpiryInSeconds);
+    console.log(`locktime too soon: 402 (locktime=${errorHeader.locktime}, seconds_remaining=${errorHeader.seconds_remaining}, need ${errorHeader.min_expiry_in_seconds}s) ✓`);
+  });
+
   test('returns 402 when signature does not match balance', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();

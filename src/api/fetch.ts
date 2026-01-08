@@ -174,6 +174,19 @@ export function validateChannelAndSignature(
       };
     }
 
+    // Check locktime is far enough in the future
+    const now = Math.floor(Date.now() / 1000);
+    const minLocktime = now + config.channel.minExpiryInSeconds;
+    if (paramsObj.locktime < minLocktime) {
+      const secondsRemaining = paramsObj.locktime - now;
+      paymentLog("channel validation FAILED: locktime %d < min_locktime %d (expires in %ds, need %ds)",
+        paramsObj.locktime, minLocktime, secondsRemaining, config.channel.minExpiryInSeconds);
+      return {
+        header: { error: "locktime too soon", size: blobSize, locktime: paramsObj.locktime, min_expiry_in_seconds: config.channel.minExpiryInSeconds, seconds_remaining: secondsRemaining },
+        body: { error: "Payment required", reason: "locktime too soon", locktime: paramsObj.locktime, min_expiry_in_seconds: config.channel.minExpiryInSeconds, seconds_remaining: secondsRemaining },
+      };
+    }
+
     // Resolve keysetInfo from startup cache or channel funding cache
     const mintUrl = paramsObj.mint;
     const keysetId = paramsObj.keyset_id;
