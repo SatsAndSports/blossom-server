@@ -733,6 +733,18 @@
             background: #4a2a2a;
             color: #a44;
         }
+        .channel-refresh {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            padding: 2px 4px;
+            font-size: 14px;
+            margin-left: 4px;
+        }
+        .channel-refresh:hover {
+            color: #fff;
+        }
         .channel-details {
             font-size: 13px;
             color: #888;
@@ -1430,6 +1442,45 @@
             if (record) {
                 record.status = status;
                 await saveChannel(record);
+            }
+        }
+
+        // Refresh channel status from server (for exhausted channels in the list)
+        async function refreshChannelStatus(channelId, event) {
+            event.stopPropagation();
+            
+            console.log(`[Channel] Refreshing status for ${channelId.substring(0, 8)}...`);
+            
+            try {
+                const res = await fetch(`${channelModalServerUnit.server}/channel/${channelId}/status`);
+                if (!res.ok) {
+                    console.log(`[Channel] Status request failed: ${res.status}`);
+                    return;
+                }
+                
+                const status = await res.json();
+                console.log(`[Channel] Server status:`, status);
+                
+                // Update the local request count to match server's actual usage
+                channelRequestCounts.set(channelId, {
+                    count: status.blobs_served,
+                    bytes: status.bytes_served
+                });
+                persistRequestCounts(channelId, status.blobs_served, status.bytes_served);
+                
+                // If amount_due < capacity and not closed, channel has capacity remaining
+                const record = await getChannel(channelId);
+                if (record && status.amount_due < status.capacity && !status.closed) {
+                    record.status = 'open';
+                    await saveChannel(record);
+                    console.log(`[Channel] Resynced - channel reopened (${status.amount_due}/${status.capacity})`);
+                }
+                
+                // Re-render the channel list
+                await renderChannelList();
+                
+            } catch (e) {
+                console.log(`[Channel] Refresh failed: ${e.message}`);
             }
         }
 
@@ -2941,7 +2992,10 @@
                         <div class="channel-card ${isSelected ? 'selected' : ''}">
                             <div class="channel-card-header">
                                 <span class="channel-id">${isSelected ? '●' : '○'} ${channel.channel_id.substring(0, 16)}...</span>
-                                <span class="channel-status ${channel.status}">${channel.status}</span>
+                                <span style="display: flex; align-items: center;">
+                                    <span class="channel-status ${channel.status}">${channel.status}</span>
+                                    ${channel.status === 'exhausted' ? `<button class="channel-refresh" onclick="refreshChannelStatus('${channel.channel_id}', event)" title="Refresh status">↻</button>` : ''}
+                                </span>
                             </div>
                             <div class="channel-details">
                                 Balance: ${balance}/${params.capacity} ${unit}<br>
@@ -3001,6 +3055,7 @@
         }
         // Expose to window for onclick handlers
         window.selectChannel = selectChannel;
+        window.refreshChannelStatus = refreshChannelStatus;
 
         // Create a new channel for the current (server, unit)
         async function createChannel() {
