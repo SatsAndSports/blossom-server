@@ -624,6 +624,50 @@
             font-size: 14px;
             min-width: 300px;
         }
+        .channel-params {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #1a1a1a;
+            border-radius: 4px;
+        }
+        .param-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        .param-row:last-child {
+            margin-bottom: 0;
+        }
+        .param-row label {
+            color: #888;
+            min-width: 70px;
+        }
+        .param-row input[type="number"] {
+            background: #252525;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 200px;
+        }
+        .param-row select {
+            background: #252525;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        #modal-capacity-unit {
+            color: #f7931a;
+            font-weight: bold;
+        }
+        .param-hint {
+            color: #666;
+            font-size: 12px;
+        }
         .channel-tabs {
             display: flex;
             gap: 5px;
@@ -935,6 +979,22 @@
             </div>
             <div id="channel-list"></div>
             <div id="channel-modal-log" class="modal-log"></div>
+            <div class="channel-params">
+                <div class="param-row">
+                    <label>Capacity:</label>
+                    <input type="number" id="modal-capacity" value="1000" min="1">
+                    <span id="modal-capacity-unit">sat</span>
+                    <span id="modal-capacity-hint" class="param-hint">(min: 100)</span>
+                </div>
+                <div class="param-row">
+                    <label>Expiry:</label>
+                    <select id="modal-expiry">
+                        <option value="86400">1 day</option>
+                        <option value="604800" selected>1 week</option>
+                        <option value="2592000">1 month</option>
+                    </select>
+                </div>
+            </div>
             <div class="modal-actions">
                 <button id="create-channel-btn">Create Channel</button>
                 <button id="close-channel-modal-btn" class="secondary">Close</button>
@@ -2632,6 +2692,7 @@
             if (currentServer && currentUnit) {
                 channelModalServerUnit = { server: currentServer, unit: currentUnit };
                 document.getElementById('modal-server-select').value = `${currentServer}|${currentUnit}`;
+                updateCapacityUI(currentServer, currentUnit);
             }
             
             // Render channel list
@@ -2673,6 +2734,16 @@
                     select.appendChild(option);
                 }
             }
+        }
+
+        // Update capacity input UI based on selected server/unit
+        function updateCapacityUI(server, unit) {
+            const info = serverInfo[server];
+            const minCapacity = info?.pricing?.[unit]?.minCapacity ?? 0;
+            
+            document.getElementById('modal-capacity-unit').textContent = unit;
+            document.getElementById('modal-capacity-hint').textContent = `(min: ${minCapacity})`;
+            document.getElementById('modal-capacity').min = minCapacity;
         }
 
         async function renderChannelList() {
@@ -2784,6 +2855,33 @@
             const { server, unit } = channelModalServerUnit;
             const createBtn = document.getElementById('create-channel-btn');
             
+            // Read capacity and expiry from inputs
+            const capacity = parseInt(document.getElementById('modal-capacity').value);
+            const expirySeconds = parseInt(document.getElementById('modal-expiry').value);
+            
+            // Validate inputs
+            if (isNaN(capacity) || capacity < 1) {
+                modalLog('Invalid capacity value', 'error');
+                return;
+            }
+            
+            // Get server constraints
+            const serverParams = serverInfo[server];
+            const minCapacity = serverParams?.pricing?.[unit]?.minCapacity ?? 0;
+            const minExpiryInSeconds = serverParams?.min_expiry_in_seconds ?? 0;
+            
+            // Validate capacity against server minimum
+            if (capacity < minCapacity) {
+                modalLog(`Capacity must be at least ${minCapacity} ${unit}`, 'error');
+                return;
+            }
+            
+            // Validate expiry against server minimum
+            if (expirySeconds < minExpiryInSeconds) {
+                modalLog(`Expiry must be at least ${minExpiryInSeconds} seconds`, 'error');
+                return;
+            }
+            
             // Disable button during creation
             createBtn.disabled = true;
             
@@ -2805,7 +2903,7 @@
                 if (!mintInfo) {
                     throw new Error('No approved mint/keyset for this server and unit');
                 }
-                modalLog(`Using mint: ${mintInfo.mint}`);
+                modalLog(`Using mint: ${mintInfo.mint} (${unit})`);
 
                 // Fetch keyset info
                 modalLog('Fetching keyset info...');
@@ -2814,19 +2912,20 @@
 
                 // Build params JSON
                 const setupTimestamp = Math.floor(Date.now() / 1000);
-                const expiry = setupTimestamp + 7 * 24 * 60 * 60; // 1 week
+                const locktime = setupTimestamp + expirySeconds;
                 const senderNonce = FundedChannel.generateNonce();
+                modalLog(`Channel capacity: ${capacity} ${unit}, expiry: ${expirySeconds}s`);
                 const paramsJson = JSON.stringify({
                     mint: mintInfo.mint,
                     unit: mintInfo.unit,
-                    capacity: 1000,
+                    capacity: capacity,
                     keyset_id: mintInfo.keysetId,
                     input_fee_ppk: ksInfo.inputFeePpk,
                     maximum_amount: 64,
                     setup_timestamp: setupTimestamp,
                     alice_pubkey: alice.pubkeyHex,
                     charlie_pubkey: info.pubkeyHex,
-                    locktime: expiry,
+                    locktime: locktime,
                     sender_nonce: senderNonce
                 });
 
@@ -2838,7 +2937,7 @@
                     JSON.stringify(ksInfo)
                 );
                 const fundingOutputs = JSON.parse(fundingOutputsJson);
-                modalLog(`Funding outputs: nominal=${fundingOutputs.funding_token_nominal}`);
+                modalLog(`Funding outputs: nominal=${fundingOutputs.funding_token_nominal} ${unit}`);
 
                 // Convert to cashu-ts OutputData and mint
                 const outputData = wasmOutputsToOutputData(fundingOutputs);
@@ -2898,6 +2997,9 @@
         document.getElementById('modal-server-select').onchange = async (e) => {
             const [server, unit] = e.target.value.split('|');
             channelModalServerUnit = { server, unit };
+            
+            // Update capacity input UI for new unit
+            updateCapacityUI(server, unit);
             
             // Update globals
             currentServer = server;
