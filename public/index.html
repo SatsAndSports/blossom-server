@@ -1073,11 +1073,28 @@
             }
         }
 
-        // Handle channel exhaustion: pause video, show toast, mark status
+        // Handle channel exhaustion: pause video, query server status, show toast, mark status
         async function handleChannelExhausted(channelId, balance, capacity) {
             document.getElementById('video').pause();
-            log(`Channel exhausted: ${balance}/${capacity}`, 'error');
-            showToast(`Channel exhausted (${balance}/${capacity}) - video paused`);
+            
+            // Query server for actual status
+            let serverStatus = null;
+            try {
+                const res = await fetch(`${currentServer}/channel/${channelId}/status`);
+                if (res.ok) {
+                    serverStatus = await res.json();
+                }
+            } catch (e) {
+                // Ignore - will show client-side values
+            }
+            
+            // Use server values if available, otherwise fall back to client values
+            const displayBalance = serverStatus?.amount_due ?? balance;
+            const displayCapacity = serverStatus?.capacity ?? capacity;
+            
+            log(`Channel exhausted: ${displayBalance}/${displayCapacity}` + 
+                (serverStatus ? ` (server: amount_due=${serverStatus.amount_due}, balance=${serverStatus.balance})` : ' (server unavailable)'), 'error');
+            showToast(`Channel exhausted (${displayBalance}/${displayCapacity}) - video paused`);
             await updateChannelStatus(channelId, 'exhausted');
         }
 
