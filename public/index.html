@@ -2510,16 +2510,22 @@
                         }
 
                         // Animate through sprite frames
+                        // Scale sprite to fit 180px thumbnail height
+                        const thumbContainerHeight = 180; // matches .video-card-thumb height
+                        const scale = thumbContainerHeight / spriteMeta.thumb_height;
+                        const frameWidth = spriteMeta.thumb_width * scale;
+                        const frameHeight = thumbContainerHeight;
+                        
                         let frame = 0;
                         thumb.style.backgroundImage = `url(${spriteUrl})`;
-                        thumb.style.backgroundSize = `${spriteMeta.columns * 200}px auto`;
+                        thumb.style.backgroundSize = `${spriteMeta.columns * frameWidth}px ${spriteMeta.rows * frameHeight}px`;
                         thumb.style.backgroundPosition = '0px 0px'; // Start at first frame
 
                         spriteInterval = setInterval(() => {
                             frame = (frame + 1) % spriteMeta.frames;
                             const col = frame % spriteMeta.columns;
                             const row = Math.floor(frame / spriteMeta.columns);
-                            thumb.style.backgroundPosition = `-${col * 200}px -${row * 113}px`;
+                            thumb.style.backgroundPosition = `-${col * frameWidth}px -${row * frameHeight}px`;
                         }, 500);
                     };
 
