@@ -609,11 +609,14 @@
             color: #fff;
         }
         .server-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
             margin-bottom: 15px;
+            flex-wrap: wrap;
         }
         .server-selector label {
             color: #888;
-            margin-right: 10px;
         }
         .server-selector select {
             background: #1a1a1a;
@@ -622,7 +625,12 @@
             padding: 8px 12px;
             border-radius: 4px;
             font-size: 14px;
-            min-width: 300px;
+        }
+        #modal-server-select {
+            min-width: 280px;
+        }
+        #modal-mint-select {
+            min-width: 200px;
         }
         .channel-params {
             margin-bottom: 15px;
@@ -972,6 +980,8 @@
             <div class="server-selector">
                 <label>Server:</label>
                 <select id="modal-server-select"></select>
+                <label>Mint:</label>
+                <select id="modal-mint-select"></select>
             </div>
             <div class="channel-tabs">
                 <button class="channel-tab active" data-tab="open">Open Channels</button>
@@ -1451,6 +1461,37 @@
                 localStorage.setItem(SELECTED_CHANNELS_KEY, JSON.stringify(map));
             } catch (e) {
                 console.error('Failed to clear selected channel:', e);
+            }
+        }
+
+        // ============================================
+        // Mint Selection Storage (localStorage)
+        // ============================================
+        const SELECTED_MINTS_KEY = 'cashutube_selected_mints';
+
+        // Get selected mint for a (server, unit) pair
+        function getSelectedMint(serverUrl, unit) {
+            const key = `${serverUrl}|${unit}`;
+            try {
+                const stored = localStorage.getItem(SELECTED_MINTS_KEY);
+                if (!stored) return null;
+                const map = JSON.parse(stored);
+                return map[key] || null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // Set selected mint for a (server, unit) pair
+        function setSelectedMint(serverUrl, unit, mintUrl) {
+            const key = `${serverUrl}|${unit}`;
+            try {
+                const stored = localStorage.getItem(SELECTED_MINTS_KEY);
+                const map = stored ? JSON.parse(stored) : {};
+                map[key] = mintUrl;
+                localStorage.setItem(SELECTED_MINTS_KEY, JSON.stringify(map));
+            } catch (e) {
+                console.error('Failed to save selected mint:', e);
             }
         }
 
@@ -2693,6 +2734,7 @@
                 channelModalServerUnit = { server: currentServer, unit: currentUnit };
                 document.getElementById('modal-server-select').value = `${currentServer}|${currentUnit}`;
                 updateCapacityUI(currentServer, currentUnit);
+                populateMintDropdown(currentServer, currentUnit);
             }
             
             // Render channel list
@@ -2744,6 +2786,39 @@
             document.getElementById('modal-capacity-unit').textContent = unit;
             document.getElementById('modal-capacity-hint').textContent = `(min: ${minCapacity})`;
             document.getElementById('modal-capacity').min = minCapacity;
+        }
+
+        // Populate mint dropdown for selected server/unit
+        function populateMintDropdown(server, unit) {
+            const select = document.getElementById('modal-mint-select');
+            select.innerHTML = '';
+            
+            const info = serverInfo[server];
+            if (!info || !info.mintsUnitsKeysets) {
+                return;
+            }
+            
+            // Get mints that support the selected unit
+            const mints = [];
+            for (const [mintUrl, unitsKeysets] of Object.entries(info.mintsUnitsKeysets)) {
+                if (unitsKeysets[unit] && unitsKeysets[unit].length > 0) {
+                    mints.push(mintUrl);
+                }
+            }
+            
+            // Populate dropdown
+            for (const mintUrl of mints) {
+                const option = document.createElement('option');
+                option.value = mintUrl;
+                option.textContent = mintUrl;
+                select.appendChild(option);
+            }
+            
+            // Restore saved selection if available
+            const savedMint = getSelectedMint(server, unit);
+            if (savedMint && mints.includes(savedMint)) {
+                select.value = savedMint;
+            }
         }
 
         async function renderChannelList() {
@@ -2898,16 +2973,23 @@
                     throw new Error('Cannot reach server');
                 }
 
-                // Get mint/keyset info
-                const mintInfo = getFirstMintUnitKeyset(server, unit);
-                if (!mintInfo) {
-                    throw new Error('No approved mint/keyset for this server and unit');
+                // Get selected mint from dropdown
+                const selectedMint = document.getElementById('modal-mint-select').value;
+                if (!selectedMint) {
+                    throw new Error('Please select a mint');
                 }
-                modalLog(`Using mint: ${mintInfo.mint} (${unit})`);
+                
+                // Get keyset for selected mint + unit
+                const keysets = info.mintsUnitsKeysets?.[selectedMint]?.[unit];
+                if (!keysets || keysets.length === 0) {
+                    throw new Error(`No keyset found for mint ${selectedMint} and unit ${unit}`);
+                }
+                const keysetId = keysets[0];  // Use first keyset
+                modalLog(`Using mint: ${selectedMint} (${unit})`);
 
                 // Fetch keyset info
                 modalLog('Fetching keyset info...');
-                const ksInfo = await fetchKeysetInfo(mintInfo.mint, mintInfo.keysetId);
+                const ksInfo = await fetchKeysetInfo(selectedMint, keysetId);
                 modalLog(`Keyset ${ksInfo.keysetId}: ${ksInfo.amounts.length} denominations`);
 
                 // Build params JSON
@@ -2916,10 +2998,10 @@
                 const senderNonce = FundedChannel.generateNonce();
                 modalLog(`Channel capacity: ${capacity} ${unit}, expiry: ${expirySeconds}s`);
                 const paramsJson = JSON.stringify({
-                    mint: mintInfo.mint,
-                    unit: mintInfo.unit,
+                    mint: selectedMint,
+                    unit: unit,
                     capacity: capacity,
-                    keyset_id: mintInfo.keysetId,
+                    keyset_id: keysetId,
                     input_fee_ppk: ksInfo.inputFeePpk,
                     maximum_amount: 64,
                     setup_timestamp: setupTimestamp,
@@ -2945,11 +3027,11 @@
                 // Mint the funding token
                 modalLog('Minting funding token...');
                 const proofs = await mintFundingToken(
-                    mintInfo.mint,
+                    selectedMint,
                     fundingOutputs.funding_token_nominal,
                     outputData,
                     ksInfo,
-                    mintInfo.unit
+                    unit
                 );
                 modalLog(`Minted ${proofs.length} proofs`, 'success');
 
@@ -3001,6 +3083,9 @@
             // Update capacity input UI for new unit
             updateCapacityUI(server, unit);
             
+            // Update mint dropdown for new server/unit
+            populateMintDropdown(server, unit);
+            
             // Update globals
             currentServer = server;
             currentUnit = unit;
@@ -3023,6 +3108,14 @@
             updateStatus();
             renderChannelList();
             await loadVideos();
+        };
+
+        // Mint dropdown change - save selection
+        document.getElementById('modal-mint-select').onchange = (e) => {
+            if (channelModalServerUnit) {
+                const { server, unit } = channelModalServerUnit;
+                setSelectedMint(server, unit, e.target.value);
+            }
         };
 
         // Close buttons (X in header and Close button at bottom)
