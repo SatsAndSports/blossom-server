@@ -23,6 +23,22 @@ import { validatePaymentFields } from "../helpers/payment-validation.js";
 
 const paymentLog = logger.extend("payments");
 
+// Helper function to create and log 402 payment errors
+// Every 402 response goes through this function for consistent logging
+function paymentError(
+  error: string,
+  blobSize: number,
+  extra?: Record<string, any>,
+  bodyHint?: string  // optional extra text for body.reason
+): PaymentError {
+  const headerData = { error, size: blobSize, ...extra };
+  paymentLog("402 %s", JSON.stringify(headerData));
+  return {
+    header: headerData,
+    body: { error: "Payment required", reason: bodyHint ? `${error} - ${bodyHint}` : error, ...extra },
+  };
+}
+
 // Result of payment validation
 export interface PaymentError {
   header: Record<string, any>;  // JSON for X-Cashu-Channel header
@@ -141,10 +157,7 @@ export function validateChannelAndSignature(
     const alicePubkey = paramsObj.alice_pubkey;
 
     if (!config.channel.secretKey) {
-      return {
-        header: { error: "server misconfigured", size: blobSize },
-        body: { error: "Payment required", reason: "server misconfigured" },
-      };
+      return paymentError("server misconfigured", blobSize);
     }
 
     const sharedSecret = compute_shared_secret(config.channel.secretKey, alicePubkey);
@@ -157,21 +170,14 @@ export function validateChannelAndSignature(
     );
 
     if (!channelIdMatch) {
-      return {
-        header: { error: "channel_id mismatch", size: blobSize },
-        body: { error: "Payment required", reason: "channel_id mismatch" },
-      };
+      return paymentError("channel_id mismatch", blobSize);
     }
 
     // Check capacity meets minimum requirement for this unit
     const unitPricing = config.channel.pricing[paramsObj.unit];
     const minCapacity = unitPricing?.minCapacity ?? 0;
     if (paramsObj.capacity < minCapacity) {
-      paymentLog("channel validation FAILED: capacity %d < min_capacity %d (unit=%s)", paramsObj.capacity, minCapacity, paramsObj.unit);
-      return {
-        header: { error: "capacity too small", size: blobSize, capacity: paramsObj.capacity, min_capacity: minCapacity },
-        body: { error: "Payment required", reason: "capacity too small", capacity: paramsObj.capacity, min_capacity: minCapacity },
-      };
+      return paymentError("capacity too small", blobSize, { capacity: paramsObj.capacity, min_capacity: minCapacity });
     }
 
     // Check locktime is far enough in the future
@@ -179,12 +185,11 @@ export function validateChannelAndSignature(
     const minLocktime = now + config.channel.minExpiryInSeconds;
     if (paramsObj.locktime < minLocktime) {
       const secondsRemaining = paramsObj.locktime - now;
-      paymentLog("channel validation FAILED: locktime %d < min_locktime %d (expires in %ds, need %ds)",
-        paramsObj.locktime, minLocktime, secondsRemaining, config.channel.minExpiryInSeconds);
-      return {
-        header: { error: "locktime too soon", size: blobSize, locktime: paramsObj.locktime, min_expiry_in_seconds: config.channel.minExpiryInSeconds, seconds_remaining: secondsRemaining },
-        body: { error: "Payment required", reason: "locktime too soon", locktime: paramsObj.locktime, min_expiry_in_seconds: config.channel.minExpiryInSeconds, seconds_remaining: secondsRemaining },
-      };
+      return paymentError("locktime too soon", blobSize, {
+        locktime: paramsObj.locktime,
+        min_expiry_in_seconds: config.channel.minExpiryInSeconds,
+        seconds_remaining: secondsRemaining,
+      });
     }
 
     // Resolve keysetInfo from startup cache or channel funding cache
@@ -200,11 +205,7 @@ export function validateChannelAndSignature(
     );
 
     if (!keysetInfo) {
-      paymentLog("channel validation FAILED: keyset %s not from approved mint %s", keysetId, mintUrl);
-      return {
-        header: { error: "keyset not from approved mint", size: blobSize, mint: mintUrl, keyset_id: keysetId },
-        body: { error: "Payment required", reason: "keyset not from approved mint" },
-      };
+      return paymentError("keyset not from approved mint", blobSize, { mint: mintUrl, keyset_id: keysetId });
     }
 
     // Run full channel verification (DLEQ, keyset ID match)
@@ -219,18 +220,10 @@ export function validateChannelAndSignature(
       paymentLog("channel validation: valid=%s errors=%d", verificationResult.valid, verificationResult.errors.length);
 
       if (!verificationResult.valid) {
-        paymentLog("channel validation FAILED: %s", JSON.stringify(verificationResult.errors));
-        return {
-          header: { error: "channel validation failed", size: blobSize, validation_errors: verificationResult.errors },
-          body: { error: "Payment required", reason: "channel validation failed", details: verificationResult.errors },
-        };
+        return paymentError("channel validation failed", blobSize, { validation_errors: verificationResult.errors });
       }
     } catch (e) {
-      paymentLog("channel validation ERROR: %s", (e as Error).message);
-      return {
-        header: { error: "channel validation error", size: blobSize, message: (e as Error).message },
-        body: { error: "Payment required", reason: "channel validation error" },
-      };
+      return paymentError("channel validation error", blobSize, { message: (e as Error).message });
     }
 
     // Channel funding is valid - cache it
@@ -246,19 +239,12 @@ export function validateChannelAndSignature(
   // Look up cached funding (either just inserted above, or from a previous request)
   const funding = fundingStore.get(channelId);
   if (!funding) {
-    return {
-      header: { error: "unknown channel", size: blobSize },
-      body: { error: "Payment required", reason: "unknown channel - provide params and funding_proofs" },
-    };
+    return paymentError("unknown channel", blobSize, {}, "provide params and funding_proofs");
   }
 
   // Check if channel has been closed
   if (channelClosed.isClosed(channelId)) {
-    paymentLog("channel %s is closed, rejecting payment", channelId.substring(0, 8));
-    return {
-      header: { error: "channel closed", size: blobSize },
-      body: { error: "Payment required", reason: "channel closed - use a different channel" },
-    };
+    return paymentError("channel closed", blobSize, {}, "use a different channel");
   }
 
   // Parse params for validation checks
@@ -266,10 +252,7 @@ export function validateChannelAndSignature(
 
   // Check balance doesn't exceed capacity
   if (balance > params.capacity) {
-    return {
-      header: { error: "balance exceeds capacity", size: blobSize, capacity: params.capacity, balance: balance },
-      body: { error: "Payment required", reason: "balance exceeds capacity", capacity: params.capacity },
-    };
+    return paymentError("balance exceeds capacity", blobSize, { capacity: params.capacity, balance });
   }
 
   // Verify signature
@@ -290,10 +273,7 @@ export function validateChannelAndSignature(
   }
 
   if (!signatureValid) {
-    return {
-      header: { error: "invalid signature", size: blobSize },
-      body: { error: "Payment required", reason: "invalid signature" },
-    };
+    return paymentError("invalid signature", blobSize);
   }
 
   return { funding, params };
@@ -314,31 +294,20 @@ function validatePayment(
 
   // Check header is present and valid JSON
   if (!paymentHeader) {
-    paymentLog("No X-Cashu-Channel header (size=%d)", blobSize);
-    return {
-      header: { error: "missing", size: blobSize },
-      body: { error: "Payment required", reason: "missing" },
-    };
+    return paymentError("missing", blobSize);
   }
 
   let payment: any;
   try {
     payment = JSON.parse(paymentHeader);
   } catch {
-    paymentLog("Invalid JSON in X-Cashu-Channel header");
-    return {
-      header: { error: "invalid JSON", size: blobSize },
-      body: { error: "Payment required", reason: "invalid JSON" },
-    };
+    return paymentError("invalid JSON", blobSize);
   }
 
   // Check required fields
   const fieldValidation = validatePaymentFields(payment);
   if (!fieldValidation.valid) {
-    return {
-      header: { error: fieldValidation.error, size: blobSize },
-      body: { error: "Payment required", reason: fieldValidation.error },
-    };
+    return paymentError(fieldValidation.error!, blobSize);
   }
 
   const { channelId, balance, signature } = fieldValidation.fields;
@@ -364,11 +333,7 @@ function validatePayment(
   const unit = params.unit;
   const pricing = config.channel.pricing[unit];
   if (!pricing) {
-    paymentLog("no pricing for unit=%s", unit);
-    return {
-      header: { error: "unsupported unit", size: blobSize, unit },
-      body: { error: "Payment required", reason: "unsupported unit" },
-    };
+    return paymentError("unsupported unit", blobSize, { unit });
   }
 
   // Get existing usage (defaults to zero for new channels)
@@ -381,36 +346,17 @@ function validatePayment(
   const totalBytes = previousBytes + blobSize;
   const amountDue = calculateAmountDue(totalBlobs, totalBytes, pricing);
 
-  paymentLog("channel=%s usage: blobs=%d bytes=%d amountDue=%d balance=%d",
-    payment.channel_id.substring(0, 8), totalBlobs, totalBytes, amountDue, payment.balance);
-
   if (payment.balance < amountDue) {
-    return {
-      header: {
-        error: "insufficient balance",
-        size: blobSize,
-        amount_due: amountDue,
-        balance: payment.balance,
-        // Debug info: usage and pricing
-        total_blobs: totalBlobs,
-        total_bytes: totalBytes,
-        pricing: {
-          per_request_ppk: pricing.perRequestPpk,
-          per_megabyte_ppk: pricing.perMegabytePpk,
-        },
+    return paymentError("insufficient balance", blobSize, {
+      amount_due: amountDue,
+      balance: payment.balance,
+      total_blobs: totalBlobs,
+      total_bytes: totalBytes,
+      pricing: {
+        per_request_ppk: pricing.perRequestPpk,
+        per_megabyte_ppk: pricing.perMegabytePpk,
       },
-      body: {
-        error: "Payment required",
-        reason: "insufficient balance",
-        amount_due: amountDue,
-        total_blobs: totalBlobs,
-        total_bytes: totalBytes,
-        pricing: {
-          per_request_ppk: pricing.perRequestPpk,
-          per_megabyte_ppk: pricing.perMegabytePpk,
-        },
-      },
-    };
+    });
   }
 
   return {
