@@ -169,7 +169,8 @@ async function mintFundedChannel(server: Server, unit: string, maximumAmount: nu
 
   // Compute shared secret and channel ID
   const sharedSecret = compute_shared_secret(alice.secretHex, charliePubkey);
-  const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret);
+  const keysetInfoJson = JSON.stringify(keysetInfo);
+  const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret, keysetInfoJson);
 
   return {
     alice,
@@ -801,18 +802,13 @@ describe('Channel validation errors', () => {
     // Mint a funded channel
     const channel = await mintFundedChannel(server, 'sat');
 
-    // Tamper with keyset_id in params
+    // Tamper with keyset_id in params - use a keyset that's not from an approved mint
     const tamperedParams = { ...channel.channelParams, keyset_id: '00deadbeef123456' };
-    const tamperedParamsJson = JSON.stringify(tamperedParams);
 
-    // Recompute channel_id with tampered params (so it passes channel_id check)
-    const tamperedChannelId = channel_parameters_get_channel_id(
-      tamperedParamsJson,
-      channel.sharedSecret
-    );
-
+    // Use a fake channel_id - the server will reject based on unknown keyset 
+    // before it even checks the channel_id
     const paymentHeader = JSON.stringify({
-      channel_id: tamperedChannelId,
+      channel_id: 'aaaa' + channel.channelId.substring(4),  // fake channel_id
       balance: 1,
       signature: 'fake_signature',  // Won't get this far anyway
       params: tamperedParams,
@@ -929,7 +925,8 @@ describe('Channel validation errors', () => {
 
     // Compute shared secret and channel ID
     const sharedSecret = compute_shared_secret(alice.secretHex, server.channelParams.receiver_pubkey);
-    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret);
+    const keysetInfoJson = JSON.stringify(keysetInfo);
+    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret, keysetInfoJson);
 
     // Create balance update
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
@@ -1061,7 +1058,8 @@ describe('Channel validation errors', () => {
 
     // Compute shared secret and channel ID
     const sharedSecret = compute_shared_secret(alice.secretHex, server.channelParams.receiver_pubkey);
-    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret);
+    const keysetInfoJson = JSON.stringify(keysetInfo);
+    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret, keysetInfoJson);
 
     // Create balance update
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(

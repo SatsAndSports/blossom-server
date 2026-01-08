@@ -160,8 +160,25 @@ export function validateChannelAndSignature(
       return paymentError("server misconfigured", blobSize);
     }
 
+    // Resolve keysetInfo early - needed for channel_id computation
+    const mintUrl = paramsObj.mint;
+    const keysetId = paramsObj.keyset_id;
+    const keysetInfo = getFullKeysetInfo(
+      mintUrl,
+      keysetId,
+      paramsObj.unit,
+      paramsObj.input_fee_ppk || 0,
+      channelId,
+      fundingStore
+    );
+
+    if (!keysetInfo) {
+      return paymentError("keyset not from approved mint", blobSize, { mint: mintUrl, keyset_id: keysetId });
+    }
+
+    const keysetInfoJson = JSON.stringify(keysetInfo);
     const sharedSecret = compute_shared_secret(config.channel.secretKey, alicePubkey);
-    const computedChannelId = channel_parameters_get_channel_id(paramsJson, sharedSecret);
+    const computedChannelId = channel_parameters_get_channel_id(paramsJson, sharedSecret, keysetInfoJson);
     const channelIdMatch = computedChannelId === channelId;
     paymentLog("channel_id verify: computed=%s provided=%s match=%s",
       computedChannelId.substring(0, 8),
@@ -201,29 +218,13 @@ export function validateChannelAndSignature(
       });
     }
 
-    // Resolve keysetInfo from startup cache or channel funding cache
-    const mintUrl = paramsObj.mint;
-    const keysetId = paramsObj.keyset_id;
-    const keysetInfo = getFullKeysetInfo(
-      mintUrl,
-      keysetId,
-      paramsObj.unit,
-      paramsObj.input_fee_ppk || 0,
-      channelId,
-      fundingStore
-    );
-
-    if (!keysetInfo) {
-      return paymentError("keyset not from approved mint", blobSize, { mint: mintUrl, keyset_id: keysetId });
-    }
-
     // Run full channel verification (DLEQ, keyset ID match)
     try {
       const verificationResultJson = verify_channel(
         paramsJson,
         sharedSecret,
         fundingProofsJson,
-        JSON.stringify(keysetInfo)
+        keysetInfoJson
       );
       const verificationResult = JSON.parse(verificationResultJson);
       paymentLog("channel validation: valid=%s errors=%d", verificationResult.valid, verificationResult.errors.length);
@@ -241,7 +242,7 @@ export function validateChannelAndSignature(
       fundingProofsJson,
       sharedSecret,
       secretKey: config.channel.secretKey,
-      keysetInfoJson: JSON.stringify(keysetInfo),
+      keysetInfoJson,
     });
   }
 
@@ -271,6 +272,7 @@ export function validateChannelAndSignature(
       funding.paramsJson,
       funding.sharedSecret,
       funding.fundingProofsJson,
+      funding.keysetInfoJson,
       channelId,
       BigInt(balance),
       signature

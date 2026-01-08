@@ -185,7 +185,8 @@ describe('Minting flow', () => {
 
     // Step 10: Compute shared secret and channel ID
     const sharedSecret = compute_shared_secret(alice.secretHex, charliePubkey);
-    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret);
+    const keysetInfoJson = JSON.stringify(keysetInfo);
+    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret, keysetInfoJson);
     console.log(`Channel ID: ${channelId.substring(0, 16)}...`);
     expect(channelId).toMatch(/^[0-9a-f]{64}$/);
 
@@ -344,7 +345,8 @@ describe('Channel verification', () => {
 
     // Step 10: Compute shared secret and channel ID
     const sharedSecret = compute_shared_secret(alice.secretHex, charliePubkey);
-    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret);
+    const keysetInfoJson = JSON.stringify(keysetInfo);
+    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret, keysetInfoJson);
     console.log(`Channel ID: ${channelId.substring(0, 16)}...`);
     expect(channelId).toMatch(/^[0-9a-f]{64}$/);
 
@@ -532,7 +534,8 @@ describe('Channel verification', () => {
 
     // Step 10: Compute shared secret and channel ID
     const sharedSecret = compute_shared_secret(alice.secretHex, charliePubkey);
-    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret);
+    const keysetInfoJson = JSON.stringify(keysetInfo);
+    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret, keysetInfoJson);
     console.log(`Channel ID: ${channelId.substring(0, 16)}...`);
     expect(channelId).toMatch(/^[0-9a-f]{64}$/);
 

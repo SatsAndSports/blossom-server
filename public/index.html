@@ -1142,9 +1142,9 @@
                 return new ChannelParameters(paramsJson, sharedSecretHex, keysetInfo);
             }
 
-            // Get channel ID (computed from params + shared secret)
+            // Get channel ID (computed from params + shared secret + keyset info)
             getChannelId() {
-                return channel_parameters_get_channel_id(this.paramsJson, this.sharedSecretHex);
+                return channel_parameters_get_channel_id(this.paramsJson, this.sharedSecretHex, JSON.stringify(this.keysetInfo));
             }
 
             // Get parsed params
@@ -1272,6 +1272,7 @@
 
             // Mint with custom outputs using builder pattern
             log(`Minting ${outputData.length} outputs...`);
+            console.log(`[Mint] Requesting amount=${amount} ${unit}, sending ${outputData.length} blinded messages`);
             const proofs = await wallet.ops
                 .mintBolt11(amount, quote)
                 .asCustom(outputData)
@@ -1279,6 +1280,12 @@
 
             log(`Minted ${proofs.length} proofs!`, 'payment');
             console.log('Minted proofs:', proofs);
+            const proofSum = proofs.reduce((sum, p) => sum + p.amount, 0);
+            console.log(`[Mint] Received ${proofs.length} proofs, total=${proofSum}`);
+            console.log(`[Mint] Proof amounts: ${proofs.map(p => p.amount).join(', ')}`);
+            if (proofSum !== amount) {
+                console.warn(`[Mint] MISMATCH: requested=${amount} received=${proofSum} diff=${amount - proofSum}`);
+            }
 
             // Verify DLEQ proofs using our keysetInfo
             const keyset = { keys: keysetInfo.keys, id: keysetInfo.keysetId };
@@ -3084,6 +3091,7 @@
 
                 // Convert to cashu-ts OutputData and mint
                 const outputData = wasmOutputsToOutputData(fundingOutputs);
+                console.log(`[Mint] Blinded message amounts: ${fundingOutputs.blinded_messages.map(bm => bm.amount).join(', ')}`);
 
                 // Mint the funding token
                 modalLog('Minting funding token...');
