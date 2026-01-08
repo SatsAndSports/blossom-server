@@ -3057,6 +3057,7 @@
                 modalLog(`Channel capacity: ${capacity} ${unit}, expiry: ${expirySeconds}s`);
                 // Get maxAmountPerOutput from server pricing (0 = no limit)
                 const maxAmountPerOutput = serverParams?.pricing?.[unit]?.maxAmountPerOutput ?? 0;
+                modalLog(`Max amount per output: ${maxAmountPerOutput === 0 ? 'no limit' : maxAmountPerOutput}`);
                 const paramsJson = JSON.stringify({
                     mint: selectedMint,
                     unit: unit,
