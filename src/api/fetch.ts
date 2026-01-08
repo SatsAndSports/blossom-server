@@ -192,6 +192,15 @@ export function validateChannelAndSignature(
       });
     }
 
+    // Check maximum_amount doesn't exceed server's limit for this unit
+    const maxAmountPerOutput = unitPricing?.maxAmountPerOutput ?? 0;
+    if (maxAmountPerOutput > 0 && paramsObj.maximum_amount > maxAmountPerOutput) {
+      return paymentError("max_amount_per_output exceeded", blobSize, {
+        maximum_amount: paramsObj.maximum_amount,
+        max_allowed: maxAmountPerOutput,
+      });
+    }
+
     // Resolve keysetInfo from startup cache or channel funding cache
     const mintUrl = paramsObj.mint;
     const keysetId = paramsObj.keyset_id;

@@ -59,13 +59,16 @@ channel:
       perRequestPpk: 500
       perMegabytePpk: 1000
       minCapacity: 100
+      maxAmountPerOutput: 0
     usd:
       perRequestPpk: 100
       perMegabytePpk: 200
       minCapacity: 10
+      maxAmountPerOutput: 1048576
     msat:
       perRequestPpk: 500
       perMegabytePpk: 100
+      maxAmountPerOutput: 0
 `;
 
 async function waitForServer(port: number, timeoutMs: number = 10000): Promise<void> {

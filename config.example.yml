@@ -159,12 +159,14 @@ channel:
   # cost = (requests * perRequestPpk + megabytes * perMegabytePpk) / 1000
   pricing:
     sat:
-      perRequestPpk: 500    # 0.5 sats per request
-      perMegabytePpk: 1000  # 1 sat per MB
-      minCapacity: 100      # minimum channel capacity in sats
+      perRequestPpk: 500      # 0.5 sats per request
+      perMegabytePpk: 1000    # 1 sat per MB
+      minCapacity: 100        # minimum channel capacity in sats
+      maxAmountPerOutput: 0   # max denomination for funding token (0 = no limit)
     usd:
-      perRequestPpk: 100    # 0.1 cents per request
-      perMegabytePpk: 200   # 0.2 cents per MB
-      minCapacity: 10       # minimum channel capacity in cents
+      perRequestPpk: 100      # 0.1 cents per request
+      perMegabytePpk: 200     # 0.2 cents per MB
+      minCapacity: 10         # minimum channel capacity in cents
+      maxAmountPerOutput: 0   # max denomination for funding token (0 = no limit)
   # minimum locktime in seconds (1 hour = 3600)
   minExpiryInSeconds: 3600

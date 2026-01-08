@@ -3055,13 +3055,15 @@
                 const locktime = setupTimestamp + expirySeconds;
                 const senderNonce = FundedChannel.generateNonce();
                 modalLog(`Channel capacity: ${capacity} ${unit}, expiry: ${expirySeconds}s`);
+                // Get maxAmountPerOutput from server pricing (0 = no limit)
+                const maxAmountPerOutput = serverParams?.pricing?.[unit]?.maxAmountPerOutput ?? 0;
                 const paramsJson = JSON.stringify({
                     mint: selectedMint,
                     unit: unit,
                     capacity: capacity,
                     keyset_id: keysetId,
                     input_fee_ppk: ksInfo.inputFeePpk,
-                    maximum_amount: 64,
+                    maximum_amount: maxAmountPerOutput,
                     setup_timestamp: setupTimestamp,
                     alice_pubkey: alice.pubkeyHex,
                     charlie_pubkey: info.pubkeyHex,

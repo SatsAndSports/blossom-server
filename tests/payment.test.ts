@@ -75,7 +75,8 @@ interface Server {
 }
 
 // Helper to mint a funded channel - returns everything needed to make payments
-async function mintFundedChannel(server: Server, unit: string) {
+// maximumAmount defaults to 64 for backwards compatibility with existing tests
+async function mintFundedChannel(server: Server, unit: string, maximumAmount: number = 64) {
   // Use cached channel params from server fixture
   const charliePubkey = server.channelParams.receiver_pubkey;
 
@@ -105,7 +106,7 @@ async function mintFundedChannel(server: Server, unit: string) {
     capacity: capacity,
     keyset_id: keysetId,
     input_fee_ppk: keysetInfo.inputFeePpk,
-    maximum_amount: 64,
+    maximum_amount: maximumAmount,
     setup_timestamp: setupTimestamp,
     alice_pubkey: alice.pubkeyHex,
     charlie_pubkey: charliePubkey,
@@ -1092,6 +1093,55 @@ describe('Channel validation errors', () => {
     expect(errorHeader.min_expiry_in_seconds).toBe(minExpiryInSeconds);
     expect(errorHeader.seconds_remaining).toBeLessThan(minExpiryInSeconds);
     console.log(`locktime too soon: 402 (locktime=${errorHeader.locktime}, seconds_remaining=${errorHeader.seconds_remaining}, need ${errorHeader.min_expiry_in_seconds}s) ✓`);
+  });
+
+  test('returns 402 when maximum_amount exceeds server limit', async ({ server }) => {
+    // Upload a blob
+    const { content, hash } = generateBlob();
+    await fetch(`${server.baseUrl}/upload`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+
+    // USD has maxAmountPerOutput: 1048576 (2^20) configured in test config
+    // Create a channel with maximum_amount: 2097152 (2^21) to exceed the limit
+    const exceedingMaxAmount = 2097152;  // 2^21
+    const serverLimit = 1048576;  // 2^20 as configured in test config
+    console.log(`Server maxAmountPerOutput=${serverLimit}, using maximum_amount=${exceedingMaxAmount}`);
+
+    // Mint a funded channel with excessive maximum_amount
+    const channel = await mintFundedChannel(server, 'usd', exceedingMaxAmount);
+
+    // Create a balance update
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(1)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    // Try to make a payment - should get 402
+    const paymentHeader = JSON.stringify({
+      channel_id: balanceUpdate.channel_id,
+      balance: 1,
+      signature: balanceUpdate.signature,
+      params: channel.channelParams,
+      funding_proofs: channel.proofs,
+    });
+
+    const response = await fetch(`${server.baseUrl}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+
+    expect(response.status).toBe(402);
+    const errorHeader = JSON.parse(response.headers.get('X-Cashu-Channel')!);
+    expect(errorHeader.error).toBe('max_amount_per_output exceeded');
+    expect(errorHeader.maximum_amount).toBe(exceedingMaxAmount);
+    expect(errorHeader.max_allowed).toBe(serverLimit);
+    console.log(`max_amount_per_output exceeded: 402 (maximum_amount=${errorHeader.maximum_amount} > max_allowed=${errorHeader.max_allowed}) ✓`);
   });
 
   test('returns 402 when signature does not match balance', async ({ server }) => {

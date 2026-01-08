@@ -68,7 +68,7 @@ export type Config = {
     enabled: boolean;
     secretKey: string;
     approvedMintsAndUnits: Record<string, string[]>;  // mint URL -> list of units
-    pricing: Record<string, { perRequestPpk: number; perMegabytePpk: number; minCapacity: number }>;  // unit -> pricing
+    pricing: Record<string, { perRequestPpk: number; perMegabytePpk: number; minCapacity?: number; maxAmountPerOutput?: number }>;  // unit -> pricing
     minExpiryInSeconds: number;  // minimum locktime in seconds
   };
 };
