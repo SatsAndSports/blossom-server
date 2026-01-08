@@ -140,19 +140,6 @@
         #video-title.visible {
             opacity: 1;
         }
-        #status {
-            background: #2a2a2a;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-family: monospace;
-        }
-        #status .label {
-            color: #888;
-        }
-        #status .value {
-            color: #f7931a;
-        }
         #video-list {
             display: flex;
             flex-direction: column;
@@ -863,6 +850,41 @@
         #toast.visible {
             opacity: 1;
         }
+        /* Channel status in header */
+        #channel-status {
+            font-family: monospace;
+            font-size: 14px;
+            color: #888;
+            cursor: pointer;
+            padding: 6px 12px;
+            background: #2a2a2a;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        #channel-status:hover {
+            background: #3a3a3a;
+        }
+        #channel-status .status-label {
+            color: #666;
+        }
+        #channel-status #channel-id {
+            color: #f7931a;
+        }
+        #channel-status #balance {
+            color: #4a9;
+        }
+        #channel-status #capacity {
+            color: #888;
+        }
+        #channel-status #balance-unit {
+            color: #666;
+        }
+        #channel-balance-section {
+            display: none;
+        }
+        #channel-balance-section.visible {
+            display: inline;
+        }
     </style>
 </head>
 <body>
@@ -873,6 +895,14 @@
     <div style="display:flex;align-items:center;gap:20px;margin-bottom:10px;">
         <h1 style="margin:0;"><a href="/" style="color:inherit;text-decoration:none;">CashuTube</a></h1>
         <button id="manage-btn">⚙️ Manage Channels</button>
+        <span id="channel-status">
+            <span class="status-label">Channel:</span> <span id="channel-id">No channel</span>
+            <span id="channel-balance-section">
+                 | <span class="status-label">Balance:</span> 
+                <span id="balance">0</span>/<span id="capacity">0</span> 
+                <span id="balance-unit">sat</span>
+            </span>
+        </span>
     </div>
 
     <div id="main-content">
@@ -935,12 +965,6 @@
                         </div>
                     </div>
                 </div>
-            </div>
-
-            <div id="status">
-                <span class="label">Channel:</span> <span class="value" id="channel-id">-</span><br>
-                <span class="label">Balance:</span> <span class="value" id="balance">0</span> <span id="balance-unit">sats</span><br>
-                <span class="label">Segments:</span> <span class="value" id="segments">0</span>
             </div>
 
             <h3>Log</h3>
@@ -1824,9 +1848,22 @@
 
         // Update status display
         function updateStatus() {
-            document.getElementById('channel-id').textContent = currentChannel ? currentChannel.channelId.substring(0, 16) + '...' : '-';
-            document.getElementById('balance').textContent = currentChannel ? currentChannel.balance : 0;
-            document.getElementById('segments').textContent = currentChannel ? currentChannel.fundingAmount : 0;
+            const channelIdEl = document.getElementById('channel-id');
+            const balanceEl = document.getElementById('balance');
+            const capacityEl = document.getElementById('capacity');
+            const balanceUnitEl = document.getElementById('balance-unit');
+            const balanceSection = document.getElementById('channel-balance-section');
+            
+            if (currentChannel) {
+                channelIdEl.textContent = currentChannel.channelId.substring(0, 8) + '...';
+                balanceEl.textContent = currentChannel.balance;
+                capacityEl.textContent = currentChannel.params.capacity;
+                balanceUnitEl.textContent = getUnitLabel(currentChannel.params.unit);
+                balanceSection.classList.add('visible');
+            } else {
+                channelIdEl.textContent = 'No channel';
+                balanceSection.classList.remove('visible');
+            }
         }
 
         // Logging
@@ -2642,6 +2679,11 @@
 
         // Manage Channels button
         document.getElementById('manage-btn').onclick = () => {
+            showChannelModal();
+        };
+
+        // Channel status click (also opens modal)
+        document.getElementById('channel-status').onclick = () => {
             showChannelModal();
         };
 
