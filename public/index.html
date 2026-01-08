@@ -1148,13 +1148,13 @@
         }
 
         // Mint funding token with custom outputs
-        async function mintFundingToken(mintUrl, amount, outputData, keysetInfo) {
+        async function mintFundingToken(mintUrl, amount, outputData, keysetInfo, unit) {
             const mint = new Mint(mintUrl);
-            const wallet = new Wallet(mint);
+            const wallet = new Wallet(mint, { unit });
             await wallet.loadMint();
 
             // Get mint quote
-            log(`Requesting mint quote for ${amount} sats...`);
+            log(`Requesting mint quote for ${amount} ${unit}...`);
             const quote = await wallet.createMintQuote(amount);
             log(`Quote: ${quote.quote.substring(0, 16)}...`);
             console.log('Mint quote:', quote);
@@ -2849,7 +2849,8 @@
                     mintInfo.mint,
                     fundingOutputs.funding_token_nominal,
                     outputData,
-                    ksInfo
+                    ksInfo,
+                    mintInfo.unit
                 );
                 modalLog(`Minted ${proofs.length} proofs`, 'success');
 
