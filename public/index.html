@@ -1590,8 +1590,6 @@
             const newBytes = current.bytes + (globalMaxBlobSize || 0);
             channelRequestCounts.set(channelId, { count: newCount, bytes: newBytes });
             persistRequestCounts(channelId, newCount, newBytes);
-            const path = '/' + url.split('/').pop();
-            console.log('channelRequestCount:', newCount, 'bytes:', newBytes, 'channel_id:', channelId, 'url_path:', path);
             return { count: newCount, bytes: newBytes };
         }
 
@@ -1932,6 +1930,9 @@
         // Create payment header (sync, persistence happens in background)
         function createPayment() {
             const payment = currentChannel.createPayment();
+            const ch = currentChannel;
+            const unit = getUnitLabel(ch.params.unit);
+            console.log(`[Payment] #${ch.requestCount} | ${formatBytes(ch.trackedBytes)} | bal: ${ch.balance}/${ch.params.capacity} ${unit} | chan: ${ch.channelId.substring(0, 8)}...`);
             updateStatus();
             return payment;
         }
@@ -2339,6 +2340,14 @@
                 return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
             }
             return `${m}:${s.toString().padStart(2, '0')}`;
+        }
+
+        // Format bytes as human-readable string
+        function formatBytes(bytes) {
+            if (bytes < 1000) return bytes + ' B';
+            if (bytes < 1000000) return (bytes / 1000).toFixed(1) + ' KB';
+            if (bytes < 1000000000) return (bytes / 1000000).toFixed(1) + ' MB';
+            return (bytes / 1000000000).toFixed(1) + ' GB';
         }
 
         // Get current pricing based on selected unit
