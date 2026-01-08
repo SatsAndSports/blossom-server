@@ -2648,7 +2648,8 @@
         // Dev tools
         document.getElementById('reset-alice').onclick = () => {
             localStorage.removeItem(ALICE_KEY_STORAGE);
-            log('Alice key deleted. Refresh to generate new keypair.');
+            localStorage.removeItem(SELECTED_CHANNELS_KEY);
+            log('Alice key and channel selections deleted. Refresh to generate new keypair.');
         };
 
         // Share modal
