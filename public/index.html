@@ -1234,8 +1234,19 @@
                 return a.channel.params.setup_timestamp - b.channel.params.setup_timestamp;
             });
 
-            console.log(`[Alternatives] ${alternativeChannels.length} channel(s) available:`,
-                alternativeChannels.map(c => `${c.channel.channelId.substring(0,8)}... (${c.remainingCapacity}/${c.capacity})`));
+            logChannelState();
+        }
+
+        // Log current channel and alternatives
+        function logChannelState() {
+            const cur = currentChannel ? currentChannel.channelId.substring(0,8) + '...' : 'none';
+            console.log(`[Channels] current: ${cur} | alternatives: ${alternativeChannels.map(c => c.channel.channelId.substring(0,8) + '...').join(', ') || 'none'}`);
+        }
+
+        // Set current channel and refresh alternatives list
+        async function setCurrentChannel(channel) {
+            currentChannel = channel;
+            await refreshAlternativeChannels();
         }
 
         // Show payment error modal (for 402 responses)
@@ -2178,10 +2189,9 @@
                     if (alternativeChannels.length > 0) {
                         // Instant switch using pre-loaded channel
                         const alt = alternativeChannels.shift();
-                        currentChannel = alt.channel;
+                        await setCurrentChannel(alt.channel);
                         console.log(`[Channel] Switched to ${currentChannel.channelId.substring(0,8)}...`);
                         showToast(`Switched to channel ${currentChannel.channelId.substring(0,8)}...`, 'success');
-                        await refreshAlternativeChannels();
                         // Increment request count for new channel and retry payment
                         incrementChannelRequestCount(currentChannel.channelId, url);
                         payment = createPayment();
@@ -2332,10 +2342,9 @@
                                     if (alternativeChannels.length > 0) {
                                         // Instant switch using pre-loaded channel
                                         const alt = alternativeChannels.shift();
-                                        currentChannel = alt.channel;
+                                        setCurrentChannel(alt.channel);  // fire-and-forget
                                         console.log(`[Channel] Switched to ${currentChannel.channelId.substring(0,8)}...`);
                                         showToast(`Switched to channel ${currentChannel.channelId.substring(0,8)}...`, 'success');
-                                        refreshAlternativeChannels();  // fire-and-forget replenish
                                         // Increment request count for new channel and retry payment
                                         incrementChannelRequestCount(currentChannel.channelId, url);
                                         payment = createPayment();
@@ -2917,12 +2926,12 @@
             const selectedChannelId = getSelectedChannelId(currentServer, currentUnit);
             if (selectedChannelId) {
                 // Try to load the saved channel
-                currentChannel = await FundedChannel.load(selectedChannelId);
-                if (currentChannel) {
+                const loadedChannel = await FundedChannel.load(selectedChannelId);
+                if (loadedChannel) {
+                    await setCurrentChannel(loadedChannel);
                     log(`Loaded selected channel: ${selectedChannelId.substring(0, 16)}...`);
                     sessionStartBalance = currentChannel.balance;
                     log(`Session start balance: ${sessionStartBalance}`);
-                    await refreshAlternativeChannels();
                 } else {
                     // Channel no longer exists, clear selection
                     log(`Selected channel not found, clearing selection`);
@@ -3251,11 +3260,11 @@
             localStorage.setItem('cashutube_server_unit', `${server}|${unit}`);
             
             // Load the channel
-            currentChannel = await FundedChannel.load(channelId);
-            if (currentChannel) {
+            const loadedChannel = await FundedChannel.load(channelId);
+            if (loadedChannel) {
+                await setCurrentChannel(loadedChannel);
                 log(`Selected channel: ${channelId.substring(0, 16)}...`);
                 updateStatus();
-                await refreshAlternativeChannels();
 
                 // Update balance unit display
                 document.getElementById('balance-unit').textContent = getUnitLabel(unit);
@@ -3485,15 +3494,17 @@
             // Check for saved channel selection for this server/unit
             const selectedChannelId = getSelectedChannelId(server, unit);
             if (selectedChannelId) {
-                currentChannel = await FundedChannel.load(selectedChannelId);
-                if (!currentChannel) {
+                const loadedChannel = await FundedChannel.load(selectedChannelId);
+                if (loadedChannel) {
+                    await setCurrentChannel(loadedChannel);
+                } else {
                     clearSelectedChannelId(server, unit);
+                    await setCurrentChannel(null);
                 }
             } else {
-                currentChannel = null;
+                await setCurrentChannel(null);
             }
 
-            await refreshAlternativeChannels();
             updateStatus();
             renderChannelList();
             await loadVideos();
