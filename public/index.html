@@ -1205,10 +1205,13 @@
             const displayBalance = serverStatus?.amount_due ?? balance;
             const displayCapacity = serverStatus?.capacity ?? capacity;
             
-            log(`Channel exhausted: ${displayBalance}/${displayCapacity}` + 
+            log(`Channel exhausted: ${displayBalance}/${displayCapacity}` +
                 (serverStatus ? ` (server: amount_due=${serverStatus.amount_due}, balance=${serverStatus.balance})` : ' (server unavailable)'), 'error');
             showToast(`Channel exhausted (${displayBalance}/${displayCapacity}) - video paused`);
             await updateChannelStatus(channelId, 'exhausted');
+
+            // Clear current channel so we don't keep trying
+            await setCurrentChannel(null);
         }
 
         // Refresh the list of alternative channels (called when currentChannel changes)
@@ -1276,6 +1279,7 @@
                 }
             }
             await refreshAlternativeChannels();
+            updateStatus();
         }
 
         // Select new channel if none selected, otherwise add to alternatives
