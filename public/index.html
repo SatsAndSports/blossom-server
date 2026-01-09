@@ -1229,8 +1229,10 @@
                 }
             }
 
-            // Sort by remaining capacity (most first)
-            alternativeChannels.sort((a, b) => b.remainingCapacity - a.remainingCapacity);
+            // Sort by setup_timestamp (oldest first)
+            alternativeChannels.sort((a, b) => {
+                return a.channel.params.setup_timestamp - b.channel.params.setup_timestamp;
+            });
 
             console.log(`[Alternatives] ${alternativeChannels.length} channel(s) available:`,
                 alternativeChannels.map(c => `${c.channel.channelId.substring(0,8)}... (${c.remainingCapacity}/${c.capacity})`));
@@ -3159,8 +3161,9 @@
                     const sizeCost = (requestData.bytes / 1_000_000) * (pricing.perMegabytePpk || 0);
                     const balance = Math.ceil((requestCost + sizeCost) / 1000);
                     
-                    const expiry = new Date(params.locktime * 1000).toLocaleDateString();
-                    
+                    const setupUtc = new Date(params.setup_timestamp * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+                    const expiryUtc = new Date(params.locktime * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+
                     return `
                         <div class="channel-card ${isSelected ? 'selected' : ''}">
                             <div class="channel-card-header">
@@ -3172,7 +3175,8 @@
                             </div>
                             <div class="channel-details">
                                 Balance: ${balance}/${params.capacity} ${unit}<br>
-                                Expires: ${expiry}
+                                Setup: ${setupUtc}<br>
+                                Expires: ${expiryUtc}
                             </div>
                             ${channelModalCurrentTab === 'open' ? `
                                 <div class="channel-actions">
@@ -3406,6 +3410,14 @@
                 // Wrap in FundedChannel and save
                 const newChannel = new FundedChannel(sender);
                 await newChannel.save();
+
+                // Add to alternatives list (at end, since it's newest)
+                alternativeChannels.push({
+                    channel: newChannel,
+                    remainingCapacity: capacity,
+                    capacity: capacity
+                });
+                console.log(`[Alternatives] Added new channel, now ${alternativeChannels.length} alternative(s)`);
 
                 // Refresh the channel list to show the new channel
                 await renderChannelList();
