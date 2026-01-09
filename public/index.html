@@ -2090,7 +2090,8 @@
                         console.log(`[Channel] Switched to ${currentChannel.channelId.substring(0,8)}...`);
                         showToast(`Switched to channel ${currentChannel.channelId.substring(0,8)}...`, 'success');
                         await refreshAlternativeChannels();
-                        // Retry payment with new channel
+                        // Increment request count for new channel and retry payment
+                        incrementChannelRequestCount(currentChannel.channelId, url);
                         payment = createPayment();
                     } else {
                         await handleChannelExhausted(channelId, e.balance, e.capacity);
@@ -2243,7 +2244,8 @@
                                         console.log(`[Channel] Switched to ${currentChannel.channelId.substring(0,8)}...`);
                                         showToast(`Switched to channel ${currentChannel.channelId.substring(0,8)}...`, 'success');
                                         refreshAlternativeChannels();  // fire-and-forget replenish
-                                        // Retry payment immediately with new channel
+                                        // Increment request count for new channel and retry payment
+                                        incrementChannelRequestCount(currentChannel.channelId, url);
                                         payment = createPayment();
                                     } else {
                                         handleChannelExhausted(channelId, e.balance, e.capacity);
