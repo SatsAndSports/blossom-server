@@ -1259,6 +1259,8 @@
             <div class="server-selector">
                 <label>Blossom video server:</label>
                 <select id="modal-server-select"></select>
+                <button id="add-server-btn" title="Add server" style="margin-left:6px;padding:2px 8px;cursor:pointer;">+</button>
+                <button id="remove-server-btn" title="Remove server" style="padding:2px 8px;cursor:pointer;">−</button>
             </div>
             <div class="channel-tabs">
                 <button class="channel-tab active" data-tab="open">Open Channels</button>
@@ -2384,11 +2386,54 @@
             return { secretHex, pubkeyHex, isNew };
         }
 
-        // Hardcoded list of known servers
-        const KNOWN_SERVERS = [
-            'http://localhost:3000',
-            'http://localhost:3001'
-        ];
+        // Default server if none configured
+        const DEFAULT_SERVER = 'https://cashutube.satsandsports.cash';
+
+        // Load server list from localStorage, or use default
+        function getKnownServers() {
+            const stored = localStorage.getItem('cashutube_servers');
+            if (stored) {
+                try {
+                    const servers = JSON.parse(stored);
+                    if (Array.isArray(servers) && servers.length > 0) {
+                        return servers;
+                    }
+                } catch (e) {}
+            }
+            // Default: include current host and DEFAULT_SERVER (if different)
+            const currentHost = window.location.origin;
+            if (currentHost !== DEFAULT_SERVER) {
+                return [currentHost, DEFAULT_SERVER];
+            }
+            return [DEFAULT_SERVER];
+        }
+
+        function saveKnownServers(servers) {
+            localStorage.setItem('cashutube_servers', JSON.stringify(servers));
+        }
+
+        function addServer(url) {
+            // Normalize URL (remove trailing slash)
+            url = url.replace(/\/+$/, '');
+            const servers = getKnownServers();
+            if (!servers.includes(url)) {
+                servers.push(url);
+                saveKnownServers(servers);
+            }
+            return servers;
+        }
+
+        function removeServer(url) {
+            let servers = getKnownServers().filter(s => s !== url);
+            if (servers.length === 0) {
+                servers = [DEFAULT_SERVER];
+            }
+            saveKnownServers(servers);
+            return servers;
+        }
+
+        // Current list of known servers
+        let KNOWN_SERVERS = getKnownServers();
 
         // Server info cache: { url: { pubkeyHex, pricing: { unit: { perRequestPpk, perMegabytePpk } }, units: [...] } }
         const serverInfo = {};
@@ -3981,6 +4026,60 @@
             if (channelModalServerUnit) {
                 const { server, unit } = channelModalServerUnit;
                 setSelectedMint(server, unit, e.target.value);
+            }
+        };
+
+        // Add server button
+        document.getElementById('add-server-btn').onclick = async () => {
+            const url = prompt('Enter server URL (e.g. https://example.com):');
+            if (!url) return;
+
+            // Validate URL format
+            try {
+                new URL(url);
+            } catch (e) {
+                alert('Invalid URL format');
+                return;
+            }
+
+            // Add to list and refresh
+            KNOWN_SERVERS = addServer(url);
+
+            // Fetch params from new server
+            await fetchServerParams(url);
+
+            // Refresh dropdown
+            populateModalServerDropdown();
+
+            // Select the newly added server if it has units
+            const info = serverInfo[url.replace(/\/+$/, '')];
+            if (info && info.units && info.units.length > 0) {
+                document.getElementById('modal-server-select').value = `${url.replace(/\/+$/, '')}|${info.units[0]}`;
+                document.getElementById('modal-server-select').dispatchEvent(new Event('change'));
+            }
+        };
+
+        // Remove server button
+        document.getElementById('remove-server-btn').onclick = async () => {
+            const select = document.getElementById('modal-server-select');
+            if (!select.value) return;
+
+            const [serverUrl] = select.value.split('|');
+
+            if (!confirm(`Remove server "${serverUrl}"?`)) return;
+
+            // Remove from list
+            KNOWN_SERVERS = removeServer(serverUrl);
+
+            // Remove from serverInfo cache
+            delete serverInfo[serverUrl];
+
+            // Refresh dropdown
+            populateModalServerDropdown();
+
+            // Trigger change to select first available
+            if (select.options.length > 0) {
+                select.dispatchEvent(new Event('change'));
             }
         };
 
