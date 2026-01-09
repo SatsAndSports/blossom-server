@@ -2274,20 +2274,19 @@
                                 } else if (xhr.status === 402) {
                                     // Payment error - pause and show modal
                                     document.getElementById('video').pause();
+                                    const channelHeader = xhr.getResponseHeader('X-Cashu-Channel');
                                     try {
-                                        const errorBody = JSON.parse(xhr.responseText);
-                                        log(`402 Payment Required: ${errorBody.reason}`, 'error');
-                                        const channelHeader = xhr.getResponseHeader('X-Cashu-Channel');
+                                        const headerData = JSON.parse(channelHeader || '{}');
+                                        log(`402 Payment Required: ${headerData.error}`, 'error');
                                         showPaymentErrorModal({
-                                            reason: errorBody.reason,
-                                            amount_due: errorBody.amount_due,
-                                            balance: currentChannel.balance,
-                                            channelId: channelId,
-                                            channelHeader: channelHeader
+                                            reason: headerData.error,
+                                            amount_due: headerData.amount_due,
+                                            balance: currentChannel?.balance,
+                                            channelId: channelId
                                         });
                                     } catch (e) {
-                                        log(`402 response: ${xhr.responseText}`, 'error');
-                                        showPaymentErrorModal({ reason: xhr.responseText || 'Unknown 402 error' });
+                                        log(`402 Payment Required`, 'error');
+                                        showPaymentErrorModal({ reason: 'Payment required' });
                                     }
                                 } else {
                                     // Other error - pause and show modal
