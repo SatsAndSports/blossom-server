@@ -663,6 +663,25 @@
             color: #666;
             font-size: 12px;
         }
+        #create-channel-btn {
+            background: #f7931a;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            margin-top: 10px;
+        }
+        #create-channel-btn:hover {
+            background: #ffaa33;
+        }
+        #create-channel-btn:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+        }
         .channel-tabs {
             display: flex;
             gap: 5px;
@@ -1077,8 +1096,6 @@
             <div class="server-selector">
                 <label>Server:</label>
                 <select id="modal-server-select"></select>
-                <label>Mint:</label>
-                <select id="modal-mint-select"></select>
             </div>
             <div class="channel-tabs">
                 <button class="channel-tab active" data-tab="open">Open Channels</button>
@@ -1087,6 +1104,10 @@
             <div id="channel-list"></div>
             <div id="channel-modal-log" class="modal-log"></div>
             <div class="channel-params">
+                <div class="param-row">
+                    <label>Mint:</label>
+                    <select id="modal-mint-select"></select>
+                </div>
                 <div class="param-row">
                     <label>Capacity:</label>
                     <input type="number" id="modal-capacity" value="1000" min="1">
@@ -1101,9 +1122,9 @@
                         <option value="2592000">1 month</option>
                     </select>
                 </div>
+                <button id="create-channel-btn">Create Channel</button>
             </div>
             <div class="modal-actions">
-                <button id="create-channel-btn">Create Channel</button>
                 <button id="close-channel-modal-btn" class="secondary">Close</button>
             </div>
         </div>
