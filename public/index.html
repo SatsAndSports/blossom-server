@@ -715,8 +715,8 @@
             background: #333;
             border: 1px solid #444;
             border-radius: 4px;
-            padding: 12px;
-            margin-bottom: 10px;
+            padding: 8px 12px;
+            margin-bottom: 6px;
         }
         .channel-card.selected {
             border-color: #f7931a;
@@ -726,7 +726,6 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 8px;
         }
         .channel-id {
             font-family: monospace;
@@ -767,7 +766,29 @@
         .channel-details {
             font-size: 13px;
             color: #888;
-            margin-bottom: 10px;
+            display: none;
+            margin-left: 22px;
+        }
+        .channel-details.expanded {
+            display: block;
+            margin-top: 6px;
+        }
+        .channel-expand {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            padding: 8px;
+            margin: -8px;
+            margin-right: 2px;
+            font-size: 12px;
+            transition: transform 0.15s;
+        }
+        .channel-expand:hover {
+            color: #fff;
+        }
+        .channel-expand.expanded {
+            transform: rotate(90deg);
         }
         .channel-actions {
             display: flex;
@@ -1646,6 +1667,20 @@
             if (record) {
                 record.status = status;
                 await saveChannel(record);
+            }
+        }
+
+        // Toggle channel details visibility
+        function toggleChannelDetails(event) {
+            event.stopPropagation();
+            const button = event.currentTarget;
+            const card = button.closest('.channel-card');
+            if (card) {
+                const details = card.querySelector('.channel-details');
+                if (details) {
+                    details.classList.toggle('expanded');
+                    button.classList.toggle('expanded');
+                }
             }
         }
 
@@ -3238,6 +3273,7 @@
                         <div class="channel-card ${isSelected ? 'selected' : ''}"
                              ${channelModalCurrentTab === 'open' ? `onclick="selectChannel('${channel.channel_id}')" style="cursor:pointer"` : ''}>
                             <div class="channel-card-header">
+                                <button class="channel-expand" onclick="toggleChannelDetails(event)" title="Show details">▶</button>
                                 <span class="channel-id">${isSelected ? '●' : '○'} ${channel.channel_id.substring(0, 16)}... ${balance}/${params.capacity} ${unit}</span>
                                 <span style="display: flex; align-items: center;">
                                     <span class="channel-status ${channel.status}">${channel.status}</span>
@@ -3329,6 +3365,7 @@
         // Expose to window for onclick handlers
         window.selectChannel = selectChannel;
         window.refreshChannelStatus = refreshChannelStatus;
+        window.toggleChannelDetails = toggleChannelDetails;
 
         // Create a new channel for the current (server, unit)
         async function createChannel() {
