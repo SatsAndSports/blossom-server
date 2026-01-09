@@ -1234,11 +1234,11 @@
                 return a.channel.params.setup_timestamp - b.channel.params.setup_timestamp;
             });
 
-            logChannelState();
+            logAlternativesList();
         }
 
         // Log current channel and alternatives
-        function logChannelState() {
+        function logAlternativesList() {
             const cur = currentChannel ? currentChannel.channelId.substring(0,8) + '...' : 'none';
             console.log(`[Channels] current: ${cur} | alternatives: ${alternativeChannels.map(c => c.channel.channelId.substring(0,8) + '...').join(', ') || 'none'}`);
         }
@@ -3430,7 +3430,7 @@
                     remainingCapacity: capacity,
                     capacity: capacity
                 });
-                console.log(`[Alternatives] Added new channel, now ${alternativeChannels.length} alternative(s)`);
+                logAlternativesList();
 
                 // Refresh the channel list to show the new channel
                 await renderChannelList();
