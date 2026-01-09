@@ -1142,7 +1142,8 @@
             <div id="invoice-status"></div>
             <div id="invoice-modal-log" class="modal-log visible"></div>
             <div class="modal-actions">
-                <button id="invoice-continue-btn" disabled>Continue</button>
+                <button id="invoice-back-btn" class="secondary" disabled>Back</button>
+                <button id="invoice-done-btn" disabled>Done</button>
             </div>
         </div>
     </div>
@@ -3342,20 +3343,22 @@
             const invoiceQr = document.getElementById('invoice-qr');
             const invoiceTextContainer = document.getElementById('invoice-text-container');
             const invoiceStatus = document.getElementById('invoice-status');
-            const continueBtn = document.getElementById('invoice-continue-btn');
+            const backBtn = document.getElementById('invoice-back-btn');
+            const doneBtn = document.getElementById('invoice-done-btn');
 
             clearInvoiceLog();
             invoiceQr.innerHTML = '';
             invoiceTextContainer.style.display = 'none';
             invoiceStatus.textContent = '';
-            continueBtn.disabled = true;
+            backBtn.disabled = true;
+            doneBtn.disabled = true;
             document.getElementById('invoice-modal-title').textContent = 'Creating Channel';
             invoiceModal.classList.add('visible');
 
             // Now do validation - all errors go to invoice modal
             if (!channelModalServerUnit) {
                 invoiceLog('Please select a server first', 'error');
-                continueBtn.disabled = false;  // Allow dismissing
+                backBtn.disabled = false;  // Allow dismissing
                 return;
             }
 
@@ -3368,7 +3371,7 @@
             // Validate inputs
             if (isNaN(capacity) || capacity < 1) {
                 invoiceLog('Invalid capacity value', 'error');
-                continueBtn.disabled = false;
+                backBtn.disabled = false;
                 return;
             }
 
@@ -3380,14 +3383,14 @@
             // Validate capacity against server minimum
             if (capacity < minCapacity) {
                 invoiceLog(`Capacity must be at least ${minCapacity} ${unit}`, 'error');
-                continueBtn.disabled = false;
+                backBtn.disabled = false;
                 return;
             }
 
             // Validate expiry against server minimum
             if (expirySeconds < minExpiryInSeconds) {
                 invoiceLog(`Expiry must be at least ${minExpiryInSeconds} seconds`, 'error');
-                continueBtn.disabled = false;
+                backBtn.disabled = false;
                 return;
             }
 
@@ -3486,22 +3489,26 @@
                 // Refresh the channel list to show the new channel
                 await renderChannelList();
 
-                // Enable Continue button and wait for user
+                // Enable buttons and wait for user
                 invoiceStatus.textContent = 'Channel created successfully!';
-                continueBtn.disabled = false;
-                await new Promise(resolve => {
+                backBtn.disabled = false;
+                doneBtn.disabled = false;
+                const action = await new Promise(resolve => {
                     invoiceContinueResolve = resolve;
                 });
 
                 // Hide invoice modal and re-enable create button
                 invoiceModal.classList.remove('visible');
                 createBtn.disabled = false;
+                if (action === 'done') {
+                    document.getElementById('channel-modal').classList.remove('visible');
+                }
 
             } catch (e) {
                 invoiceLog(`Error: ${String(e)}`, 'error');
                 console.error('Create channel error:', e);
-                invoiceStatus.textContent = 'Error - click Continue to close';
-                continueBtn.disabled = false;
+                invoiceStatus.textContent = 'Error - click Back to try again';
+                backBtn.disabled = false;
                 await new Promise(resolve => {
                     invoiceContinueResolve = resolve;
                 });
@@ -3581,9 +3588,15 @@
         };
 
         // Invoice modal handlers
-        document.getElementById('invoice-continue-btn').onclick = () => {
+        document.getElementById('invoice-back-btn').onclick = () => {
             if (invoiceContinueResolve) {
-                invoiceContinueResolve();
+                invoiceContinueResolve('back');
+                invoiceContinueResolve = null;
+            }
+        };
+        document.getElementById('invoice-done-btn').onclick = () => {
+            if (invoiceContinueResolve) {
+                invoiceContinueResolve('done');
                 invoiceContinueResolve = null;
             }
         };
