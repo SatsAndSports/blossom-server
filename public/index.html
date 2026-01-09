@@ -3235,24 +3235,20 @@
                     const expiryUtc = new Date(params.locktime * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
 
                     return `
-                        <div class="channel-card ${isSelected ? 'selected' : ''}">
+                        <div class="channel-card ${isSelected ? 'selected' : ''}"
+                             ${channelModalCurrentTab === 'open' ? `onclick="selectChannel('${channel.channel_id}')" style="cursor:pointer"` : ''}>
                             <div class="channel-card-header">
-                                <span class="channel-id">${isSelected ? '●' : '○'} ${channel.channel_id.substring(0, 16)}...</span>
+                                <span class="channel-id">${isSelected ? '●' : '○'} ${channel.channel_id.substring(0, 16)}... ${balance}/${params.capacity} ${unit}</span>
                                 <span style="display: flex; align-items: center;">
                                     <span class="channel-status ${channel.status}">${channel.status}</span>
                                     ${channel.status === 'exhausted' ? `<button class="channel-refresh" onclick="refreshChannelStatus('${channel.channel_id}', event)" title="Refresh status">↻</button>` : ''}
                                 </span>
                             </div>
                             <div class="channel-details">
-                                Balance: ${balance}/${params.capacity} ${unit}<br>
+                                Mint: ${params.mint}<br>
                                 Setup: ${setupUtc}<br>
                                 Expires: ${expiryUtc}
                             </div>
-                            ${channelModalCurrentTab === 'open' ? `
-                                <div class="channel-actions">
-                                    <button class="primary" onclick="selectChannel('${channel.channel_id}')">Select</button>
-                                </div>
-                            ` : ''}
                         </div>
                     `;
                 }).join('');
