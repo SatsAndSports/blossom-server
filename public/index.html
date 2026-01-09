@@ -799,6 +799,10 @@
         .channel-close:hover {
             color: #f66;
         }
+        .channel-close:disabled {
+            color: #666;
+            cursor: wait;
+        }
         .channel-details {
             font-size: 13px;
             color: #888;
@@ -1884,6 +1888,11 @@
         async function closeChannel(channelId, event) {
             event.stopPropagation();
 
+            // Disable button and show loading state
+            const button = event.currentTarget;
+            button.disabled = true;
+            button.textContent = '...';
+
             console.log(`[Channel] Closing ${channelId.substring(0, 8)}...`);
 
             try {
@@ -1949,11 +1958,11 @@
                     console.log(`[Channel] Close failed: ${closeResult.error || closeRes.status}`);
                 }
 
-                // Re-render channel list
-                await renderChannelList();
-
             } catch (e) {
                 console.log(`[Channel] Close failed: ${e.message}`);
+            } finally {
+                // Always re-render to restore button state
+                await renderChannelList();
             }
         }
 
