@@ -787,6 +787,18 @@
         .channel-refresh:hover {
             color: #fff;
         }
+        .channel-close {
+            background: none;
+            border: none;
+            color: #a44;
+            cursor: pointer;
+            padding: 2px 4px;
+            font-size: 12px;
+            margin-left: 4px;
+        }
+        .channel-close:hover {
+            color: #f66;
+        }
         .channel-details {
             font-size: 13px;
             color: #888;
@@ -1865,6 +1877,83 @@
                 
             } catch (e) {
                 console.log(`[Channel] Refresh failed: ${e.message}`);
+            }
+        }
+
+        // Close a channel and settle with the mint
+        async function closeChannel(channelId, event) {
+            event.stopPropagation();
+
+            console.log(`[Channel] Closing ${channelId.substring(0, 8)}...`);
+
+            try {
+                // Get server status to find exact amount_due
+                const statusRes = await fetch(`${channelModalServerUnit.server}/channel/${channelId}/status`);
+                if (!statusRes.ok) {
+                    console.log(`[Channel] Status request failed: ${statusRes.status}`);
+                    return;
+                }
+                const status = await statusRes.json();
+                console.log(`[Channel] Server status:`, status);
+
+                // Update local request counts to match server
+                channelRequestCounts.set(channelId, {
+                    count: status.blobs_served,
+                    bytes: status.bytes_served
+                });
+                persistRequestCounts(channelId, status.blobs_served, status.bytes_served);
+
+                // Load the channel to create signed balance update
+                const channel = await FundedChannel.load(channelId);
+                if (!channel) {
+                    console.log(`[Channel] Failed to load channel`);
+                    return;
+                }
+
+                // Create signed balance update with exact amount_due
+                const balanceUpdate = channel.sender.createSignedBalanceUpdate(status.amount_due);
+
+                // Build close request body
+                const body = {
+                    balance: balanceUpdate.amount,
+                    signature: balanceUpdate.signature,
+                    params: channel.params,
+                    funding_proofs: channel.sender.fundingProofs
+                };
+
+                // POST to close endpoint
+                const closeRes = await fetch(`${channelModalServerUnit.server}/channel/${channelId}/close`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                const closeResult = await closeRes.json();
+                console.log(`[Channel] Close response:`, closeResult);
+
+                if (closeRes.ok) {
+                    // Update local status to closed and save closing amount
+                    const record = await getChannel(channelId);
+                    if (record) {
+                        record.status = 'closed';
+                        record.closing_amount_due = status.amount_due;
+                        await saveChannel(record);
+                    }
+                    console.log(`[Channel] Closed successfully`);
+
+                    // If this was current channel, clear it
+                    if (currentChannel && currentChannel.channelId === channelId) {
+                        await setCurrentChannel(null);
+                    }
+                } else {
+                    console.log(`[Channel] Close failed: ${closeResult.error || closeRes.status}`);
+                }
+
+                // Re-render channel list
+                await renderChannelList();
+
+            } catch (e) {
+                console.log(`[Channel] Close failed: ${e.message}`);
             }
         }
 
@@ -3527,12 +3616,17 @@
                     const senderData = JSON.parse(channel.sender_json);
                     const params = JSON.parse(senderData.channel_params.params_json);
                     
-                    // Calculate balance from request counts
-                    const requestData = channelRequestCounts.get(channel.channel_id) || { count: 0, bytes: 0 };
-                    const pricing = serverInfo[server]?.pricing?.[unit] || {};
-                    const requestCost = requestData.count * (pricing.perRequestPpk || 0);
-                    const sizeCost = (requestData.bytes / 1_000_000) * (pricing.perMegabytePpk || 0);
-                    const balance = Math.ceil((requestCost + sizeCost) / 1000);
+                    // Calculate balance from request counts, or use closing_amount_due if available
+                    let balance;
+                    if (channel.closing_amount_due !== undefined) {
+                        balance = channel.closing_amount_due;
+                    } else {
+                        const requestData = channelRequestCounts.get(channel.channel_id) || { count: 0, bytes: 0 };
+                        const pricing = serverInfo[server]?.pricing?.[unit] || {};
+                        const requestCost = requestData.count * (pricing.perRequestPpk || 0);
+                        const sizeCost = (requestData.bytes / 1_000_000) * (pricing.perMegabytePpk || 0);
+                        balance = Math.ceil((requestCost + sizeCost) / 1000);
+                    }
                     
                     const setupUtc = new Date(params.setup_timestamp * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
                     const expiryUtc = new Date(params.locktime * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
@@ -3547,6 +3641,7 @@
                                 <span style="display: flex; align-items: center;">
                                     <span class="channel-status ${channel.status}">${channel.status}</span>
                                     ${channel.status === 'exhausted' ? `<button class="channel-refresh" onclick="refreshChannelStatus('${channel.channel_id}', event)" title="Refresh status">↻</button>` : ''}
+                                    ${(channel.status === 'open' || channel.status === 'exhausted') ? `<button class="channel-close" onclick="closeChannel('${channel.channel_id}', event)" title="Close channel">✕</button>` : ''}
                                 </span>
                             </div>
                             <div class="channel-details ${isExpanded ? 'expanded' : ''}">
@@ -3635,6 +3730,7 @@
         window.selectChannel = selectChannel;
         window.refreshChannelStatus = refreshChannelStatus;
         window.toggleChannelDetails = toggleChannelDetails;
+        window.closeChannel = closeChannel;
 
         // Create a new channel for the current (server, unit)
         async function createChannel() {
