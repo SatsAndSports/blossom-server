@@ -1127,10 +1127,6 @@
     </style>
 </head>
 <body>
-    <div id="dev-tools" style="margin-bottom:10px;">
-        <button id="reset-alice" style="background:#533;border:1px solid #744;color:#e0e0e0;padding:8px 16px;border-radius:4px;cursor:pointer;">Reset Alice Key</button>
-    </div>
-
     <div style="display:flex;align-items:center;gap:20px;margin-bottom:10px;">
         <h1 style="margin:0;"><a href="/" style="color:inherit;text-decoration:none;">CashuTube</a></h1>
         <button id="manage-btn">⚙️ Manage Channels</button>
@@ -1255,7 +1251,10 @@
         <div class="modal-content channel-modal-content">
             <div class="modal-header">
                 <h3>Server & Channel Management</h3>
-                <button id="channel-modal-close" class="modal-close-btn">×</button>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button id="reset-alice" style="background:#533;border:1px solid #744;color:#e0e0e0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;">Reset Identity</button>
+                    <button id="channel-modal-close" class="modal-close-btn">×</button>
+                </div>
             </div>
             <div class="server-selector">
                 <label>Blossom video server:</label>
@@ -3332,9 +3331,11 @@
 
         // Dev tools
         document.getElementById('reset-alice').onclick = () => {
-            localStorage.removeItem(ALICE_KEY_STORAGE);
-            localStorage.removeItem(SELECTED_CHANNELS_KEY);
-            log('Alice key and channel selections deleted. Refresh to generate new keypair.');
+            if (confirm('Reset your identity? This will delete your Alice key and all channel selections. The page will reload.')) {
+                localStorage.removeItem(ALICE_KEY_STORAGE);
+                localStorage.removeItem(SELECTED_CHANNELS_KEY);
+                window.location.reload();
+            }
         };
 
         // Share modal
