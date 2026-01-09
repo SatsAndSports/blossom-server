@@ -827,6 +827,64 @@
         .modal-actions button.secondary:hover {
             background: #555;
         }
+        /* Invoice modal - overlays channel modal */
+        #invoice-modal {
+            z-index: 1100;  /* Above channel modal (z-index: 1000) */
+        }
+        .invoice-modal-content {
+            max-width: 400px;
+            text-align: center;
+        }
+        .invoice-modal-content h3 {
+            color: #f7931a;
+            margin-bottom: 20px;
+        }
+        #invoice-qr {
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            display: inline-block;
+            margin-bottom: 15px;
+        }
+        #invoice-qr svg {
+            display: block;
+        }
+        #invoice-text-container {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        #invoice-text {
+            flex: 1;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            color: #888;
+            padding: 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 11px;
+        }
+        #invoice-copy-btn {
+            background: #444;
+            color: #e0e0e0;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #invoice-copy-btn:hover {
+            background: #555;
+        }
+        #invoice-status {
+            color: #4a9;
+            font-weight: bold;
+            margin-bottom: 10px;
+            min-height: 20px;
+        }
+        #invoice-modal .modal-log {
+            max-height: 80px;
+            text-align: left;
+        }
         .no-channels {
             color: #888;
             text-align: center;
@@ -1047,6 +1105,23 @@
             <div class="modal-actions">
                 <button id="create-channel-btn">Create Channel</button>
                 <button id="close-channel-modal-btn" class="secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Channel Creation Modal (overlays channel modal) -->
+    <div id="invoice-modal" class="modal">
+        <div class="modal-content invoice-modal-content">
+            <h3 id="invoice-modal-title">Creating Channel</h3>
+            <div id="invoice-qr"></div>
+            <div id="invoice-text-container">
+                <input type="text" id="invoice-text" readonly>
+                <button id="invoice-copy-btn" title="Copy invoice">Copy</button>
+            </div>
+            <div id="invoice-status"></div>
+            <div id="invoice-modal-log" class="modal-log visible"></div>
+            <div class="modal-actions">
+                <button id="invoice-continue-btn" disabled>Continue</button>
             </div>
         </div>
     </div>
@@ -1322,25 +1397,49 @@
         }
 
         // Mint funding token with custom outputs
+        // Promise that resolves when user clicks Continue on invoice modal
+        let invoiceContinueResolve = null;
+
         async function mintFundingToken(mintUrl, amount, outputData, keysetInfo, unit) {
             const mint = new Mint(mintUrl);
             const wallet = new Wallet(mint, { unit });
             await wallet.loadMint();
 
             // Get mint quote
-            log(`Requesting mint quote for ${amount} ${unit}...`);
+            invoiceLog(`Requesting mint quote for ${amount} ${unit}...`);
             const quote = await wallet.createMintQuote(amount);
-            log(`Quote: ${quote.quote.substring(0, 16)}...`);
+            invoiceLog(`Quote created`);
             console.log('Mint quote:', quote);
 
-            // Poll for payment (testnut should auto-pay)
-            log(`Waiting for payment...`);
+            // Show QR code and invoice in the already-open modal
+            const invoiceQr = document.getElementById('invoice-qr');
+            const invoiceText = document.getElementById('invoice-text');
+            const invoiceTextContainer = document.getElementById('invoice-text-container');
+            const invoiceStatus = document.getElementById('invoice-status');
+
+            // Generate QR code for the invoice
+            const invoice = quote.request;
+            document.getElementById('invoice-modal-title').textContent = 'Pay Invoice';
+            try {
+                const qrSvg = await generateQRCode(invoice.toUpperCase(), 200);
+                invoiceQr.innerHTML = qrSvg;
+            } catch (e) {
+                invoiceQr.innerHTML = '<div style="color:#c33">QR generation failed</div>';
+                console.error('QR generation error:', e);
+            }
+            invoiceText.value = invoice;
+            invoiceTextContainer.style.display = 'flex';
+
+            invoiceLog(`Waiting for payment...`);
+
+            // Poll for payment
             let paid = false;
-            for (let i = 0; i < 30; i++) {
+            for (let i = 0; i < 300; i++) {  // 5 minute timeout
                 const status = await wallet.checkMintQuote(quote.quote);
                 if (status.state === 'PAID') {
                     paid = true;
-                    log(`Payment confirmed!`);
+                    invoiceLog(`Payment confirmed!`, 'success');
+                    invoiceStatus.textContent = 'Payment confirmed!';
                     break;
                 }
                 await new Promise(r => setTimeout(r, 1000));
@@ -1350,15 +1449,18 @@
                 throw new Error('Payment not received within timeout');
             }
 
+            // Keep QR visible, just update title
+            document.getElementById('invoice-modal-title').textContent = 'Creating Channel';
+
             // Mint with custom outputs using builder pattern
-            log(`Minting ${outputData.length} outputs...`);
+            invoiceLog(`Minting ${outputData.length} outputs...`);
             console.log(`[Mint] Requesting amount=${amount} ${unit}, sending ${outputData.length} blinded messages`);
             const proofs = await wallet.ops
                 .mintBolt11(amount, quote)
                 .asCustom(outputData)
                 .run();
 
-            log(`Minted ${proofs.length} proofs!`, 'payment');
+            invoiceLog(`Minted ${proofs.length} proofs!`, 'success');
             console.log('Minted proofs:', proofs);
             const proofSum = proofs.reduce((sum, p) => sum + p.amount, 0);
             console.log(`[Mint] Received ${proofs.length} proofs, total=${proofSum}`);
@@ -1375,7 +1477,7 @@
                     validCount++;
                 }
             }
-            log(`DLEQ verified: ${validCount}/${proofs.length}`, validCount === proofs.length ? 'payment' : 'error');
+            invoiceLog(`DLEQ verified: ${validCount}/${proofs.length}`, validCount === proofs.length ? 'success' : 'error');
 
             return proofs;
         }
@@ -3107,6 +3209,38 @@
             logEl.scrollTop = logEl.scrollHeight;
         }
 
+        // Log to invoice modal
+        function invoiceLog(message, type = '') {
+            const logEl = document.getElementById('invoice-modal-log');
+            const line = document.createElement('div');
+            line.className = 'log-line' + (type ? ` ${type}` : '');
+            line.textContent = message;
+            logEl.appendChild(line);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        // Clear invoice modal log
+        function clearInvoiceLog() {
+            document.getElementById('invoice-modal-log').innerHTML = '';
+        }
+
+        // Generate QR code SVG using qrcode-svg-like approach
+        // Uses a simple QR code library loaded from CDN
+        let qrCodeLib = null;
+        async function generateQRCode(text, size = 200) {
+            // Lazy load QRCode library
+            if (!qrCodeLib) {
+                qrCodeLib = await import('https://esm.sh/qrcode@1.5.3');
+            }
+            const svg = await qrCodeLib.toString(text, {
+                type: 'svg',
+                width: size,
+                margin: 0,
+                color: { dark: '#000', light: '#fff' }
+            });
+            return svg;
+        }
+
         async function selectChannel(channelId) {
             if (!channelModalServerUnit) return;
             
@@ -3143,52 +3277,68 @@
 
         // Create a new channel for the current (server, unit)
         async function createChannel() {
+            const createBtn = document.getElementById('create-channel-btn');
+
+            // Show invoice modal IMMEDIATELY with all logging there
+            const invoiceModal = document.getElementById('invoice-modal');
+            const invoiceQr = document.getElementById('invoice-qr');
+            const invoiceTextContainer = document.getElementById('invoice-text-container');
+            const invoiceStatus = document.getElementById('invoice-status');
+            const continueBtn = document.getElementById('invoice-continue-btn');
+
+            clearInvoiceLog();
+            invoiceQr.innerHTML = '';
+            invoiceTextContainer.style.display = 'none';
+            invoiceStatus.textContent = '';
+            continueBtn.disabled = true;
+            document.getElementById('invoice-modal-title').textContent = 'Creating Channel';
+            invoiceModal.classList.add('visible');
+
+            // Now do validation - all errors go to invoice modal
             if (!channelModalServerUnit) {
-                modalLog('Please select a server first', 'error');
+                invoiceLog('Please select a server first', 'error');
+                continueBtn.disabled = false;  // Allow dismissing
                 return;
             }
 
             const { server, unit } = channelModalServerUnit;
-            const createBtn = document.getElementById('create-channel-btn');
-            
+
             // Read capacity and expiry from inputs
             const capacity = parseInt(document.getElementById('modal-capacity').value);
             const expirySeconds = parseInt(document.getElementById('modal-expiry').value);
-            
+
             // Validate inputs
             if (isNaN(capacity) || capacity < 1) {
-                modalLog('Invalid capacity value', 'error');
+                invoiceLog('Invalid capacity value', 'error');
+                continueBtn.disabled = false;
                 return;
             }
-            
+
             // Get server constraints
             const serverParams = serverInfo[server];
             const minCapacity = serverParams?.pricing?.[unit]?.minCapacity ?? 0;
             const minExpiryInSeconds = serverParams?.min_expiry_in_seconds ?? 0;
-            
+
             // Validate capacity against server minimum
             if (capacity < minCapacity) {
-                modalLog(`Capacity must be at least ${minCapacity} ${unit}`, 'error');
+                invoiceLog(`Capacity must be at least ${minCapacity} ${unit}`, 'error');
+                continueBtn.disabled = false;
                 return;
             }
-            
+
             // Validate expiry against server minimum
             if (expirySeconds < minExpiryInSeconds) {
-                modalLog(`Expiry must be at least ${minExpiryInSeconds} seconds`, 'error');
+                invoiceLog(`Expiry must be at least ${minExpiryInSeconds} seconds`, 'error');
+                continueBtn.disabled = false;
                 return;
             }
-            
+
             // Disable button during creation
             createBtn.disabled = true;
-            
-            // Clear and show log
-            const logEl = document.getElementById('channel-modal-log');
-            logEl.innerHTML = '';
-            logEl.classList.add('visible');
 
             try {
                 // Refresh server params to ensure server is reachable and we have current pubkey
-                modalLog(`Checking server connection to ${server}...`);
+                invoiceLog(`Checking server connection to ${server}...`);
                 const info = await fetchServerParams(server);
                 if (!info) {
                     throw new Error('Cannot reach server');
@@ -3206,21 +3356,21 @@
                     throw new Error(`No keyset found for mint ${selectedMint} and unit ${unit}`);
                 }
                 const keysetId = keysets[0];  // Use first keyset
-                modalLog(`Using mint: ${selectedMint} (${unit})`);
+                invoiceLog(`Using mint: ${selectedMint} (${unit})`);
 
                 // Fetch keyset info
-                modalLog('Fetching keyset info...');
+                invoiceLog('Fetching keyset info...');
                 const ksInfo = await fetchKeysetInfo(selectedMint, keysetId);
-                modalLog(`Keyset ${ksInfo.keysetId}: ${ksInfo.amounts.length} denominations`);
+                invoiceLog(`Keyset ${ksInfo.keysetId}: ${ksInfo.amounts.length} denominations`);
 
                 // Build params JSON
                 const setupTimestamp = Math.floor(Date.now() / 1000);
                 const locktime = setupTimestamp + expirySeconds;
                 const senderNonce = FundedChannel.generateNonce();
-                modalLog(`Channel capacity: ${capacity} ${unit}, expiry: ${expirySeconds}s`);
+                invoiceLog(`Channel capacity: ${capacity} ${unit}, expiry: ${expirySeconds}s`);
                 // Get maxAmountPerOutput from server pricing (0 = no limit)
                 const maxAmountPerOutput = serverParams?.pricing?.[unit]?.maxAmountPerOutput ?? 0;
-                modalLog(`Max amount per output: ${maxAmountPerOutput === 0 ? 'no limit' : maxAmountPerOutput}`);
+                invoiceLog(`Max amount per output: ${maxAmountPerOutput === 0 ? 'no limit' : maxAmountPerOutput}`);
                 const paramsJson = JSON.stringify({
                     mint: selectedMint,
                     unit: unit,
@@ -3236,21 +3386,21 @@
                 });
 
                 // Generate funding outputs
-                modalLog('Generating funding outputs...');
+                invoiceLog('Generating funding outputs...');
                 const fundingOutputsJson = create_funding_outputs(
                     paramsJson,
                     alice.secretHex,
                     JSON.stringify(ksInfo)
                 );
                 const fundingOutputs = JSON.parse(fundingOutputsJson);
-                modalLog(`Funding outputs: nominal=${fundingOutputs.funding_token_nominal} ${unit}`);
+                invoiceLog(`Funding outputs: nominal=${fundingOutputs.funding_token_nominal} ${unit}`);
 
                 // Convert to cashu-ts OutputData and mint
                 const outputData = wasmOutputsToOutputData(fundingOutputs);
                 console.log(`[Mint] Blinded message amounts: ${fundingOutputs.blinded_messages.map(bm => bm.amount).join(', ')}`);
 
                 // Mint the funding token
-                modalLog('Minting funding token...');
+                invoiceLog('Minting funding token...');
                 const proofs = await mintFundingToken(
                     selectedMint,
                     fundingOutputs.funding_token_nominal,
@@ -3258,7 +3408,7 @@
                     ksInfo,
                     unit
                 );
-                modalLog(`Minted ${proofs.length} proofs`, 'success');
+                invoiceLog(`Minted ${proofs.length} proofs`, 'success');
 
                 // Create SpilmanChannelSender
                 const sender = SpilmanChannelSender.create(
@@ -3267,22 +3417,36 @@
                     alice.secretHex,
                     proofs
                 );
-                modalLog(`Channel created: ${sender.getChannelId().substring(0, 16)}...`, 'success');
+                invoiceLog(`Channel created: ${sender.getChannelId().substring(0, 16)}...`, 'success');
 
                 // Wrap in FundedChannel and save
                 const newChannel = new FundedChannel(sender);
                 await newChannel.save();
-                modalLog('Channel saved to IndexedDB', 'success');
+                invoiceLog('Channel saved to IndexedDB', 'success');
 
                 // Refresh the channel list to show the new channel
                 await renderChannelList();
 
-                // Re-enable create button
+                // Enable Continue button and wait for user
+                invoiceStatus.textContent = 'Channel created successfully!';
+                continueBtn.disabled = false;
+                await new Promise(resolve => {
+                    invoiceContinueResolve = resolve;
+                });
+
+                // Hide invoice modal and re-enable create button
+                invoiceModal.classList.remove('visible');
                 createBtn.disabled = false;
 
             } catch (e) {
-                modalLog(`Error: ${String(e)}`, 'error');
+                invoiceLog(`Error: ${String(e)}`, 'error');
                 console.error('Create channel error:', e);
+                invoiceStatus.textContent = 'Error - click Continue to close';
+                continueBtn.disabled = false;
+                await new Promise(resolve => {
+                    invoiceContinueResolve = resolve;
+                });
+                invoiceModal.classList.remove('visible');
                 createBtn.disabled = false;
             }
         }
@@ -3352,6 +3516,27 @@
         document.getElementById('channel-modal').onclick = (e) => {
             if (e.target.id === 'channel-modal') {
                 hideChannelModal();
+            }
+        };
+
+        // Invoice modal handlers
+        document.getElementById('invoice-continue-btn').onclick = () => {
+            if (invoiceContinueResolve) {
+                invoiceContinueResolve();
+                invoiceContinueResolve = null;
+            }
+        };
+
+        document.getElementById('invoice-copy-btn').onclick = async () => {
+            const invoice = document.getElementById('invoice-text').value;
+            try {
+                await navigator.clipboard.writeText(invoice);
+                document.getElementById('invoice-copy-btn').textContent = 'Copied!';
+                setTimeout(() => {
+                    document.getElementById('invoice-copy-btn').textContent = 'Copy';
+                }, 2000);
+            } catch (e) {
+                console.error('Failed to copy:', e);
             }
         };
 
