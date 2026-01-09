@@ -32,6 +32,30 @@
         h1 {
             color: #f7931a;
         }
+        #video-placeholder {
+            background: #1a1a1a;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            aspect-ratio: 16/9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #video-placeholder.hidden {
+            display: none;
+        }
+        .placeholder-content {
+            text-align: center;
+            color: #666;
+        }
+        .placeholder-icon {
+            font-size: 120px;
+            margin-top: 20px;
+            opacity: 0.4;
+        }
+        .placeholder-text {
+            font-size: 24px;
+        }
         #video-container {
             background: #000;
             border-radius: 8px;
@@ -998,6 +1022,92 @@
         #channel-balance-section.visible {
             display: inline;
         }
+        /* Onboarding tooltips */
+        .onboarding-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .onboarding-overlay.hidden {
+            display: none;
+        }
+        .onboarding-tooltip {
+            background: #2a2a2a;
+            border: 2px solid #f7931a;
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 400px;
+            text-align: center;
+            position: absolute;
+            z-index: 10001;
+        }
+        .onboarding-tooltip.centered {
+            position: relative;
+        }
+        .onboarding-tooltip::before {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 0;
+            border: 10px solid transparent;
+        }
+        .onboarding-tooltip.arrow-top::before {
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-bottom-color: #f7931a;
+        }
+        .onboarding-tooltip.arrow-bottom::before {
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-top-color: #f7931a;
+        }
+        .onboarding-text {
+            font-size: 16px;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+        .onboarding-subtext {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 16px;
+            white-space: pre-line;
+            text-align: left;
+        }
+        .onboarding-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        .onboarding-actions button {
+            padding: 8px 20px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .onboarding-next {
+            background: #f7931a;
+            color: #000;
+            font-weight: bold;
+        }
+        .onboarding-next:hover {
+            background: #ffaa33;
+        }
+        .onboarding-highlight {
+            position: relative;
+            z-index: 10001;
+            box-shadow: 0 0 0 4px #f7931a;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -1020,6 +1130,12 @@
 
     <div id="main-content">
         <div id="left-column">
+            <div id="video-placeholder">
+                <div class="placeholder-content">
+                    <div class="placeholder-text">Select a video to start watching</div>
+                    <div class="placeholder-icon">→</div>
+                </div>
+            </div>
             <div id="video-container">
                 <video id="video" playsinline></video>
                 <div id="action-indicator"><div class="pause-icon"></div></div>
@@ -1108,6 +1224,17 @@
             <button id="error-ok">OK</button>
         </div>
     </div>
+    <!-- Onboarding overlay -->
+    <div id="onboarding-overlay" class="onboarding-overlay hidden">
+        <div id="onboarding-tooltip" class="onboarding-tooltip centered">
+            <div class="onboarding-text"></div>
+            <div class="onboarding-subtext"></div>
+            <div class="onboarding-actions">
+                <button class="onboarding-next">Next</button>
+            </div>
+        </div>
+    </div>
+
     <div id="channel-modal" class="modal">
         <div class="modal-content channel-modal-content">
             <div class="modal-header">
@@ -1115,7 +1242,7 @@
                 <button id="channel-modal-close" class="modal-close-btn">×</button>
             </div>
             <div class="server-selector">
-                <label>Server:</label>
+                <label>Blossom video server:</label>
                 <select id="modal-server-select"></select>
             </div>
             <div class="channel-tabs">
@@ -1676,10 +1803,17 @@
             const button = event.currentTarget;
             const card = button.closest('.channel-card');
             if (card) {
+                const channelId = card.dataset.channelId;
                 const details = card.querySelector('.channel-details');
                 if (details) {
-                    details.classList.toggle('expanded');
+                    const isExpanded = details.classList.toggle('expanded');
                     button.classList.toggle('expanded');
+                    // Track expanded state for re-renders
+                    if (isExpanded) {
+                        expandedChannels.add(channelId);
+                    } else {
+                        expandedChannels.delete(channelId);
+                    }
                 }
             }
         }
@@ -2379,7 +2513,8 @@
             const video = document.getElementById('video');
             const qualitySelect = document.getElementById('quality-select');
 
-            // Show video container
+            // Show video container, hide placeholder
+            document.getElementById('video-placeholder').classList.add('hidden');
             document.getElementById('video-container').classList.add('visible');
 
             // Extract master hash from URL for sharing
@@ -2535,6 +2670,7 @@
                             log(`Video not found on this server (${currentMasterHash || 'unknown'})`, 'error');
                             hls.destroy();
                             document.getElementById('video-container').classList.remove('visible');
+                            document.getElementById('video-placeholder').classList.remove('hidden');
                             return;
                         }
 
@@ -3131,6 +3267,92 @@
         // ============================================
         let channelModalCurrentTab = 'open';
         let channelModalServerUnit = null;  // { server, unit } currently selected in modal
+        const expandedChannels = new Set();  // Track which channel details are expanded
+
+        // Onboarding tooltips
+        const onboardingSteps = [
+            { target: null, text: 'Welcome to CashuTube!', subtext: 'Stream videos with micropayments using Cashu 🥜 ecash. Payment channels let you pay tiny amounts per video segment. No subscriptions, no accounts, just pay for what you watch.\n\nThis is a test system - no real bitcoin is needed.' },
+            { target: '#modal-server-select', text: 'Select your video server here' },
+            { target: '#modal-capacity', text: 'Choose how much to load into your channel' },
+            { target: '#create-channel-btn', text: 'Click here to open a payment channel and start watching!' }
+        ];
+        let onboardingStep = 0;
+        let onboardingHighlightedEl = null;
+
+        function startOnboarding() {
+            if (localStorage.getItem('cashutube_onboarding_done')) return;
+            onboardingStep = 0;
+            showOnboardingStep();
+        }
+
+        function showOnboardingStep() {
+            const overlay = document.getElementById('onboarding-overlay');
+            const tooltip = document.getElementById('onboarding-tooltip');
+            const textEl = tooltip.querySelector('.onboarding-text');
+            const subtextEl = tooltip.querySelector('.onboarding-subtext');
+
+            // Clear previous highlight
+            if (onboardingHighlightedEl) {
+                onboardingHighlightedEl.classList.remove('onboarding-highlight');
+                onboardingHighlightedEl = null;
+            }
+
+            if (onboardingStep >= onboardingSteps.length) {
+                endOnboarding();
+                return;
+            }
+
+            const step = onboardingSteps[onboardingStep];
+            textEl.textContent = step.text;
+            subtextEl.textContent = step.subtext || '';
+            subtextEl.style.display = step.subtext ? 'block' : 'none';
+
+            // Remove arrow classes
+            tooltip.classList.remove('arrow-top', 'arrow-bottom', 'centered');
+
+            if (step.target) {
+                const targetEl = document.querySelector(step.target);
+                if (targetEl) {
+                    // Highlight the target
+                    targetEl.classList.add('onboarding-highlight');
+                    onboardingHighlightedEl = targetEl;
+
+                    // Position tooltip near target
+                    const rect = targetEl.getBoundingClientRect();
+                    const tooltipRect = tooltip.getBoundingClientRect();
+
+                    // Position below the target
+                    tooltip.style.left = Math.max(10, rect.left + rect.width/2 - 160) + 'px';
+                    tooltip.style.top = (rect.bottom + 20) + 'px';
+                    tooltip.classList.add('arrow-top');
+                }
+            } else {
+                // Centered (welcome message)
+                tooltip.classList.add('centered');
+                tooltip.style.left = '';
+                tooltip.style.top = '';
+            }
+
+            overlay.classList.remove('hidden');
+        }
+
+        function nextOnboardingStep() {
+            onboardingStep++;
+            showOnboardingStep();
+        }
+
+        function endOnboarding() {
+            const overlay = document.getElementById('onboarding-overlay');
+            overlay.classList.add('hidden');
+            if (onboardingHighlightedEl) {
+                onboardingHighlightedEl.classList.remove('onboarding-highlight');
+                onboardingHighlightedEl = null;
+            }
+            localStorage.setItem('cashutube_onboarding_done', 'true');
+        }
+
+        // Wire up onboarding button
+        document.querySelector('.onboarding-next').onclick = nextOnboardingStep;
 
         function showChannelModal() {
             const modal = document.getElementById('channel-modal');
@@ -3156,8 +3378,11 @@
             
             // Enable create button
             document.getElementById('create-channel-btn').disabled = false;
-            
+
             modal.classList.add('visible');
+
+            // Start onboarding for first-time users
+            setTimeout(startOnboarding, 100);
         }
 
         function hideChannelModal() {
@@ -3269,18 +3494,19 @@
                     const setupUtc = new Date(params.setup_timestamp * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
                     const expiryUtc = new Date(params.locktime * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
 
+                    const isExpanded = expandedChannels.has(channel.channel_id);
                     return `
-                        <div class="channel-card ${isSelected ? 'selected' : ''}"
+                        <div class="channel-card ${isSelected ? 'selected' : ''}" data-channel-id="${channel.channel_id}"
                              ${channelModalCurrentTab === 'open' ? `onclick="selectChannel('${channel.channel_id}')" style="cursor:pointer"` : ''}>
                             <div class="channel-card-header">
-                                <button class="channel-expand" onclick="toggleChannelDetails(event)" title="Show details">▶</button>
+                                <button class="channel-expand ${isExpanded ? 'expanded' : ''}" onclick="toggleChannelDetails(event)" title="Show details">▶</button>
                                 <span class="channel-id">${isSelected ? '●' : '○'} ${channel.channel_id.substring(0, 16)}... ${balance}/${params.capacity} ${unit}</span>
                                 <span style="display: flex; align-items: center;">
                                     <span class="channel-status ${channel.status}">${channel.status}</span>
                                     ${channel.status === 'exhausted' ? `<button class="channel-refresh" onclick="refreshChannelStatus('${channel.channel_id}', event)" title="Refresh status">↻</button>` : ''}
                                 </span>
                             </div>
-                            <div class="channel-details">
+                            <div class="channel-details ${isExpanded ? 'expanded' : ''}">
                                 Mint: ${params.mint}<br>
                                 Setup: ${setupUtc}<br>
                                 Expires: ${expiryUtc}
