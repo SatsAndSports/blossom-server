@@ -1249,6 +1249,23 @@
             await refreshAlternativeChannels();
         }
 
+        // Select new channel if none selected, otherwise add to alternatives
+        async function selectNewChannelOrAddAsAlternative(channel, server, unit, capacity) {
+            if (!currentChannel) {
+                await setCurrentChannel(channel);
+                setSelectedChannelId(server, unit, channel.channelId);
+                return true;  // selected
+            } else {
+                alternativeChannels.push({
+                    channel: channel,
+                    remainingCapacity: capacity,
+                    capacity: capacity
+                });
+                logAlternativesList();
+                return false;  // added as alternative
+            }
+        }
+
         // Show payment error modal (for 402 responses)
         function showPaymentErrorModal(details) {
             const modal = document.getElementById('payment-error-modal');
@@ -1628,6 +1645,13 @@
                     record.status = 'open';
                     await saveChannel(record);
                     console.log(`[Channel] Resynced - channel reopened (${status.amount_due}/${status.capacity})`);
+
+                    // Add reopened channel to current or alternatives
+                    const channel = await FundedChannel.load(channelId);
+                    if (channel) {
+                        const remaining = status.capacity - status.amount_due;
+                        await selectNewChannelOrAddAsAlternative(channel, channelModalServerUnit.server, channelModalServerUnit.unit, remaining);
+                    }
                 }
                 
                 // Re-render the channel list
@@ -3424,13 +3448,11 @@
                 const newChannel = new FundedChannel(sender);
                 await newChannel.save();
 
-                // Add to alternatives list (at end, since it's newest)
-                alternativeChannels.push({
-                    channel: newChannel,
-                    remainingCapacity: capacity,
-                    capacity: capacity
-                });
-                logAlternativesList();
+                // If no channel selected, select this one; otherwise add to alternatives
+                const wasSelected = await selectNewChannelOrAddAsAlternative(newChannel, server, unit, capacity);
+                if (wasSelected) {
+                    invoiceLog(`Channel selected`, 'success');
+                }
 
                 // Refresh the channel list to show the new channel
                 await renderChannelList();
