@@ -3871,6 +3871,20 @@
 
             // Keyboard controls
             document.addEventListener('keydown', (e) => {
+                // Escape closes modals
+                if (e.key === 'Escape') {
+                    const invoiceModal = document.getElementById('invoice-modal');
+                    if (invoiceModal.classList.contains('visible')) {
+                        invoiceModal.classList.remove('visible');
+                        return;
+                    }
+                    const channelModal = document.getElementById('channel-modal');
+                    if (channelModal.classList.contains('visible')) {
+                        channelModal.classList.remove('visible');
+                        return;
+                    }
+                }
+
                 const videoKeys = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyM', 'KeyF'];
                 if (videoKeys.includes(e.code)) {
                     showOverlays();
