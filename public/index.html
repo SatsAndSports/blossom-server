@@ -1267,6 +1267,14 @@
         // Set current channel and refresh alternatives list
         async function setCurrentChannel(channel) {
             currentChannel = channel;
+            // Sync to localStorage
+            if (currentServer && currentUnit) {
+                if (channel) {
+                    setSelectedChannelId(currentServer, currentUnit, channel.channelId);
+                } else {
+                    clearSelectedChannelId(currentServer, currentUnit);
+                }
+            }
             await refreshAlternativeChannels();
         }
 
@@ -1274,7 +1282,6 @@
         async function selectNewChannelOrAddAsAlternative(channel, server, unit, capacity) {
             if (!currentChannel) {
                 await setCurrentChannel(channel);
-                setSelectedChannelId(server, unit, channel.channelId);
                 return true;  // selected
             } else {
                 alternativeChannels.push({
@@ -3293,13 +3300,10 @@
 
         async function selectChannel(channelId) {
             if (!channelModalServerUnit) return;
-            
+
             const { server, unit } = channelModalServerUnit;
-            
-            // Save selection
-            setSelectedChannelId(server, unit, channelId);
-            
-            // Update globals
+
+            // Update globals (before setCurrentChannel so it can sync to localStorage)
             currentServer = server;
             currentUnit = unit;
             localStorage.setItem('cashutube_server_unit', `${server}|${unit}`);
