@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CashuTube</title>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -1151,7 +1151,7 @@
     <script type="module">
         import * as secp from 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm';
         import initWasm, { channel_parameters_get_channel_id, compute_shared_secret, create_funding_outputs, spilman_channel_sender_create_signed_balance_update } from '/wasm/cdk_wasm.js';
-        import { Mint, Wallet, OutputData, hasValidDleq } from 'https://esm.sh/@cashu/cashu-ts@3.1.1';
+        import { Mint, Wallet, OutputData, hasValidDleq } from 'https://cdn.jsdelivr.net/npm/@cashu/cashu-ts@3.1.1/+esm';
 
         // Helper: bytes to hex
         function bytesToHex(bytes) {
@@ -3288,7 +3288,7 @@
         async function generateQRCode(text, size = 200) {
             // Lazy load QRCode library
             if (!qrCodeLib) {
-                qrCodeLib = await import('https://esm.sh/qrcode@1.5.3');
+                qrCodeLib = await import('https://cdn.jsdelivr.net/npm/qrcode@1.5.3/+esm');
             }
             const svg = await qrCodeLib.toString(text, {
                 type: 'svg',
