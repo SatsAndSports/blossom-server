@@ -1406,10 +1406,7 @@
             await wallet.loadMint();
 
             // Get mint quote
-            invoiceLog(`Requesting mint quote for ${amount} ${unit}...`);
             const quote = await wallet.createMintQuote(amount);
-            invoiceLog(`Quote created`);
-            console.log('Mint quote:', quote);
 
             // Show QR code and invoice in the already-open modal
             const invoiceQr = document.getElementById('invoice-qr');
@@ -1429,8 +1426,6 @@
             }
             invoiceText.value = invoice;
             invoiceTextContainer.style.display = 'flex';
-
-            invoiceLog(`Waiting for payment...`);
 
             // Poll for payment
             let paid = false;
@@ -1453,18 +1448,13 @@
             document.getElementById('invoice-modal-title').textContent = 'Creating Channel';
 
             // Mint with custom outputs using builder pattern
-            invoiceLog(`Minting ${outputData.length} outputs...`);
-            console.log(`[Mint] Requesting amount=${amount} ${unit}, sending ${outputData.length} blinded messages`);
             const proofs = await wallet.ops
                 .mintBolt11(amount, quote)
                 .asCustom(outputData)
                 .run();
 
-            invoiceLog(`Minted ${proofs.length} proofs!`, 'success');
-            console.log('Minted proofs:', proofs);
             const proofSum = proofs.reduce((sum, p) => sum + p.amount, 0);
             console.log(`[Mint] Received ${proofs.length} proofs, total=${proofSum}`);
-            console.log(`[Mint] Proof amounts: ${proofs.map(p => p.amount).join(', ')}`);
             if (proofSum !== amount) {
                 console.warn(`[Mint] MISMATCH: requested=${amount} received=${proofSum} diff=${amount - proofSum}`);
             }
@@ -1477,8 +1467,6 @@
                     validCount++;
                 }
             }
-            invoiceLog(`DLEQ verified: ${validCount}/${proofs.length}`, validCount === proofs.length ? 'success' : 'error');
-
             return proofs;
         }
 
@@ -3359,9 +3347,7 @@
                 invoiceLog(`Using mint: ${selectedMint} (${unit})`);
 
                 // Fetch keyset info
-                invoiceLog('Fetching keyset info...');
                 const ksInfo = await fetchKeysetInfo(selectedMint, keysetId);
-                invoiceLog(`Keyset ${ksInfo.keysetId}: ${ksInfo.amounts.length} denominations`);
 
                 // Build params JSON
                 const setupTimestamp = Math.floor(Date.now() / 1000);
@@ -3386,7 +3372,6 @@
                 });
 
                 // Generate funding outputs
-                invoiceLog('Generating funding outputs...');
                 const fundingOutputsJson = create_funding_outputs(
                     paramsJson,
                     alice.secretHex,
@@ -3397,7 +3382,6 @@
 
                 // Convert to cashu-ts OutputData and mint
                 const outputData = wasmOutputsToOutputData(fundingOutputs);
-                console.log(`[Mint] Blinded message amounts: ${fundingOutputs.blinded_messages.map(bm => bm.amount).join(', ')}`);
 
                 // Mint the funding token
                 invoiceLog('Minting funding token...');
@@ -3422,7 +3406,6 @@
                 // Wrap in FundedChannel and save
                 const newChannel = new FundedChannel(sender);
                 await newChannel.save();
-                invoiceLog('Channel saved to IndexedDB', 'success');
 
                 // Refresh the channel list to show the new channel
                 await renderChannelList();
