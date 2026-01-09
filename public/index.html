@@ -3145,7 +3145,11 @@
                 const channels = channelModalCurrentTab === 'open' ? active : other;
                 
                 if (channels.length === 0) {
-                    listEl.innerHTML = `<div class="no-channels">No ${channelModalCurrentTab} channels</div>`;
+                    if (channelModalCurrentTab === 'open') {
+                        listEl.innerHTML = `<div class="no-channels">No open channels<br><br>Set capacity and expiry below, then click <strong>Create Channel</strong> to get started.</div>`;
+                    } else {
+                        listEl.innerHTML = `<div class="no-channels">No closed channels</div>`;
+                    }
                     return;
                 }
                 
