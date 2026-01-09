@@ -3170,7 +3170,7 @@
                             spriteInterval = null;
                         }
                         // Restore preview image (use cached URL if available)
-                        if (thumbLoaded && video.preview_hash) {
+                        if (card.dataset.thumbLoaded && video.preview_hash) {
                             const cachedUrl = blobUrlCache.get(video.preview_hash);
                             if (cachedUrl) {
                                 thumb.style.backgroundImage = `url(${cachedUrl})`;
