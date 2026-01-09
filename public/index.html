@@ -2004,6 +2004,15 @@
                 }
             }
 
+            // Sort by setup_timestamp, most recent first
+            const getSetupTimestamp = (channel) => {
+                const senderData = JSON.parse(channel.sender_json);
+                const params = JSON.parse(senderData.channel_params.params_json);
+                return params.setup_timestamp;
+            };
+            active.sort((a, b) => getSetupTimestamp(b) - getSetupTimestamp(a));
+            other.sort((a, b) => getSetupTimestamp(b) - getSetupTimestamp(a));
+
             return { active, other };
         }
 
