@@ -1429,6 +1429,10 @@
             }
             await refreshAlternativeChannels();
             updateStatus();
+            // Preload visible thumbnails when channel becomes available
+            if (channel) {
+                preloadVisibleThumbnails();
+            }
         }
 
         // Select new channel if none selected, otherwise add to alternatives
@@ -2480,6 +2484,34 @@
             return url;
         }
 
+        // Check if element is in viewport
+        function isInViewport(el) {
+            const rect = el.getBoundingClientRect();
+            return rect.top < window.innerHeight && rect.bottom > 0;
+        }
+
+        // Preload thumbnails for visible video cards
+        async function preloadVisibleThumbnails() {
+            if (!currentChannel) return;
+            const cards = document.querySelectorAll('.video-card[data-preview-hash]');
+            for (const card of cards) {
+                const hash = card.dataset.previewHash;
+                if (hash && !card.dataset.thumbLoaded && !blobUrlCache.has(hash) && isInViewport(card)) {
+                    try {
+                        const url = await fetchBlobCached(hash);
+                        const thumb = card.querySelector('.video-card-thumb');
+                        if (thumb) {
+                            thumb.style.backgroundImage = `url(${url})`;
+                            card.dataset.thumbLoaded = 'true';
+                        }
+                    } catch (e) {
+                        // Silent fail - will load on hover. Stop if channel exhausted.
+                        break;
+                    }
+                }
+            }
+        }
+
         // Current HLS instance
         let currentHls = null;
 
@@ -2913,18 +2945,20 @@
                 for (const video of data.videos) {
                     const card = document.createElement('div');
                     card.className = 'video-card';
+                    if (video.preview_hash) {
+                        card.dataset.previewHash = video.preview_hash;
+                    }
 
                     const thumb = document.createElement('div');
                     thumb.className = 'video-card-thumb';
-                    let thumbLoaded = false;
 
                     // Load thumbnail on hover (desktop) or touch (mobile)
                     const loadThumb = async () => {
-                        if (!thumbLoaded && video.preview_hash && currentChannel) {
+                        if (!card.dataset.thumbLoaded && video.preview_hash && currentChannel) {
                             try {
                                 const url = await fetchBlobCached(video.preview_hash);
                                 thumb.style.backgroundImage = `url(${url})`;
-                                thumbLoaded = true;
+                                card.dataset.thumbLoaded = 'true';
                                 log(`Loaded thumbnail: ${video.preview_hash.substring(0, 8)}...`);
                             } catch (e) {
                                 log(`Failed to load thumbnail: ${e.message}`, 'error');
