@@ -862,6 +862,9 @@
         #toast.visible {
             opacity: 1;
         }
+        #toast.success {
+            background: #2a2;
+        }
         /* Channel status in header */
         #channel-status {
             font-family: monospace;
@@ -1068,9 +1071,11 @@
         }
 
         // Show a toast notification
-        function showToast(message, duration = 5000) {
+        function showToast(message, type = 'error', duration = 5000) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
+            toast.classList.remove('success');
+            if (type === 'success') toast.classList.add('success');
             toast.classList.add('visible');
             setTimeout(() => toast.classList.remove('visible'), duration);
         }
@@ -1108,6 +1113,52 @@
                 (serverStatus ? ` (server: amount_due=${serverStatus.amount_due}, balance=${serverStatus.balance})` : ' (server unavailable)'), 'error');
             showToast(`Channel exhausted (${displayBalance}/${displayCapacity}) - video paused`);
             await updateChannelStatus(channelId, 'exhausted');
+        }
+
+        // Refresh the list of alternative channels (called when currentChannel changes)
+        // Pre-loads FundedChannel objects for instant synchronous switching
+        async function refreshAlternativeChannels() {
+            alternativeChannels = [];
+
+            if (!currentChannel || !currentServer || !currentUnit || !alice) {
+                console.log('[Alternatives] No current channel/server/unit');
+                return;
+            }
+
+            const { active } = await getChannelsForServer(alice.secretHex, currentServer, currentUnit);
+            const pricing = serverInfo[currentServer]?.pricing?.[currentUnit] || {};
+
+            for (const record of active) {
+                if (record.channel_id === currentChannel.channelId) continue;
+
+                // Calculate remaining capacity
+                const requestData = channelRequestCounts.get(record.channel_id) || { count: 0, bytes: 0 };
+                const requestCost = requestData.count * (pricing.perRequestPpk || 0);
+                const sizeCost = (requestData.bytes / 1_000_000) * (pricing.perMegabytePpk || 0);
+                const balance = Math.ceil((requestCost + sizeCost) / 1000);
+
+                const senderData = JSON.parse(record.sender_json);
+                const params = JSON.parse(senderData.channel_params.params_json);
+                const remaining = params.capacity - balance;
+
+                if (remaining > 0) {
+                    // Pre-load the full FundedChannel object for instant switching
+                    const channel = await FundedChannel.load(record.channel_id);
+                    if (channel) {
+                        alternativeChannels.push({
+                            channel,  // Full FundedChannel, ready to use
+                            remainingCapacity: remaining,
+                            capacity: params.capacity
+                        });
+                    }
+                }
+            }
+
+            // Sort by remaining capacity (most first)
+            alternativeChannels.sort((a, b) => b.remainingCapacity - a.remainingCapacity);
+
+            console.log(`[Alternatives] ${alternativeChannels.length} channel(s) available:`,
+                alternativeChannels.map(c => `${c.channel.channelId.substring(0,8)}... (${c.remainingCapacity}/${c.capacity})`));
         }
 
         // Show payment error modal (for 402 responses)
@@ -1910,6 +1961,9 @@
         // Current FundedChannel instance - null until a funded channel is ready
         let currentChannel = null;
 
+        // Pre-computed list of alternative channels for fast switching
+        let alternativeChannels = [];  // Array of { channelId, remainingCapacity, capacity }
+
         // Balance at start of current viewing session (for showing spend delta)
         let sessionStartBalance = 0;
 
@@ -2027,12 +2081,26 @@
                 payment = createPayment();
             } catch (e) {
                 if (e instanceof ChannelExhaustedError) {
-                    await handleChannelExhausted(channelId, e.balance, e.capacity);
+                    await updateChannelStatus(channelId, 'exhausted');
+
+                    if (alternativeChannels.length > 0) {
+                        // Instant switch using pre-loaded channel
+                        const alt = alternativeChannels.shift();
+                        currentChannel = alt.channel;
+                        console.log(`[Channel] Switched to ${currentChannel.channelId.substring(0,8)}...`);
+                        showToast(`Switched to channel ${currentChannel.channelId.substring(0,8)}...`, 'success');
+                        await refreshAlternativeChannels();
+                        // Retry payment with new channel
+                        payment = createPayment();
+                    } else {
+                        await handleChannelExhausted(channelId, e.balance, e.capacity);
+                        throw e;
+                    }
                 } else {
                     document.getElementById('video').pause();
                     showErrorModal({ error: e, url });
+                    throw e;
                 }
-                throw e;
             }
 
             const response = await fetch(url, {
@@ -2167,12 +2235,25 @@
                                 payment = createPayment();
                             } catch (e) {
                                 if (e instanceof ChannelExhaustedError) {
-                                    handleChannelExhausted(channelId, e.balance, e.capacity);  // fire-and-wait is fine
+                                    updateChannelStatus(channelId, 'exhausted');  // fire-and-forget
+                                    if (alternativeChannels.length > 0) {
+                                        // Instant switch using pre-loaded channel
+                                        const alt = alternativeChannels.shift();
+                                        currentChannel = alt.channel;
+                                        console.log(`[Channel] Switched to ${currentChannel.channelId.substring(0,8)}...`);
+                                        showToast(`Switched to channel ${currentChannel.channelId.substring(0,8)}...`, 'success');
+                                        refreshAlternativeChannels();  // fire-and-forget replenish
+                                        // Retry payment immediately with new channel
+                                        payment = createPayment();
+                                    } else {
+                                        handleChannelExhausted(channelId, e.balance, e.capacity);
+                                        return;
+                                    }
                                 } else {
                                     document.getElementById('video').pause();
                                     showErrorModal({ error: e, url });
+                                    return;
                                 }
-                                return;
                             }
 
                             xhr.setRequestHeader('X-Cashu-Channel', payment);
@@ -2748,6 +2829,7 @@
                     log(`Loaded selected channel: ${selectedChannelId.substring(0, 16)}...`);
                     sessionStartBalance = currentChannel.balance;
                     log(`Session start balance: ${sessionStartBalance}`);
+                    await refreshAlternativeChannels();
                 } else {
                     // Channel no longer exists, clear selection
                     log(`Selected channel not found, clearing selection`);
@@ -3042,10 +3124,11 @@
             if (currentChannel) {
                 log(`Selected channel: ${channelId.substring(0, 16)}...`);
                 updateStatus();
-                
+                await refreshAlternativeChannels();
+
                 // Update balance unit display
                 document.getElementById('balance-unit').textContent = getUnitLabel(unit);
-                
+
                 // Refresh channel list to show selection
                 await renderChannelList();
             } else {
@@ -3245,7 +3328,8 @@
             } else {
                 currentChannel = null;
             }
-            
+
+            await refreshAlternativeChannels();
             updateStatus();
             renderChannelList();
             await loadVideos();
