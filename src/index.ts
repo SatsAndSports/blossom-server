@@ -93,6 +93,21 @@ async function cron() {
 
 setTimeout(cron, 60_000);
 
+// Refresh channel keysets every 60 seconds
+let keysetRefreshCount = 0;
+async function refreshKeysets() {
+  try {
+    keysetRefreshCount++;
+    logger(`Refreshing channel keysets (refresh #${keysetRefreshCount})...`);
+    await initializeChannelKeysets();
+  } catch (error) {
+    logger("Error refreshing keysets:", error);
+  }
+  setTimeout(refreshKeysets, 60_000);
+}
+
+setTimeout(refreshKeysets, 60_000);
+
 async function shutdown() {
   logger("Saving database...");
   db.close();
