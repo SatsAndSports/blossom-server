@@ -1,0 +1,17 @@
+{
+  "name": "cdk-wasm",
+  "type": "module",
+  "description": "WASM bindings for Cashu payment channels",
+  "version": "0.14.0",
+  "license": "MIT",
+  "files": [
+    "cdk_wasm_bg.wasm",
+    "cdk_wasm.js",
+    "cdk_wasm.d.ts"
+  ],
+  "main": "cdk_wasm.js",
+  "types": "cdk_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

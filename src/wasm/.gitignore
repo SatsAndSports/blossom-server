@@ -1,4 +1,0 @@
-# WASM build artifacts - run 'make wasm-to-blossom-server' from web/ to populate
-*
-!.gitkeep
-!.gitignore
