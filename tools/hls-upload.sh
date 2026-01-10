@@ -11,14 +11,28 @@
 #   preview.jpg.txt      - preview thumbnail hash
 #   sprite-meta.json.txt - sprite metadata hash
 #
-# Uploads all files from hashed/ to Blossom, verifies hashes,
-# then registers the video with the given title.
+# Environment variables:
+#   NOSTR_PRIVATE_KEY  - Required for upload auth (64-char hex)
+#   BLOSSOM_ADMIN_PASS - Required for video registration
+#   BLOSSOM_ADMIN_USER - Optional (defaults to 'admin')
+#   BLOSSOM_CLI_PATH   - Optional path to blossom-cli binary
+#
+# Uploads all files from hashed/ to Blossom using Nostr auth,
+# verifies hashes, then registers the video with the given title.
 
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -z "$1" ] || [ -z "$2" ]; then
     echo "Usage: $0 <blossom-url> <video-title> [source]" >&2
     echo "Example: $0 http://localhost:3000 'My Cool Video' '/path/to/video.mp4'" >&2
+    exit 1
+fi
+
+if [ -z "$NOSTR_PRIVATE_KEY" ]; then
+    echo "Error: NOSTR_PRIVATE_KEY environment variable not set" >&2
+    echo "Generate one with: openssl rand -hex 32" >&2
     exit 1
 fi
 
@@ -76,8 +90,8 @@ for file in "$HASHED_DIR"/*; do
 
     expected=$(basename "$file")
 
-    # Upload and capture response
-    response=$(curl -s -X PUT --data-binary @"$file" "$SERVER/upload")
+    # Upload using blossom-upload.sh with Nostr auth
+    response=$("$SCRIPT_DIR/blossom-upload.sh" "$SERVER" "$file" 2>/dev/null)
 
     # Extract returned hash
     returned=$(echo "$response" | jq -r '.sha256')
