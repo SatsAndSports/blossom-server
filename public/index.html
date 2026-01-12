@@ -1032,6 +1032,13 @@
         #channel-status #balance-unit {
             color: #666;
         }
+        #channel-status #server-name {
+            color: #aaa;
+        }
+        #channel-status #server-name:not(:empty)::after {
+            content: " | ";
+            color: #666;
+        }
         #channel-balance-section {
             display: none;
         }
@@ -1131,11 +1138,14 @@
         <h1 style="margin:0;"><a href="/" style="color:inherit;text-decoration:none;">CashuTube</a></h1>
         <button id="manage-btn">⚙️ Manage Channels</button>
         <span id="channel-status">
-            <span class="status-label">Channel:</span> <span id="channel-id">No channel</span>
-            <span id="channel-balance-section">
-                 | <span class="status-label">Balance:</span> 
-                <span id="balance">0</span>/<span id="capacity">0</span> 
-                <span id="balance-unit">sat</span>
+            <span id="server-name"></span>
+            <span id="channel-info-section">
+                <span class="status-label">Channel:</span> <span id="channel-id">No channel</span>
+                <span id="channel-balance-section">
+                     | <span class="status-label">Balance:</span>
+                    <span id="balance">0</span>/<span id="capacity">0</span>
+                    <span id="balance-unit">sat</span>
+                </span>
             </span>
         </span>
     </div>
@@ -2946,6 +2956,22 @@
             charlie = serverInfo[currentServer];
         }
 
+        // Update server name display in header
+        function updateServerNameDisplay() {
+            const el = document.getElementById('server-name');
+            if (el && currentServer) {
+                try {
+                    const url = new URL(currentServer);
+                    const isStandardPort =
+                        (url.protocol === 'https:' && (url.port === '' || url.port === '443')) ||
+                        (url.protocol === 'http:' && (url.port === '' || url.port === '80'));
+                    el.textContent = isStandardPort ? url.hostname : `${url.hostname}:${url.port}`;
+                } catch (e) {
+                    el.textContent = currentServer;
+                }
+            }
+        }
+
         // Get first approved mint and keyset for a given server/unit
         // If server/unit not provided, uses currentServer/currentUnit globals
         function getFirstMintUnitKeyset(server = null, unit = null) {
@@ -3315,6 +3341,7 @@
 
             // Update balance unit display
             document.getElementById('balance-unit').textContent = getUnitLabel(currentUnit);
+            updateServerNameDisplay();
 
             await connectToServer();
         }
@@ -3773,6 +3800,7 @@
 
                 // Update balance unit display
                 document.getElementById('balance-unit').textContent = getUnitLabel(unit);
+                updateServerNameDisplay();
 
                 // Refresh channel list to show selection
                 await renderChannelList();
@@ -3998,7 +4026,8 @@
             currentServer = server;
             currentUnit = unit;
             document.getElementById('balance-unit').textContent = getUnitLabel(unit);
-            
+            updateServerNameDisplay();
+
             // Set charlie for new server
             setCharlieFromServerInfo();
             
