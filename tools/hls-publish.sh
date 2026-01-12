@@ -36,6 +36,12 @@ if [ -z "$BLOSSOM_ADMIN_PASS" ]; then
     exit 1
 fi
 
+if [ -z "$NOSTR_PRIVATE_KEY" ]; then
+    echo "Error: NOSTR_PRIVATE_KEY environment variable not set"
+    echo "Generate one with: openssl rand -hex 32"
+    exit 1
+fi
+
 # Check if video with this source already exists (also verifies server is online)
 echo "Checking server at $SERVER..."
 { curl -s "$SERVER/videos" | jq .videos > /dev/null; } || { echo "Error: Cannot connect to $SERVER"; exit 1; }
