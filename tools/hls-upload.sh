@@ -36,7 +36,7 @@ if [ -z "$NOSTR_PRIVATE_KEY" ]; then
     exit 1
 fi
 
-SERVER="$1"
+SERVER="${1%/}"  # Remove trailing slash if present
 TITLE="$2"
 SOURCE="$3"
 HASHED_DIR="hashed"

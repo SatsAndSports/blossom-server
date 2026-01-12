@@ -22,7 +22,7 @@ if [ -z "$1" ] || [ -z "$2" ]; then
     exit 1
 fi
 
-SERVER="$1"
+SERVER="${1%/}"  # Remove trailing slash if present
 SOURCE="$(realpath "$2")"
 TITLE="${3:-$(basename "$SOURCE")}"
 

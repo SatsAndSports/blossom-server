@@ -7,7 +7,7 @@
 #   NOSTR_PRIVATE_KEY - 64-char hex private key
 #   BLOSSOM_CLI_PATH  - path to blossom-cli binary (optional, defaults to 'blossom-cli')
 
-SERVER="$1"
+SERVER="${1%/}"  # Remove trailing slash if present
 FILE="$2"
 
 if [ -z "$SERVER" ] || [ -z "$FILE" ]; then
