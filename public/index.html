@@ -190,6 +190,11 @@
             background-size: cover;
             background-position: center;
         }
+        .video-card-progress {
+            height: 3px;
+            background: #f7931a;
+            width: 0;
+        }
         .video-card-title {
             padding: 10px;
             font-size: 14px;
@@ -2239,6 +2244,24 @@
             store.delete(masterHash);
         }
 
+        // Update all progress bars in the video list
+        async function updateProgressBars() {
+            const bars = document.querySelectorAll('.video-card-progress');
+            for (const bar of bars) {
+                const masterHash = bar.dataset.masterHash;
+                const duration = parseFloat(bar.dataset.duration);
+                if (masterHash && duration) {
+                    const position = await getVideoPosition(masterHash);
+                    if (position) {
+                        const percent = Math.min(100, (position / duration) * 100);
+                        bar.style.width = percent + '%';
+                    } else {
+                        bar.style.width = '0';
+                    }
+                }
+            }
+        }
+
         // Cleanup old positions (called on init)
         async function cleanupOldPositions() {
             if (!db) return;
@@ -3129,6 +3152,20 @@
                     const thumb = document.createElement('div');
                     thumb.className = 'video-card-thumb';
 
+                    // Progress bar showing watch progress
+                    const progressBar = document.createElement('div');
+                    progressBar.className = 'video-card-progress';
+                    progressBar.dataset.masterHash = video.master_hash;
+                    progressBar.dataset.duration = video.duration;
+                    // Query position async and update width
+                    (async () => {
+                        const position = await getVideoPosition(video.master_hash);
+                        if (position && video.duration) {
+                            const percent = Math.min(100, (position / video.duration) * 100);
+                            progressBar.style.width = percent + '%';
+                        }
+                    })();
+
                     // Load thumbnail on hover (desktop) or touch (mobile)
                     const loadThumb = async () => {
                         if (!card.dataset.thumbLoaded && video.preview_hash && currentChannel) {
@@ -3168,6 +3205,7 @@
                     meta.appendChild(views);
 
                     card.appendChild(thumb);
+                    card.appendChild(progressBar);
                     card.appendChild(title);
                     card.appendChild(meta);
 
@@ -3257,6 +3295,8 @@
                             clearInterval(spriteInterval);
                             spriteInterval = null;
                         }
+                        // Update progress bars to reflect any watched progress
+                        updateProgressBars();
                         log(`Selected: ${video.title}`);
                         // Reset session balance when starting a new video
                         if (currentChannel) {
