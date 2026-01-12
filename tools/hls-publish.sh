@@ -42,6 +42,14 @@ if [ -z "$NOSTR_PRIVATE_KEY" ]; then
     exit 1
 fi
 
+BLOSSOM_CLI="${BLOSSOM_CLI_PATH:-blossom-cli}"
+if ! command -v "$BLOSSOM_CLI" &> /dev/null; then
+    echo "Error: blossom-cli not found"
+    echo "Install it from: https://github.com/girino/blossom-cli?tab=readme-ov-file#installation"
+    echo "Or set BLOSSOM_CLI_PATH to the binary location"
+    exit 1
+fi
+
 # Check if video with this source already exists (also verifies server is online)
 echo "Checking server at $SERVER..."
 { curl -s "$SERVER/videos" | jq .videos > /dev/null; } || { echo "Error: Cannot connect to $SERVER"; exit 1; }
