@@ -4015,7 +4015,21 @@
         document.getElementById('modal-server-select').onchange = async (e) => {
             const [server, unit] = e.target.value.split('|');
             channelModalServerUnit = { server, unit };
-            
+
+            // FIRST: Stop any in-flight video requests before changing server
+            if (currentHls) {
+                currentHls.destroy();
+                currentHls = null;
+            }
+            document.getElementById('video').src = '';
+            document.getElementById('video-placeholder').classList.remove('hidden');
+            document.getElementById('video-container').classList.remove('visible');
+            currentVideoTitle = null;
+            document.getElementById('video-title').textContent = '';
+            if (window.location.hash) {
+                history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
+
             // Update capacity input UI for new unit
             updateCapacityUI(server, unit);
             
