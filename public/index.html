@@ -63,12 +63,15 @@
             margin-bottom: 20px;
             position: relative;
             display: none;
+            max-height: calc(100vh - 150px);
         }
         #video-container.visible {
             display: block;
         }
         video {
             width: 100%;
+            max-height: calc(100vh - 150px);
+            object-fit: contain;
             display: block;
         }
         #action-indicator {
