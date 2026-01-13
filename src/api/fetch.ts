@@ -453,6 +453,37 @@ export const channelUsage = {
 };
 
 // ============================================================================
+// Channel Activity Store
+// Tracks last successful payment timestamp per channel for active user counting
+// ============================================================================
+
+const channelActivityStore = new Map<string, number>(); // channel_id -> timestamp
+
+export const channelActivity = {
+  recordPayment(channelId: string): void {
+    channelActivityStore.set(channelId, Date.now());
+  },
+
+  getActiveCount(windowSeconds: number): number {
+    const cutoff = Date.now() - (windowSeconds * 1000);
+    let count = 0;
+    for (const timestamp of channelActivityStore.values()) {
+      if (timestamp >= cutoff) count++;
+    }
+    return count;
+  },
+
+  cleanup(windowSeconds: number): void {
+    const cutoff = Date.now() - (windowSeconds * 1000);
+    for (const [channelId, timestamp] of channelActivityStore) {
+      if (timestamp < cutoff) {
+        channelActivityStore.delete(channelId);
+      }
+    }
+  },
+};
+
+// ============================================================================
 // Closed Channels Store
 // Tracks channels that have been closed. We need to reject payments on closed
 // channels to prevent Alice from re-using a channel after Charlie redeemed it.
@@ -600,6 +631,7 @@ router.get("/:hash", range, async (ctx, next) => {
     if (paymentResult) {
       channelBalance.update(paymentResult.channelId, paymentResult.balance, paymentResult.signature);
       channelUsage.recordBlobServed(paymentResult.channelId, storageResult.size);
+      channelActivity.recordPayment(paymentResult.channelId);
 
       // Add payment confirmation header
       ctx.set("X-Cashu-Channel", JSON.stringify({

@@ -1049,6 +1049,13 @@
         #channel-balance-section.visible {
             display: inline;
         }
+        #active-viewers {
+            color: #888;
+            font-size: 14px;
+        }
+        #viewer-count {
+            color: #4CAF50;
+        }
         /* Onboarding tooltips */
         .onboarding-overlay {
             position: fixed;
@@ -1152,6 +1159,7 @@
                 </span>
             </span>
         </span>
+        <span id="active-viewers"><span id="viewer-count">-</span> active</span>
     </div>
 
     <div id="main-content">
@@ -4601,6 +4609,26 @@
                 indicator.className = '';
             });
         })();
+
+        // Poll active channel count every 5 seconds
+        async function updateActiveViewers() {
+            try {
+                const response = await fetch('/channel/stats?window=10');
+                if (response.ok) {
+                    const data = await response.json();
+                    const countEl = document.getElementById('viewer-count');
+                    if (countEl) {
+                        countEl.textContent = data.active_channels;
+                    }
+                }
+            } catch (e) {
+                // Silently ignore errors
+            }
+        }
+
+        // Start polling on page load
+        updateActiveViewers();
+        setInterval(updateActiveViewers, 5000);
 
     </script>
 </body>

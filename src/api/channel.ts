@@ -11,6 +11,7 @@ import {
   channelFunding,
   channelUsage,
   channelClosed,
+  channelActivity,
 } from "./fetch.js";
 import { create_close_swap_request, unblind_and_verify_dleq } from "../wasm/cdk_wasm.js";
 import { validatePaymentFields } from "../helpers/payment-validation.js";
@@ -436,5 +437,19 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     total_value: actualTotal,
     sender_proofs: unblindResult.sender_proofs,
     already_closed: false,
+  };
+});
+
+router.get("/channel/stats", async (ctx) => {
+  if (!config.channel?.enabled) {
+    ctx.status = 404;
+    ctx.body = { error: "Channel payments not enabled" };
+    return;
+  }
+
+  const windowSeconds = parseInt(ctx.query.window as string) || 300; // default 5 min
+  ctx.body = {
+    active_channels: channelActivity.getActiveCount(windowSeconds),
+    window_seconds: windowSeconds,
   };
 });
