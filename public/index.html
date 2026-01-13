@@ -16,10 +16,16 @@
             padding: 20px;
             background: #1a1a1a;
             color: #e0e0e0;
+            overflow: auto;
+        }
+        #header-bar {
+            background: #1a1a1a;
+            padding: 10px 0;
         }
         #main-content {
             display: flex;
             gap: 20px;
+            height: calc(100vh - 80px);
         }
         #left-column {
             flex: 1;
@@ -28,6 +34,7 @@
         #right-column {
             width: 320px;
             flex-shrink: 0;
+            overflow-y: auto;
         }
         h1 {
             color: #f7931a;
@@ -63,14 +70,14 @@
             margin-bottom: 20px;
             position: relative;
             display: none;
-            max-height: calc(100vh - 150px);
+            max-height: calc(100vh - 200px);
         }
         #video-container.visible {
             display: block;
         }
         video {
             width: 100%;
-            max-height: calc(100vh - 150px);
+            max-height: calc(100vh - 200px);
             object-fit: contain;
             display: block;
         }
@@ -1167,7 +1174,7 @@
     </style>
 </head>
 <body>
-    <div style="display:flex;align-items:center;gap:20px;margin-bottom:10px;">
+    <div id="header-bar" style="display:flex;align-items:center;gap:20px;margin-bottom:10px;">
         <h1 style="margin:0;"><a href="/" style="color:inherit;text-decoration:none;">CashuTube</a></h1>
         <button id="manage-btn">⚙️ Manage Channels</button>
         <span id="channel-status">
