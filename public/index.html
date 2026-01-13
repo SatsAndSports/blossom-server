@@ -4576,6 +4576,11 @@
                 indicator.innerHTML = `<div class="skip-icon">${seconds > 0 ? '+' : ''}${seconds}s</div>`;
             }
 
+            // Double-tap detection for YouTube-style controls
+            let lastTapTime = 0;
+            let lastTapX = 0;
+            let tapTimeout = null;
+
             function handleTap(e) {
                 // Ignore taps on control elements
                 if (e.target.closest('#video-controls')) return;
@@ -4583,24 +4588,44 @@
                 const rect = video.getBoundingClientRect();
                 const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX;
                 if (clientX === undefined) return;
+
+                const now = Date.now();
                 const x = clientX - rect.left;
                 const width = rect.width;
+                const isLeftHalf = x < width / 2;
 
-                if (x < width / 3) {
-                    // Left third - skip back
-                    video.currentTime = Math.max(0, video.currentTime - 10);
-                    showSkipIndicator('left', -10);
-                } else if (x > width * 2 / 3) {
-                    // Right third - skip forward
-                    video.currentTime = Math.min(video.duration, video.currentTime + 10);
-                    showSkipIndicator('right', 10);
-                } else {
-                    // Center - toggle play/pause
-                    if (video.paused) {
-                        video.play();
-                    } else {
-                        video.pause();
+                // Check for double-tap (within 300ms, same half of screen)
+                const isDoubleTap = (now - lastTapTime) < 300 &&
+                                    ((lastTapX < width / 2) === isLeftHalf);
+
+                lastTapTime = now;
+                lastTapX = x;
+
+                if (isDoubleTap) {
+                    // Cancel pending single-tap action
+                    if (tapTimeout) {
+                        clearTimeout(tapTimeout);
+                        tapTimeout = null;
                     }
+
+                    // Double-tap: skip
+                    if (isLeftHalf) {
+                        video.currentTime = Math.max(0, video.currentTime - 10);
+                        showSkipIndicator('left', -10);
+                    } else {
+                        video.currentTime = Math.min(video.duration, video.currentTime + 10);
+                        showSkipIndicator('right', 10);
+                    }
+                } else {
+                    // Delay single-tap to wait for potential double-tap
+                    tapTimeout = setTimeout(() => {
+                        if (video.paused) {
+                            video.play();
+                        } else {
+                            video.pause();
+                        }
+                        tapTimeout = null;
+                    }, 300);
                 }
             }
 
