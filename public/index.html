@@ -75,17 +75,18 @@
         }
         #video-container.popout {
             position: fixed;
-            top: 10px;
+            top: 60px;
             left: 10px;
             max-height: 30vh;
+            max-width: 40vw;
             width: auto;
-            max-width: calc(100vw - 20px);
             z-index: 300;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             border-radius: 8px;
         }
         #video-container.popout video {
             max-height: 30vh;
+            max-width: 40vw;
         }
         #video-container.popout #video-title,
         #video-container.popout #payment-indicator {
@@ -1202,7 +1203,7 @@
 </head>
 <body>
     <div id="header-bar" style="display:flex;align-items:center;gap:20px;margin-bottom:10px;">
-        <h1 style="margin:0;"><a href="/" style="color:inherit;text-decoration:none;">CashuTube</a></h1>
+        <h1 id="logo" style="margin:0;"><a href="/" style="color:inherit;text-decoration:none;">CashuTube</a></h1>
         <button id="manage-btn">⚙️ Manage Channels</button>
         <span id="channel-status">
             <span id="server-name"></span>
@@ -4727,31 +4728,38 @@
 
         // Video popout mini-player when scrolling
         (function() {
-            const header = document.getElementById('header-bar');
+            const logo = document.getElementById('logo');
             const videoContainer = document.getElementById('video-container');
             const placeholder = document.getElementById('video-popout-placeholder');
 
-            // Observer watches the header - when header leaves view, pop out video
-            const headerObserver = new IntersectionObserver((entries) => {
+            // Observer watches the logo - when logo starts to leave view, pop out video
+            const logoObserver = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
+                    console.log('[Popout] Logo intersection ratio:', entry.intersectionRatio,
+                                'isIntersecting:', entry.isIntersecting,
+                                'video visible:', videoContainer.classList.contains('visible'));
+
                     // Only pop out if video is visible (playing or loaded)
                     if (!videoContainer.classList.contains('visible')) return;
 
                     if (!entry.isIntersecting) {
-                        // Header scrolled out of view - pop out video
+                        console.log('[Popout] Activating popout');
+                        // Logo no longer fully visible - pop out video
                         videoContainer.classList.add('popout');
                         placeholder.classList.add('active');
                     } else {
-                        // Header back in view - restore video
+                        console.log('[Popout] Deactivating popout');
+                        // Logo fully visible again - restore video
                         videoContainer.classList.remove('popout');
                         placeholder.classList.remove('active');
                     }
                 });
             }, {
-                threshold: 0  // Trigger when header starts to leave viewport
+                threshold: 1.0  // isIntersecting becomes false when logo is no longer 100% visible
             });
 
-            headerObserver.observe(header);
+            console.log('[Popout] Observer attached to logo:', logo);
+            logoObserver.observe(logo);
         })();
 
     </script>
