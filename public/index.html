@@ -2787,9 +2787,9 @@
 
             if (Hls.isSupported()) {
                 const hls = new Hls({
-                    // Limit buffer to ~5 seconds to avoid paying for unwatched video
-                    maxBufferLength: 5,
-                    maxMaxBufferLength: 8,
+                    // Buffer settings: balance between smooth playback and not paying for unwatched video
+                    maxBufferLength: 15,
+                    maxMaxBufferLength: 30,
                     xhrSetup: function(xhr, url) {
                         // Add payment header for hash-based blob requests
                         if (isHashUrl(url)) {
