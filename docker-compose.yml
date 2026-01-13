@@ -19,5 +19,7 @@ services:
       - data:/app/data
       # mount config file
       - ./config.yml:/app/config.yml
-      # mount custom www dir
-      - ./public:/app/public
+      # mount custom www dir. On the production server, we do
+      # NOT mount this as we use the 'public' folder built into
+      # the image instead
+      #- ./public:/app/public
