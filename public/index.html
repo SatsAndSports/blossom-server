@@ -398,6 +398,24 @@
                 min-width: auto;
                 font-size: 11px;
             }
+            /* Portrait mobile: full-width layout */
+            #left-column {
+                width: 100%;
+            }
+            #video-container, video {
+                width: 100%;
+            }
+            #video-list {
+                flex-direction: column;
+            }
+            .video-card {
+                width: 100%;
+            }
+            .video-card-thumb {
+                width: 100%;
+                height: auto;
+                aspect-ratio: 16/9;
+            }
         }
         @media (max-width: 900px) {
             #main-content {
