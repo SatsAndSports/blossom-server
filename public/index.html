@@ -4636,6 +4636,8 @@
             // Use touchend on touch devices, click on desktop
             // Once a touch is detected, disable click handling permanently
             let useTouchEvents = false;
+            let touchStartX = 0;
+            let touchStartY = 0;
 
             // Listen on container only (events bubble up from video)
             const container = document.getElementById('video-container');
@@ -4644,10 +4646,21 @@
                     handleTap(e);
                 }
             });
-            container.addEventListener('touchend', (e) => {
+            container.addEventListener('touchstart', (e) => {
                 useTouchEvents = true;
+                const touch = e.touches[0];
+                touchStartX = touch.clientX;
+                touchStartY = touch.clientY;
+            }, { passive: true });
+            container.addEventListener('touchend', (e) => {
                 if (e.target === video || e.target === container) {
-                    handleTap(e);
+                    const touch = e.changedTouches[0];
+                    const dx = Math.abs(touch.clientX - touchStartX);
+                    const dy = Math.abs(touch.clientY - touchStartY);
+                    // Only treat as tap if movement was minimal (not a scroll)
+                    if (dx < 15 && dy < 15) {
+                        handleTap(e);
+                    }
                 }
             });
 
