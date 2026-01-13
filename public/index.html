@@ -96,6 +96,16 @@
             max-height: 30vh;
             max-width: 40vw;
         }
+        @media (max-width: 900px) {
+            #video-container.popout {
+                max-height: 66vh;
+                max-width: 66vw;
+            }
+            #video-container.popout video {
+                max-height: 66vh;
+                max-width: 66vw;
+            }
+        }
         #video-container.popout #video-title,
         #video-container.popout #payment-indicator {
             display: none;
@@ -287,6 +297,24 @@
         }
         #log .error {
             color: #e55;
+        }
+        #log-section {
+            margin-top: 20px;
+        }
+        #log-toggle {
+            cursor: pointer;
+            user-select: none;
+            margin: 0;
+        }
+        #log-arrow {
+            display: inline-block;
+            transition: transform 0.2s;
+        }
+        #log-section.expanded #log-arrow {
+            transform: rotate(90deg);
+        }
+        #log.collapsed {
+            display: none;
         }
         /* Custom Video Controls */
         #video-controls {
@@ -1295,9 +1323,6 @@
                     </div>
                 </div>
             </div>
-
-            <h3>Log</h3>
-            <div id="log"></div>
         </div>
 
         <div id="right-column">
@@ -1305,6 +1330,11 @@
                 <em>Loading videos...</em>
             </div>
         </div>
+    </div>
+
+    <div id="log-section">
+        <h3 id="log-toggle"><span id="log-arrow">▶</span> Log</h3>
+        <div id="log" class="collapsed"></div>
     </div>
 
     <div id="toast"></div>
@@ -4769,6 +4799,14 @@
             console.log('[Popout] Observer attached to logo:', logo);
             logoObserver.observe(logo);
         })();
+
+        // Collapsible Log toggle
+        document.getElementById('log-toggle').addEventListener('click', function() {
+            const section = document.getElementById('log-section');
+            const log = document.getElementById('log');
+            section.classList.toggle('expanded');
+            log.classList.toggle('collapsed');
+        });
 
     </script>
 </body>
