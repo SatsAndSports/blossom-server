@@ -5,7 +5,7 @@ volumes:
 
 services:
   blossom:
-    image: ghcr.io/hzrd149/blossom-server:master
+    image: cashutube
     build: .
     ports:
       - 3000:3000
