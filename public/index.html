@@ -2297,6 +2297,12 @@
         // channelId: the channel ID for bytes correction
         // getHeader: function that takes header name and returns value (works with both fetch Response and XHR)
         function handlePaymentResponse(channelId, getHeader) {
+            // Log nginx cache status
+            const cacheStatus = getHeader('X-Cache-Status');
+            if (cacheStatus) {
+                console.log(`[Nginx] ${cacheStatus}`);
+            }
+
             const channelHeader = getHeader('X-Cashu-Channel');
             if (!channelHeader) return null;
 
