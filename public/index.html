@@ -3988,7 +3988,10 @@
             // Now do validation - all errors go to invoice modal
             if (!channelModalServerUnit) {
                 invoiceLog('Please select a server first', 'error');
-                backBtn.disabled = false;  // Allow dismissing
+                backBtn.disabled = false;
+                doneBtn.disabled = true;
+                await new Promise(resolve => { invoiceContinueResolve = resolve; });
+                invoiceModal.classList.remove('visible');
                 return;
             }
 
@@ -4002,6 +4005,9 @@
             if (isNaN(capacity) || capacity < 1) {
                 invoiceLog('Invalid capacity value', 'error');
                 backBtn.disabled = false;
+                doneBtn.disabled = true;
+                await new Promise(resolve => { invoiceContinueResolve = resolve; });
+                invoiceModal.classList.remove('visible');
                 return;
             }
 
@@ -4014,6 +4020,9 @@
             if (capacity < minCapacity) {
                 invoiceLog(`Capacity must be at least ${minCapacity} ${unit}`, 'error');
                 backBtn.disabled = false;
+                doneBtn.disabled = true;
+                await new Promise(resolve => { invoiceContinueResolve = resolve; });
+                invoiceModal.classList.remove('visible');
                 return;
             }
 
@@ -4021,6 +4030,9 @@
             if (expirySeconds < minExpiryInSeconds) {
                 invoiceLog(`Expiry must be at least ${minExpiryInSeconds} seconds`, 'error');
                 backBtn.disabled = false;
+                doneBtn.disabled = true;
+                await new Promise(resolve => { invoiceContinueResolve = resolve; });
+                invoiceModal.classList.remove('visible');
                 return;
             }
 
