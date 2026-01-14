@@ -89,7 +89,7 @@ fi
 
 echo "Encoding qualities: ${QUALITIES[*]}" >&2
 
-SEGMENT_DURATION=1
+SEGMENT_DURATION=6
 
 # Build a mapping of segment files to their hashes
 declare -A SEG_TO_HASH
@@ -122,7 +122,7 @@ for quality in "${QUALITIES[@]}"; do
     ffmpeg -i "$SOURCE" -y \
         -vf "scale=-2:$HEIGHT,format=yuv420p" \
         -c:v libx264 -profile:v high -level 4.1 -b:v "$BITRATE" \
-        -g 30 -keyint_min 30 \
+        -g 180 -keyint_min 180 \
         -c:a aac -b:a 128k \
         -f hls \
         -hls_time "$SEGMENT_DURATION" \
