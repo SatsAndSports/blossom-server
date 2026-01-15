@@ -2665,7 +2665,12 @@
             return div.innerHTML;
         }
 
+        let logPayments = false;
+
         function log(msg, type = 'info') {
+            if (type === 'payment' && !logPayments) {
+                return;
+            }
             const logDiv = document.getElementById('log');
             const time = new Date().toLocaleTimeString();
             const entry = document.createElement('div');
@@ -2744,7 +2749,7 @@
             const payment = currentChannel.createPayment();
             const ch = currentChannel;
             const unit = getUnitLabel(ch.params.unit);
-            console.log(`[Payment] #${ch.requestCount} | ${formatBytes(ch.trackedBytes)} | bal: ${ch.balance}/${ch.params.capacity} ${unit} | chan: ${ch.channelId.substring(0, 8)}...`);
+            // console.log(`[Payment] #${ch.requestCount} | ${formatBytes(ch.trackedBytes)} | bal: ${ch.balance}/${ch.params.capacity} ${unit} | chan: ${ch.channelId.substring(0, 8)}...`);
             updateStatus();
             return payment;
         }
@@ -4536,7 +4541,6 @@
                 }
             };
 
-
             // Format time as M:SS or H:MM:SS
             function formatTime(seconds) {
                 if (isNaN(seconds)) return '0:00';
@@ -4571,10 +4575,14 @@
             }
 
             const controlsVisible = () => controls.classList.contains('visible');
+            const tapDelayMs = 300;
+            let controlsUnlockAt = 0;
+
+            const controlsUnlocked = () => performance.now() >= controlsUnlockAt;
 
             // Play/Pause
             playBtn.onclick = () => {
-                if (!controlsVisible()) return;
+                if (!controlsVisible() || !controlsUnlocked()) return;
                 if (video.paused) {
                     video.play();
                 } else {
@@ -4609,7 +4617,7 @@
             // Seek on progress bar click/drag
 
             function seekTo(e) {
-                if (!controlsEnabled) return;
+                if (!controlsEnabled || !controlsUnlocked()) return;
                 const rect = progressContainer.getBoundingClientRect();
                 const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
                 const percent = Math.max(0, Math.min(1, x / rect.width));
@@ -4726,13 +4734,13 @@
 
             // Volume
             muteBtn.onclick = () => {
-                if (!controlsVisible()) return;
+                if (!controlsVisible() || !controlsUnlocked()) return;
                 video.muted = !video.muted;
                 muteBtn.textContent = video.muted ? '🔇' : '🔊';
             };
 
             volumeSlider.oninput = () => {
-                if (!controlsVisible()) return;
+                if (!controlsVisible() || !controlsUnlocked()) return;
                 video.volume = volumeSlider.value;
                 video.muted = false;
                 muteBtn.textContent = video.volume == 0 ? '🔇' : '🔊';
@@ -4745,13 +4753,13 @@
 
             // Playback speed
             speedSelect.onchange = () => {
-                if (!controlsVisible()) return;
+                if (!controlsVisible() || !controlsUnlocked()) return;
                 video.playbackRate = parseFloat(speedSelect.value);
             };
 
             // Fullscreen
             fullscreenBtn.onclick = () => {
-                if (!controlsVisible()) return;
+                if (!controlsVisible() || !controlsUnlocked()) return;
                 if (document.fullscreenElement) {
                     document.exitFullscreen();
                 } else {
@@ -4768,6 +4776,17 @@
             const videoTitle = document.getElementById('video-title');
             let hideTimeout = null;
 
+            const guardHiddenControls = (e) => {
+                if (!controlsVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showOverlays();
+                }
+            };
+
+            controls.addEventListener('click', guardHiddenControls, true);
+            controls.addEventListener('touchend', guardHiddenControls, true);
+
             function updatePaymentIndicator() {
                 if (typeof currentChannel !== 'undefined' && currentChannel) {
                     const balance = currentChannel.balance;
@@ -4779,9 +4798,13 @@
 
             function showOverlays() {
                 updatePaymentIndicator();
+                const wasVisible = controlsVisible();
                 controls.classList.add('visible');
                 paymentIndicator.classList.add('visible');
                 videoTitle.classList.add('visible');
+                if (!wasVisible) {
+                    controlsUnlockAt = performance.now() + tapDelayMs;
+                }
                 setControlsEnabled(true);
                 clearTimeout(hideTimeout);
                 hideTimeout = setTimeout(() => {
@@ -4879,14 +4902,15 @@
             }
 
             // Double-tap detection for YouTube-style controls
-            const tapDelayMs = 300;
             let lastTapTime = 0;
             let lastTapX = 0;
             let tapTimeout = null;
 
             function handleTap(e) {
                 // Ignore taps on control elements
-                if (e.target.closest('#video-controls')) return;
+                if (e.target.closest('#video-controls')) {
+                    return;
+                }
 
                 const rect = video.getBoundingClientRect();
                 const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX;
@@ -4956,7 +4980,7 @@
 
             // Listen on container only (events bubble up from video)
             container.addEventListener('click', (e) => {
-                if (!useTouchEvents && (e.target === video || e.target === container)) {
+                if (!useTouchEvents) {
                     handleTap(e);
                 }
             });
@@ -4967,14 +4991,12 @@
                 touchStartY = touch.clientY;
             }, { passive: true });
             container.addEventListener('touchend', (e) => {
-                if (e.target === video || e.target === container) {
-                    const touch = e.changedTouches[0];
-                    const dx = Math.abs(touch.clientX - touchStartX);
-                    const dy = Math.abs(touch.clientY - touchStartY);
-                    // Only treat as tap if movement was minimal (not a scroll)
-                    if (dx < 15 && dy < 15) {
-                        handleTap(e);
-                    }
+                const touch = e.changedTouches[0];
+                const dx = Math.abs(touch.clientX - touchStartX);
+                const dy = Math.abs(touch.clientY - touchStartY);
+                // Only treat as tap if movement was minimal (not a scroll)
+                if (dx < 15 && dy < 15) {
+                    handleTap(e);
                 }
             });
 
@@ -5082,6 +5104,7 @@
                     setLogVisible(toggle.checked);
                 });
             }
+
         }
 
         function registerServiceWorker() {
