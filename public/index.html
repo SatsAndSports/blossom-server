@@ -4622,8 +4622,6 @@
             }
 
             container.addEventListener('mousemove', showOverlays);
-            container.addEventListener('touchstart', showOverlays);
-            container.addEventListener('click', showOverlays);
             video.addEventListener('pause', showOverlays);
             video.addEventListener('play', showOverlays);
 
@@ -4680,12 +4678,9 @@
                     }
                 }
             });
-        })();
 
-        // Action indicator (brief pause/play feedback like YouTube)
-        // Also used for skip feedback
-        (function() {
-            const video = document.getElementById('video');
+            // Action indicator (brief pause/play feedback like YouTube)
+            // Also used for skip feedback
             const indicator = document.getElementById('action-indicator');
 
             function showIndicator(type) {
@@ -4713,6 +4708,7 @@
             }
 
             // Double-tap detection for YouTube-style controls
+            const tapDelayMs = 300;
             let lastTapTime = 0;
             let lastTapX = 0;
             let tapTimeout = null;
@@ -4725,13 +4721,16 @@
                 const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX;
                 if (clientX === undefined) return;
 
+                const overlaysVisible = controls.classList.contains('visible');
                 const now = Date.now();
                 const x = clientX - rect.left;
                 const width = rect.width;
+                const third = width / 3;
+                const zone = x < third ? 'left' : x > (third * 2) ? 'right' : 'middle';
                 const isLeftHalf = x < width / 2;
 
-                // Check for double-tap (within 300ms, same half of screen)
-                const isDoubleTap = (now - lastTapTime) < 300 &&
+                // Check for double-tap (within tapDelayMs, same half of screen)
+                const isDoubleTap = (now - lastTapTime) < tapDelayMs &&
                                     ((lastTapX < width / 2) === isLeftHalf);
 
                 lastTapTime = now;
@@ -4744,24 +4743,37 @@
                         tapTimeout = null;
                     }
 
-                    // Double-tap: skip
-                    if (isLeftHalf) {
+                    showOverlays();
+
+                    if (zone === 'left') {
                         video.currentTime = Math.max(0, video.currentTime - 10);
                         showSkipIndicator('left', -10);
-                    } else {
+                    } else if (zone === 'right') {
                         video.currentTime = Math.min(video.duration, video.currentTime + 10);
                         showSkipIndicator('right', 10);
-                    }
-                } else {
-                    // Delay single-tap to wait for potential double-tap
-                    tapTimeout = setTimeout(() => {
+                    } else {
                         if (video.paused) {
                             video.play();
                         } else {
                             video.pause();
                         }
-                        tapTimeout = null;
-                    }, 300);
+                    }
+                } else {
+                    showOverlays();
+
+                    if (overlaysVisible) {
+                        if (tapTimeout) {
+                            clearTimeout(tapTimeout);
+                        }
+                        tapTimeout = setTimeout(() => {
+                            if (video.paused) {
+                                video.play();
+                            } else {
+                                video.pause();
+                            }
+                            tapTimeout = null;
+                        }, tapDelayMs);
+                    }
                 }
             }
 
@@ -4772,7 +4784,6 @@
             let touchStartY = 0;
 
             // Listen on container only (events bubble up from video)
-            const container = document.getElementById('video-container');
             container.addEventListener('click', (e) => {
                 if (!useTouchEvents && (e.target === video || e.target === container)) {
                     handleTap(e);
