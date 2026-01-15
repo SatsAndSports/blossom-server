@@ -1570,20 +1570,15 @@
             }
         }
 
-        // Select new channel if none selected, otherwise add to alternatives
-        async function selectNewChannelOrAddAsAlternative(channel, server, unit, capacity) {
+        // Select new channel if none selected, otherwise refresh alternatives
+        async function selectNewChannelOrAddAsAlternative(channel, server, unit) {
             if (!currentChannel) {
                 await setCurrentChannel(channel);
                 return true;  // selected
-            } else {
-                alternativeChannels.push({
-                    channel: channel,
-                    remainingCapacity: capacity,
-                    capacity: capacity
-                });
-                logAlternativesList();
-                return false;  // added as alternative
             }
+
+            await refreshAlternativeChannels();
+            return false;  // added as alternative
         }
 
         // Show payment error modal (for 402 responses)
@@ -1990,8 +1985,7 @@
                     // Add reopened channel to current or alternatives
                     const channel = await FundedChannel.load(channelId);
                     if (channel) {
-                        const remaining = status.capacity - status.amount_due;
-                        await selectNewChannelOrAddAsAlternative(channel, channelModalServerUnit.server, channelModalServerUnit.unit, remaining);
+                        await selectNewChannelOrAddAsAlternative(channel, channelModalServerUnit.server, channelModalServerUnit.unit);
                     }
                 }
                 
@@ -4149,7 +4143,7 @@
                 await newChannel.save();
 
                 // If no channel selected, select this one; otherwise add to alternatives
-                const wasSelected = await selectNewChannelOrAddAsAlternative(newChannel, server, unit, capacity);
+                const wasSelected = await selectNewChannelOrAddAsAlternative(newChannel, server, unit);
                 if (wasSelected) {
                     invoiceLog(`Channel selected`, 'success');
                 }
