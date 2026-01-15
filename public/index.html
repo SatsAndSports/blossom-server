@@ -4868,12 +4868,20 @@
             if (!videoList || !videoContainer) return;
 
             const isStacked = window.matchMedia('(max-width: 900px)').matches;
-            const playerHeight = videoContainer.getBoundingClientRect().height;
+            const rect = videoContainer.getBoundingClientRect();
+            const playerHeight = rect.height;
 
             if (!playerHeight) return;
 
-            const multiplier = isStacked ? 0.5 : 2;
-            videoList.style.maxHeight = `${Math.round(playerHeight * multiplier)}px`;
+            if (isStacked) {
+                const videoMiddle = rect.top + rect.height / 2;
+                const maxHeight = Math.max(220, window.innerHeight - videoMiddle);
+                videoList.style.maxHeight = `${Math.round(maxHeight)}px`;
+                return;
+            }
+
+            const maxHeight = Math.max(220, window.innerHeight - rect.top);
+            videoList.style.maxHeight = `${Math.round(maxHeight)}px`;
         }
 
         const LOG_VISIBILITY_KEY = 'cashutube_log_visible';
