@@ -2866,6 +2866,11 @@
 
         // Cached video list from last /videos load
         let cachedVideosList = [];
+        const spriteAnimationStops = new Set();
+
+        function stopAllSpriteAnimations() {
+            spriteAnimationStops.forEach((stop) => stop());
+        }
 
         // Update quality selector with current level
         function updateQualityLabel(levelIndex) {
@@ -2902,6 +2907,7 @@
             document.getElementById('video-placeholder').classList.add('hidden');
             document.getElementById('video-container').classList.add('visible');
             updateVideoListMaxHeight();
+            stopAllSpriteAnimations();
             requestAnimationFrame(() => requestAnimationFrame(scrollVideoIntoViewIfNeeded));
 
             // Extract master hash from URL for sharing
@@ -3404,6 +3410,24 @@
                     let spriteUrl = null;
                     let thumbUrl = null; // Cache the thumbnail URL for restoring
 
+                    const stopSpriteAnimation = () => {
+                        if (spriteInterval) {
+                            clearInterval(spriteInterval);
+                            spriteInterval = null;
+                        }
+                        // Restore preview image (use cached URL if available)
+                        if (card.dataset.thumbLoaded && video.preview_hash) {
+                            const cachedUrl = blobUrlCache.get(video.preview_hash);
+                            if (cachedUrl) {
+                                thumb.style.backgroundImage = `url(${cachedUrl})`;
+                            }
+                            thumb.style.backgroundSize = 'cover';
+                            thumb.style.backgroundPosition = 'center';
+                        }
+                    };
+
+                    spriteAnimationStops.add(stopSpriteAnimation);
+
                     card.onmouseenter = async () => {
                         if (!video.sprite_meta_hash || spriteInterval || !currentChannel) return;
 
@@ -3448,27 +3472,12 @@
                     };
 
                     card.onmouseleave = () => {
-                        if (spriteInterval) {
-                            clearInterval(spriteInterval);
-                            spriteInterval = null;
-                        }
-                        // Restore preview image (use cached URL if available)
-                        if (card.dataset.thumbLoaded && video.preview_hash) {
-                            const cachedUrl = blobUrlCache.get(video.preview_hash);
-                            if (cachedUrl) {
-                                thumb.style.backgroundImage = `url(${cachedUrl})`;
-                            }
-                            thumb.style.backgroundSize = 'cover';
-                            thumb.style.backgroundPosition = 'center';
-                        }
+                        stopSpriteAnimation();
                     };
 
                     card.onclick = () => {
                         // Stop sprite animation if running
-                        if (spriteInterval) {
-                            clearInterval(spriteInterval);
-                            spriteInterval = null;
-                        }
+                        stopSpriteAnimation();
                         // Update progress bars to reflect any watched progress
                         updateProgressBars();
                         log(`Selected: ${video.title}`);
