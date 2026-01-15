@@ -2878,6 +2878,21 @@
             }
         }
 
+        function scrollVideoIntoViewIfNeeded() {
+            const videoContainer = document.getElementById('video-container');
+            if (!videoContainer || !videoContainer.classList.contains('visible')) return;
+
+            const rect = videoContainer.getBoundingClientRect();
+            const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+            const fullyVisible = rect.top >= 0 && rect.bottom <= viewportHeight;
+            if (fullyVisible) return;
+
+            window.scrollTo({
+                top: rect.top + window.scrollY,
+                behavior: 'smooth'
+            });
+        }
+
         // Initialize HLS player with payment injection
         function playVideo(manifestUrl, startTime = null, spriteMetaHash = null, title = null) {
             const video = document.getElementById('video');
@@ -2887,6 +2902,7 @@
             document.getElementById('video-placeholder').classList.add('hidden');
             document.getElementById('video-container').classList.add('visible');
             updateVideoListMaxHeight();
+            requestAnimationFrame(() => requestAnimationFrame(scrollVideoIntoViewIfNeeded));
 
             // Extract master hash from URL for sharing
             const hashMatch = manifestUrl.match(/([0-9a-f]{64})/);
