@@ -943,8 +943,21 @@
         }
         .modal-actions {
             display: flex;
+            justify-content: space-between;
             gap: 10px;
+            margin-top: 20px;
         }
+        .modal-actions-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #aaa;
+            font-size: 13px;
+        }
+        .modal-actions-left input {
+            accent-color: #f7931a;
+        }
+
         .modal-actions button {
             background: #f7931a;
             color: #000;
@@ -1308,8 +1321,8 @@
         </div>
     </div>
 
-    <div id="log-section">
-        <h3 id="log-toggle"><span id="log-arrow">▶</span> Log</h3>
+    <div id="log-section" style="display: none;">
+        <h3>Log</h3>
         <div id="log" class="collapsed"></div>
     </div>
 
@@ -1383,6 +1396,10 @@
                 <button id="create-channel-btn">Create Channel</button>
             </div>
             <div class="modal-actions">
+                <label class="modal-actions-left">
+                    <input type="checkbox" id="show-log-toggle">
+                    Show Log
+                </label>
                 <button id="close-channel-modal-btn" class="secondary">Close</button>
             </div>
         </div>
@@ -4859,13 +4876,32 @@
             videoList.style.maxHeight = `${Math.round(playerHeight * multiplier)}px`;
         }
 
-        // Collapsible Log toggle
-        document.getElementById('log-toggle').addEventListener('click', function() {
+        const LOG_VISIBILITY_KEY = 'cashutube_log_visible';
+
+        function setLogVisible(visible) {
             const section = document.getElementById('log-section');
             const log = document.getElementById('log');
-            section.classList.toggle('expanded');
-            log.classList.toggle('collapsed');
-        });
+            if (!section || !log) return;
+            section.style.display = visible ? 'block' : 'none';
+            log.classList.toggle('collapsed', !visible);
+            localStorage.setItem(LOG_VISIBILITY_KEY, visible ? 'true' : 'false');
+        }
+
+        function initializeLogVisibility() {
+            const stored = localStorage.getItem(LOG_VISIBILITY_KEY);
+            const visible = stored === 'true';
+            setLogVisible(visible);
+
+            const toggle = document.getElementById('show-log-toggle');
+            if (toggle) {
+                toggle.checked = visible;
+                toggle.addEventListener('change', () => {
+                    setLogVisible(toggle.checked);
+                });
+            }
+        }
+
+        initializeLogVisibility();
 
     </script>
 </body>
