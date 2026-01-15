@@ -3855,7 +3855,7 @@
                 const selectedId = getSelectedChannelId(channelModalServerUnit.server, channelModalServerUnit.unit);
                 if (!selectedId) {
                     // Don't allow closing without a selection
-                    modalLog('Please select a channel before closing', 'error');
+                    modalLog('Please select a channel or change server before closing', 'error');
                     return;
                 }
             }
@@ -4304,6 +4304,7 @@
             // Update globals
             currentServer = server;
             currentUnit = unit;
+            localStorage.setItem('cashutube_server_unit', `${server}|${unit}`);
             document.getElementById('balance-unit').textContent = getUnitLabel(unit);
             updateServerNameDisplay();
 
@@ -4322,6 +4323,12 @@
                 }
             } else {
                 await setCurrentChannel(null);
+            }
+
+            if (currentChannel) {
+                showToast(`Channel ${currentChannel.channelId.substring(0, 8)}...`, 'success');
+            } else {
+                showToast('Channel selection cleared', 'success');
             }
 
             updateStatus();
