@@ -2682,6 +2682,24 @@
             return { masterHash, startTime };
         }
 
+        function playVideoFromHash(videos, options = {}) {
+            if (!videos || videos.length === 0) return false;
+
+            const { allowWhenModalOpen = false } = options;
+            const modalOpen = document.getElementById('channel-modal').classList.contains('visible');
+            if (modalOpen && !allowWhenModalOpen) return false;
+
+            const { masterHash, startTime } = parseUrlHash();
+            if (!masterHash) return false;
+
+            const matchingVideo = videos.find(v => v.master_hash === masterHash);
+            const spriteMetaHash = matchingVideo?.sprite_meta_hash || null;
+            const videoTitle = matchingVideo?.title || null;
+            log(`Auto-playing from URL: ${masterHash.substring(0, 8)}...` + (startTime ? ` @ ${startTime}s` : ''));
+            playVideo(currentServer + '/' + masterHash, startTime, spriteMetaHash, videoTitle);
+            return true;
+        }
+
         // Create payment header (sync, persistence happens in background)
         function createPayment() {
             const payment = currentChannel.createPayment();
@@ -2821,6 +2839,9 @@
         // Global max blob size across all videos (for payment calculation)
         // Set once when video list loads, used for worst-case cost estimation
         let globalMaxBlobSize = null;
+
+        // Cached video list from last /videos load
+        let cachedVideosList = [];
 
         // Update quality selector with current level
         function updateQualityLabel(levelIndex) {
@@ -3251,6 +3272,8 @@
                     log(`Max blob size across all videos: ${(globalMaxBlobSize / 1_000_000).toFixed(2)} MB`);
                 }
 
+                cachedVideosList = data.videos;
+
                 for (const video of data.videos) {
                     const card = document.createElement('div');
                     card.className = 'video-card';
@@ -3423,16 +3446,7 @@
                 log(`Found ${data.videos.length} videos`);
 
                 // Auto-play video from URL hash if present (but not if modal is open)
-                const modalOpen = document.getElementById('channel-modal').classList.contains('visible');
-                const { masterHash, startTime } = parseUrlHash();
-                if (masterHash && !modalOpen) {
-                    // Find matching video to get metadata
-                    const matchingVideo = data.videos.find(v => v.master_hash === masterHash);
-                    const spriteMetaHash = matchingVideo?.sprite_meta_hash || null;
-                    const videoTitle = matchingVideo?.title || null;
-                    log(`Auto-playing from URL: ${masterHash.substring(0, 8)}...` + (startTime ? ` @ ${startTime}s` : ''));
-                    playVideo(currentServer + '/' + masterHash, startTime, spriteMetaHash, videoTitle);
-                }
+                playVideoFromHash(data.videos);
             } catch (e) {
                 log(`Failed to load videos: ${e}`, 'error');
             }
@@ -3748,6 +3762,17 @@
             setTimeout(startOnboarding, 100);
         }
 
+        function isVideoPlaceholderVisible() {
+            const placeholder = document.getElementById('video-placeholder');
+            return placeholder && !placeholder.classList.contains('hidden');
+        }
+
+        function maybeAutoPlayFromHashOnModalClose() {
+            if (!isVideoPlaceholderVisible()) return;
+            if (!cachedVideosList || cachedVideosList.length === 0) return;
+            playVideoFromHash(cachedVideosList, { allowWhenModalOpen: true });
+        }
+
         function hideChannelModal() {
             // Check if we have a selected channel for current (server, unit)
             if (channelModalServerUnit) {
@@ -3759,6 +3784,7 @@
                 }
             }
             document.getElementById('channel-modal').classList.remove('visible');
+            maybeAutoPlayFromHashOnModalClose();
         }
 
         function populateModalServerDropdown() {
@@ -4144,6 +4170,7 @@
                 createBtn.disabled = false;
                 if (action === 'done') {
                     document.getElementById('channel-modal').classList.remove('visible');
+                    maybeAutoPlayFromHashOnModalClose();
                 }
 
             } catch (e) {
@@ -4598,20 +4625,22 @@
             window.updatePaymentIndicator = updatePaymentIndicator;
 
             // Keyboard controls
-            document.addEventListener('keydown', (e) => {
-                // Escape closes modals
-                if (e.key === 'Escape') {
-                    const invoiceModal = document.getElementById('invoice-modal');
-                    if (invoiceModal.classList.contains('visible')) {
-                        invoiceModal.classList.remove('visible');
-                        return;
-                    }
-                    const channelModal = document.getElementById('channel-modal');
-                    if (channelModal.classList.contains('visible')) {
-                        channelModal.classList.remove('visible');
-                        return;
-                    }
+        document.addEventListener('keydown', (e) => {
+            // Escape closes modals
+            if (e.key === 'Escape') {
+                const invoiceModal = document.getElementById('invoice-modal');
+                if (invoiceModal.classList.contains('visible')) {
+                    invoiceModal.classList.remove('visible');
+                    return;
                 }
+                const channelModal = document.getElementById('channel-modal');
+                if (channelModal.classList.contains('visible')) {
+                    channelModal.classList.remove('visible');
+                    maybeAutoPlayFromHashOnModalClose();
+                    return;
+                }
+            }
+
 
                 const videoKeys = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyM', 'KeyF'];
                 if (videoKeys.includes(e.code)) {
