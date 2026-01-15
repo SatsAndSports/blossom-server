@@ -636,15 +636,15 @@
         /* Channel Management Modal */
         .modal {
             display: none;
-            position: fixed;
+            position: absolute;
             top: 0;
             left: 0;
             width: 100%;
-            height: 100%;
             background: rgba(0,0,0,0.8);
             z-index: 200;
             align-items: center;
             justify-content: center;
+            min-height: 100%;
         }
         .modal.visible {
             display: flex;
@@ -655,8 +655,7 @@
             border-radius: 8px;
             max-width: 600px;
             width: 90%;
-            max-height: 80vh;
-            overflow-y: auto;
+            position: relative;
         }
         .channel-modal-content {
             max-width: 700px;
@@ -1118,19 +1117,27 @@
         }
         /* Onboarding tooltips */
         .onboarding-overlay {
-            position: fixed;
+            position: absolute;
             top: 0;
             left: 0;
-            right: 0;
-            bottom: 0;
+            width: 100%;
+            height: 100%;
             background: rgba(0, 0, 0, 0.7);
             z-index: 10000;
+            display: block;
+            overflow: visible;
+            touch-action: pan-y;
+        }
+        .onboarding-overlay.hidden {
+            display: none;
+        }
+        .onboarding-overlay.centered {
             display: flex;
             align-items: center;
             justify-content: center;
         }
-        .onboarding-overlay.hidden {
-            display: none;
+        .onboarding-blocked {
+            pointer-events: none;
         }
         .onboarding-tooltip {
             background: #2a2a2a;
@@ -1141,6 +1148,9 @@
             text-align: center;
             position: absolute;
             z-index: 10001;
+            max-height: calc(100vh - 80px);
+            overflow-y: auto;
+            pointer-events: auto;
         }
         .onboarding-tooltip.centered {
             position: relative;
@@ -1320,19 +1330,18 @@
             <button id="error-ok">OK</button>
         </div>
     </div>
-    <!-- Onboarding overlay -->
-    <div id="onboarding-overlay" class="onboarding-overlay hidden">
-        <div id="onboarding-tooltip" class="onboarding-tooltip centered">
-            <div class="onboarding-text"></div>
-            <div class="onboarding-subtext"></div>
-            <div class="onboarding-actions">
-                <button class="onboarding-next">Next</button>
-            </div>
-        </div>
-    </div>
-
     <div id="channel-modal" class="modal">
         <div class="modal-content channel-modal-content">
+            <!-- Onboarding overlay -->
+            <div id="onboarding-overlay" class="onboarding-overlay hidden">
+                <div id="onboarding-tooltip" class="onboarding-tooltip centered">
+                    <div class="onboarding-text"></div>
+                    <div class="onboarding-subtext"></div>
+                    <div class="onboarding-actions">
+                        <button class="onboarding-next">Next</button>
+                    </div>
+                </div>
+            </div>
             <div class="modal-header">
                 <h3>Server & Channel Management</h3>
                 <div style="display: flex; align-items: center; gap: 10px;">
@@ -3630,6 +3639,7 @@
             const tooltip = document.getElementById('onboarding-tooltip');
             const textEl = tooltip.querySelector('.onboarding-text');
             const subtextEl = tooltip.querySelector('.onboarding-subtext');
+            const modalContent = document.querySelector('#channel-modal .modal-content');
 
             // Clear previous highlight
             if (onboardingHighlightedEl) {
@@ -3649,6 +3659,7 @@
 
             // Remove arrow classes
             tooltip.classList.remove('arrow-top', 'arrow-bottom', 'centered');
+            overlay.classList.remove('centered');
 
             if (step.target) {
                 const targetEl = document.querySelector(step.target);
@@ -3657,23 +3668,34 @@
                     targetEl.classList.add('onboarding-highlight');
                     onboardingHighlightedEl = targetEl;
 
-                    // Position tooltip near target
+                    // Position tooltip near target inside modal scroll container
                     const rect = targetEl.getBoundingClientRect();
-                    const tooltipRect = tooltip.getBoundingClientRect();
+                    const modalRect = modalContent.getBoundingClientRect();
+                    const scrollTop = modalContent.scrollTop;
 
                     // Position below the target
-                    tooltip.style.left = Math.max(10, rect.left + rect.width/2 - 160) + 'px';
-                    tooltip.style.top = (rect.bottom + 20) + 'px';
+                    const left = Math.max(10, rect.left - modalRect.left + rect.width / 2 - 160);
+                    const top = rect.bottom - modalRect.top + scrollTop + 20;
+                    tooltip.style.left = `${left}px`;
+                    tooltip.style.top = `${top}px`;
                     tooltip.classList.add('arrow-top');
+
+                    // Keep tooltip in view within modal scrolling area
+                    tooltip.scrollIntoView({ block: 'nearest' });
                 }
             } else {
                 // Centered (welcome message)
                 tooltip.classList.add('centered');
+                overlay.classList.add('centered');
                 tooltip.style.left = '';
                 tooltip.style.top = '';
             }
 
             overlay.classList.remove('hidden');
+            if (modalContent) {
+                modalContent.classList.add('onboarding-blocked');
+                tooltip.classList.remove('onboarding-blocked');
+            }
         }
 
         function nextOnboardingStep() {
@@ -3688,14 +3710,30 @@
                 onboardingHighlightedEl.classList.remove('onboarding-highlight');
                 onboardingHighlightedEl = null;
             }
+            const modalContent = document.querySelector('#channel-modal .modal-content');
+            if (modalContent) {
+                modalContent.classList.remove('onboarding-blocked');
+            }
             localStorage.setItem('cashutube_onboarding_done', 'true');
+        }
+
+        function repositionOnboardingTooltip() {
+            const overlay = document.getElementById('onboarding-overlay');
+            if (!overlay || overlay.classList.contains('hidden')) return;
+            showOnboardingStep();
         }
 
         // Wire up onboarding button
         document.querySelector('.onboarding-next').onclick = nextOnboardingStep;
 
+        const modalContentScroll = document.querySelector('#channel-modal .modal-content');
+        if (modalContentScroll) {
+            modalContentScroll.addEventListener('scroll', repositionOnboardingTooltip);
+        }
+
         function showChannelModal() {
             const modal = document.getElementById('channel-modal');
+            const modalContent = document.querySelector('#channel-modal .modal-content');
             
             // Populate server dropdown
             populateModalServerDropdown();
@@ -3720,6 +3758,10 @@
             document.getElementById('create-channel-btn').disabled = false;
 
             modal.classList.add('visible');
+
+            if (modalContent) {
+                modalContent.scrollTop = 0;
+            }
 
             // Start onboarding for first-time users
             setTimeout(startOnboarding, 100);
@@ -4595,6 +4637,11 @@
                 const invoiceModal = document.getElementById('invoice-modal');
                 if (invoiceModal.classList.contains('visible')) {
                     invoiceModal.classList.remove('visible');
+                    return;
+                }
+                const onboardingOverlay = document.getElementById('onboarding-overlay');
+                if (onboardingOverlay && !onboardingOverlay.classList.contains('hidden')) {
+                    nextOnboardingStep();
                     return;
                 }
                 const channelModal = document.getElementById('channel-modal');
