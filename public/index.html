@@ -83,46 +83,6 @@
         #video-container.visible {
             display: block;
         }
-        #video-container.popout {
-            position: fixed;
-            top: 60px;
-            left: 10px;
-            max-height: 30vh;
-            max-width: 40vw;
-            width: auto;
-            z-index: 300;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            border-radius: 8px;
-        }
-        #video-container.popout video {
-            max-height: 30vh;
-            max-width: 40vw;
-        }
-        @media (max-width: 900px) {
-            #video-container.popout {
-                max-height: 66vh;
-                max-width: 66vw;
-            }
-            #video-container.popout video {
-                max-height: 66vh;
-                max-width: 66vw;
-            }
-        }
-        #video-container.popout #video-title,
-        #video-container.popout #payment-indicator {
-            display: none;
-        }
-        #video-popout-placeholder {
-            height: 0;
-            overflow: hidden;
-        }
-        #video-popout-placeholder.active {
-            aspect-ratio: 16/9;
-            height: auto;
-            margin-bottom: 20px;
-            background: #0a0a0a;
-            border-radius: 8px;
-        }
         video {
             width: 100%;
             max-height: calc(100vh - 200px);
@@ -1270,7 +1230,6 @@
                     <div class="placeholder-icon">→</div>
                 </div>
             </div>
-            <div id="video-popout-placeholder"></div>
             <div id="video-container">
                 <video id="video" playsinline></video>
                 <div id="action-indicator"><div class="pause-icon"></div></div>
@@ -4828,56 +4787,13 @@
             videoContainerObserver.observe(videoContainerTarget);
         }
 
-        // Video popout mini-player when scrolling
-        (function() {
-            const activeUsers = document.getElementById('active-viewers');
-            const videoContainer = document.getElementById('video-container');
-            const placeholder = document.getElementById('video-popout-placeholder');
-
-            // Observer watches the active users indicator - when it starts to leave view, pop out video
-            const activeUsersObserver = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    console.log('[Popout] Active users intersection ratio:', entry.intersectionRatio,
-                                'isIntersecting:', entry.isIntersecting,
-                                'video visible:', videoContainer.classList.contains('visible'));
-
-                    // Only pop out if video is visible (playing or loaded)
-                    if (!videoContainer.classList.contains('visible')) return;
-
-                    if (!entry.isIntersecting) {
-                        console.log('[Popout] Activating popout');
-                        // Active users no longer fully visible - pop out video
-                        videoContainer.classList.add('popout');
-                        placeholder.classList.add('active');
-                    } else {
-                        console.log('[Popout] Deactivating popout');
-                        // Active users fully visible again - restore video
-                        videoContainer.classList.remove('popout');
-                        placeholder.classList.remove('active');
-                    }
-
-                    updateVideoListMaxHeight();
-                });
-            }, {
-                threshold: 1.0  // isIntersecting becomes false when active users are no longer 100% visible
-            });
-
-            console.log('[Popout] Observer attached to active users:', activeUsers);
-            activeUsersObserver.observe(activeUsers);
-        })();
-
         function updateVideoListMaxHeight() {
             const videoList = document.getElementById('video-list');
             const videoContainer = document.getElementById('video-container');
-            const popoutPlaceholder = document.getElementById('video-popout-placeholder');
-            if (!videoList || !videoContainer || !popoutPlaceholder) return;
+            if (!videoList || !videoContainer) return;
 
             const isStacked = window.matchMedia('(max-width: 900px)').matches;
-            let playerHeight = videoContainer.getBoundingClientRect().height;
-
-            if (videoContainer.classList.contains('popout') && popoutPlaceholder.classList.contains('active')) {
-                playerHeight = popoutPlaceholder.getBoundingClientRect().height;
-            }
+            const playerHeight = videoContainer.getBoundingClientRect().height;
 
             if (!playerHeight) return;
 
