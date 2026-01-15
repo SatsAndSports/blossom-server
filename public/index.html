@@ -21,7 +21,7 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             max-width: 1400px;
             margin: 0 auto;
-            padding: 20px 0;
+            padding: 20px 0 0;
             background: #1a1a1a;
             color: #e0e0e0;
             overflow: auto;
@@ -4890,6 +4890,10 @@
 
         window.addEventListener('resize', updateVideoListMaxHeight);
         window.addEventListener('orientationchange', updateVideoListMaxHeight);
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', updateVideoListMaxHeight);
+            window.visualViewport.addEventListener('scroll', updateVideoListMaxHeight);
+        }
 
         // Track player size changes to keep list height in sync
         const videoContainerObserver = new ResizeObserver(() => {
@@ -4907,19 +4911,35 @@
 
             const isStacked = window.matchMedia('(max-width: 900px)').matches;
             const rect = videoContainer.getBoundingClientRect();
-            const playerHeight = rect.height;
+            const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+            const topInPage = rect.top + window.scrollY;
+            const listRect = videoList.getBoundingClientRect();
+            const paddingUnderVideo = Math.max(0, listRect.top - rect.bottom);
+            const heightOfVideoPlayer = rect.height + paddingUnderVideo;
 
-            if (!playerHeight) return;
+            if (!rect.height) return;
+
+            const applyListHeight = (height) => {
+                const rounded = Math.round(height);
+                videoList.style.maxHeight = `${rounded}px`;
+                videoList.style.height = `${rounded}px`;
+            };
 
             if (isStacked) {
-                const videoMiddle = rect.top + rect.height / 2;
-                const maxHeight = Math.max(220, window.innerHeight - videoMiddle);
-                videoList.style.maxHeight = `${Math.round(maxHeight)}px`;
+                if (heightOfVideoPlayer <= viewportHeight / 2) {
+                    const maxHeight = Math.max(25, viewportHeight - heightOfVideoPlayer);
+                    applyListHeight(maxHeight);
+                    return;
+                }
+
+                const maxHeight = Math.max(25, viewportHeight - heightOfVideoPlayer / 2);
+                applyListHeight(maxHeight);
                 return;
             }
 
-            const maxHeight = Math.max(220, window.innerHeight - rect.top);
-            videoList.style.maxHeight = `${Math.round(maxHeight)}px`;
+            const clampedTop = Math.min(viewportHeight, Math.max(0, topInPage));
+            const maxHeight = Math.max(25, viewportHeight - clampedTop);
+            applyListHeight(maxHeight);
         }
 
         const LOG_VISIBILITY_KEY = 'cashutube_log_visible';
