@@ -282,15 +282,29 @@
         }
         /* Custom Video Controls */
         #video-controls {
-            background: linear-gradient(transparent, rgba(0,0,0,0.8));
-            padding: 10px;
             position: absolute;
             bottom: 0;
             left: 0;
             right: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0));
+            padding: 10px;
             opacity: 0;
             transition: opacity 0.3s;
+            pointer-events: none;
+            visibility: hidden;
         }
+        #video-controls.visible {
+            opacity: 1;
+            pointer-events: auto;
+            visibility: visible;
+        }
+        #video-controls button:disabled,
+        #video-controls select:disabled,
+        #video-controls input:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+
         #video-controls.visible {
             opacity: 1;
         }
@@ -4502,7 +4516,26 @@
             const muteBtn = document.getElementById('mute-btn');
             const volumeSlider = document.getElementById('volume-slider');
             const fullscreenBtn = document.getElementById('fullscreen-btn');
+            const speedSelect = document.getElementById('speed-select');
+            const qualitySelectEl = document.getElementById('quality-select');
             const container = document.getElementById('video-container');
+            let controlsEnabled = false;
+            let isSeeking = false;
+
+            const setControlsEnabled = (enabled) => {
+                controlsEnabled = enabled;
+                playBtn.disabled = !enabled;
+                muteBtn.disabled = !enabled;
+                fullscreenBtn.disabled = !enabled;
+                if (volumeSlider) volumeSlider.disabled = !enabled;
+                if (speedSelect) speedSelect.disabled = !enabled;
+                if (qualitySelectEl) qualitySelectEl.disabled = !enabled;
+                if (progressContainer) progressContainer.style.pointerEvents = enabled ? 'auto' : 'none';
+                if (!enabled) {
+                    isSeeking = false;
+                }
+            };
+
 
             // Format time as M:SS or H:MM:SS
             function formatTime(seconds) {
@@ -4537,8 +4570,11 @@
                 }
             }
 
+            const controlsVisible = () => controls.classList.contains('visible');
+
             // Play/Pause
             playBtn.onclick = () => {
+                if (!controlsVisible()) return;
                 if (video.paused) {
                     video.play();
                 } else {
@@ -4548,6 +4584,7 @@
 
             video.addEventListener('play', () => playBtn.classList.add('playing'));
             video.addEventListener('pause', () => playBtn.classList.remove('playing'));
+            setControlsEnabled(false);
             video.addEventListener('timeupdate', updateProgress);
             video.addEventListener('progress', updateBuffered);
             video.addEventListener('loadedmetadata', updateProgress);
@@ -4570,9 +4607,9 @@
             });
 
             // Seek on progress bar click/drag
-            let isSeeking = false;
 
             function seekTo(e) {
+                if (!controlsEnabled) return;
                 const rect = progressContainer.getBoundingClientRect();
                 const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
                 const percent = Math.max(0, Math.min(1, x / rect.width));
@@ -4689,11 +4726,13 @@
 
             // Volume
             muteBtn.onclick = () => {
+                if (!controlsVisible()) return;
                 video.muted = !video.muted;
                 muteBtn.textContent = video.muted ? '🔇' : '🔊';
             };
 
             volumeSlider.oninput = () => {
+                if (!controlsVisible()) return;
                 video.volume = volumeSlider.value;
                 video.muted = false;
                 muteBtn.textContent = video.volume == 0 ? '🔇' : '🔊';
@@ -4705,13 +4744,14 @@
             });
 
             // Playback speed
-            const speedSelect = document.getElementById('speed-select');
             speedSelect.onchange = () => {
+                if (!controlsVisible()) return;
                 video.playbackRate = parseFloat(speedSelect.value);
             };
 
             // Fullscreen
             fullscreenBtn.onclick = () => {
+                if (!controlsVisible()) return;
                 if (document.fullscreenElement) {
                     document.exitFullscreen();
                 } else {
@@ -4742,11 +4782,13 @@
                 controls.classList.add('visible');
                 paymentIndicator.classList.add('visible');
                 videoTitle.classList.add('visible');
+                setControlsEnabled(true);
                 clearTimeout(hideTimeout);
                 hideTimeout = setTimeout(() => {
                     controls.classList.remove('visible');
                     paymentIndicator.classList.remove('visible');
                     videoTitle.classList.remove('visible');
+                    setControlsEnabled(false);
                 }, 3000);
             }
 
