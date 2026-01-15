@@ -1597,6 +1597,7 @@
             // Preload visible thumbnails when channel becomes available
             if (channel) {
                 preloadVisibleThumbnails();
+                setupThumbnailObserver();
             }
         }
 
@@ -2825,6 +2826,8 @@
             return rect.top < window.innerHeight && rect.bottom > 0;
         }
 
+        let thumbnailObserver = null;
+
         // Preload thumbnails for visible video cards
         async function preloadVisibleThumbnails() {
             if (!currentChannel) return;
@@ -2845,6 +2848,42 @@
                     }
                 }
             }
+        }
+
+        function setupThumbnailObserver() {
+            if (thumbnailObserver) {
+                thumbnailObserver.disconnect();
+            }
+
+            if (!currentChannel) return;
+
+            thumbnailObserver = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting) return;
+                    const card = entry.target;
+                    const hash = card.dataset.previewHash;
+                    if (!hash || card.dataset.thumbLoaded || blobUrlCache.has(hash)) {
+                        thumbnailObserver.unobserve(card);
+                        return;
+                    }
+                    fetchBlobCached(hash)
+                        .then((url) => {
+                            const thumb = card.querySelector('.video-card-thumb');
+                            if (thumb) {
+                                thumb.style.backgroundImage = `url(${url})`;
+                                card.dataset.thumbLoaded = 'true';
+                            }
+                            thumbnailObserver.unobserve(card);
+                        })
+                        .catch(() => {
+                            thumbnailObserver.unobserve(card);
+                        });
+                });
+            }, { threshold: 0.1 });
+
+            document.querySelectorAll('.video-card[data-preview-hash]').forEach((card) => {
+                thumbnailObserver.observe(card);
+            });
         }
 
         // Current HLS instance
@@ -3321,6 +3360,7 @@
                 }
 
                 cachedVideosList = data.videos;
+                setupThumbnailObserver();
 
                 for (const video of data.videos) {
                     const card = document.createElement('div');
@@ -3602,6 +3642,7 @@
 
             updateStatus();
             await loadVideos();
+            setupThumbnailObserver();
         }
 
         init();
@@ -4343,6 +4384,7 @@
             updateStatus();
             renderChannelList();
             await loadVideos();
+            setupThumbnailObserver();
         };
 
         // Mint dropdown change - save selection
