@@ -4812,14 +4812,14 @@
 
         // Video popout mini-player when scrolling
         (function() {
-            const logo = document.getElementById('logo');
+            const activeUsers = document.getElementById('active-viewers');
             const videoContainer = document.getElementById('video-container');
             const placeholder = document.getElementById('video-popout-placeholder');
 
-            // Observer watches the logo - when logo starts to leave view, pop out video
-            const logoObserver = new IntersectionObserver((entries) => {
+            // Observer watches the active users indicator - when it starts to leave view, pop out video
+            const activeUsersObserver = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
-                    console.log('[Popout] Logo intersection ratio:', entry.intersectionRatio,
+                    console.log('[Popout] Active users intersection ratio:', entry.intersectionRatio,
                                 'isIntersecting:', entry.isIntersecting,
                                 'video visible:', videoContainer.classList.contains('visible'));
 
@@ -4828,22 +4828,22 @@
 
                     if (!entry.isIntersecting) {
                         console.log('[Popout] Activating popout');
-                        // Logo no longer fully visible - pop out video
+                        // Active users no longer fully visible - pop out video
                         videoContainer.classList.add('popout');
                         placeholder.classList.add('active');
                     } else {
                         console.log('[Popout] Deactivating popout');
-                        // Logo fully visible again - restore video
+                        // Active users fully visible again - restore video
                         videoContainer.classList.remove('popout');
                         placeholder.classList.remove('active');
                     }
                 });
             }, {
-                threshold: 1.0  // isIntersecting becomes false when logo is no longer 100% visible
+                threshold: 1.0  // isIntersecting becomes false when active users are no longer 100% visible
             });
 
-            console.log('[Popout] Observer attached to logo:', logo);
-            logoObserver.observe(logo);
+            console.log('[Popout] Observer attached to active users:', activeUsers);
+            activeUsersObserver.observe(activeUsers);
         })();
 
         // Collapsible Log toggle
