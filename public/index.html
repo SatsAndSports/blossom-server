@@ -228,6 +228,7 @@
             display: flex;
             flex-direction: column;
             gap: 15px;
+            overflow-y: auto;
         }
         .video-card {
             background: #2a2a2a;
@@ -237,6 +238,7 @@
             overflow: hidden;
             width: 100%;
             transition: border-color 0.2s;
+            flex: 0 0 auto;
         }
         .video-card:hover {
             border-color: #f7931a;
@@ -2861,6 +2863,7 @@
             // Show video container, hide placeholder
             document.getElementById('video-placeholder').classList.add('hidden');
             document.getElementById('video-container').classList.add('visible');
+            updateVideoListMaxHeight();
 
             // Extract master hash from URL for sharing
             const hashMatch = manifestUrl.match(/([0-9a-f]{64})/);
@@ -3016,6 +3019,7 @@
                             hls.destroy();
                             document.getElementById('video-container').classList.remove('visible');
                             document.getElementById('video-placeholder').classList.remove('hidden');
+                            updateVideoListMaxHeight();
                             return;
                         }
 
@@ -3443,6 +3447,7 @@
                 }
 
                 log(`Found ${data.videos.length} videos`);
+                updateVideoListMaxHeight();
 
                 // Auto-play video from URL hash if present (but not if modal is open)
                 playVideoFromHash(data.videos);
@@ -4211,6 +4216,7 @@
             document.getElementById('video').src = '';
             document.getElementById('video-placeholder').classList.remove('hidden');
             document.getElementById('video-container').classList.remove('visible');
+            updateVideoListMaxHeight();
             currentVideoTitle = null;
             document.getElementById('video-title').textContent = '';
             if (window.location.hash) {
@@ -4810,6 +4816,18 @@
         updateActiveViewers();
         setInterval(updateActiveViewers, 5000);
 
+        window.addEventListener('resize', updateVideoListMaxHeight);
+        window.addEventListener('orientationchange', updateVideoListMaxHeight);
+
+        // Track player size changes to keep list height in sync
+        const videoContainerObserver = new ResizeObserver(() => {
+            updateVideoListMaxHeight();
+        });
+        const videoContainerTarget = document.getElementById('video-container');
+        if (videoContainerTarget) {
+            videoContainerObserver.observe(videoContainerTarget);
+        }
+
         // Video popout mini-player when scrolling
         (function() {
             const activeUsers = document.getElementById('active-viewers');
@@ -4837,6 +4855,8 @@
                         videoContainer.classList.remove('popout');
                         placeholder.classList.remove('active');
                     }
+
+                    updateVideoListMaxHeight();
                 });
             }, {
                 threshold: 1.0  // isIntersecting becomes false when active users are no longer 100% visible
@@ -4845,6 +4865,25 @@
             console.log('[Popout] Observer attached to active users:', activeUsers);
             activeUsersObserver.observe(activeUsers);
         })();
+
+        function updateVideoListMaxHeight() {
+            const videoList = document.getElementById('video-list');
+            const videoContainer = document.getElementById('video-container');
+            const popoutPlaceholder = document.getElementById('video-popout-placeholder');
+            if (!videoList || !videoContainer || !popoutPlaceholder) return;
+
+            const isStacked = window.matchMedia('(max-width: 900px)').matches;
+            let playerHeight = videoContainer.getBoundingClientRect().height;
+
+            if (videoContainer.classList.contains('popout') && popoutPlaceholder.classList.contains('active')) {
+                playerHeight = popoutPlaceholder.getBoundingClientRect().height;
+            }
+
+            if (!playerHeight) return;
+
+            const multiplier = isStacked ? 0.5 : 2;
+            videoList.style.maxHeight = `${Math.round(playerHeight * multiplier)}px`;
+        }
 
         // Collapsible Log toggle
         document.getElementById('log-toggle').addEventListener('click', function() {
