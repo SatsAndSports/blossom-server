@@ -1073,6 +1073,37 @@
             pointer-events: none;
             font-weight: bold;
         }
+        #update-banner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: #2a2a2a;
+            color: #e0e0e0;
+            padding: 10px 20px;
+            border-bottom: 1px solid #444;
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 10002;
+        }
+        #update-banner.visible {
+            display: flex;
+        }
+        #update-banner button {
+            background: #444;
+            color: #e0e0e0;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        #update-banner button.primary {
+            background: #f7931a;
+            color: #000;
+            font-weight: bold;
+        }
         #toast.visible {
             opacity: 1;
         }
@@ -1326,6 +1357,13 @@
         <div id="log" class="collapsed"></div>
     </div>
 
+    <div id="update-banner">
+        <span>New version available. Refresh to update.</span>
+        <div>
+            <button id="update-dismiss">Dismiss</button>
+            <button id="update-now" class="primary">Update</button>
+        </div>
+    </div>
     <div id="toast"></div>
 
     <!-- Modals (outside video-container so they work even when video is hidden) -->
@@ -4885,6 +4923,7 @@
         }
 
         const LOG_VISIBILITY_KEY = 'cashutube_log_visible';
+        const UPDATE_BANNER_DISMISSED_KEY = 'cashutube_update_dismissed';
 
         function setLogVisible(visible) {
             const section = document.getElementById('log-section');
@@ -4909,7 +4948,58 @@
             }
         }
 
+        function registerServiceWorker() {
+            if (!('serviceWorker' in navigator)) return;
+
+            navigator.serviceWorker.register('/sw.js').then((registration) => {
+                if (registration.waiting) {
+                    showUpdateBanner(registration);
+                }
+
+                registration.addEventListener('updatefound', () => {
+                    const installing = registration.installing;
+                    if (!installing) return;
+
+                    installing.addEventListener('statechange', () => {
+                        if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                            showUpdateBanner(registration);
+                        }
+                    });
+                });
+
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    window.location.reload();
+                });
+            }).catch((err) => {
+                console.warn('Service worker registration failed', err);
+            });
+        }
+
+        function showUpdateBanner(registration) {
+            const banner = document.getElementById('update-banner');
+            const dismissBtn = document.getElementById('update-dismiss');
+            const updateBtn = document.getElementById('update-now');
+            if (!banner || !dismissBtn || !updateBtn) return;
+
+            if (sessionStorage.getItem(UPDATE_BANNER_DISMISSED_KEY) === 'true') return;
+
+            banner.classList.add('visible');
+
+            dismissBtn.onclick = () => {
+                sessionStorage.setItem(UPDATE_BANNER_DISMISSED_KEY, 'true');
+                banner.classList.remove('visible');
+            };
+
+            updateBtn.onclick = () => {
+                const waiting = registration.waiting;
+                if (waiting) {
+                    waiting.postMessage({ type: 'SKIP_WAITING' });
+                }
+            };
+        }
+
         initializeLogVisibility();
+        registerServiceWorker();
 
     </script>
 </body>
