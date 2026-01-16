@@ -80,8 +80,43 @@
             display: none;
             max-height: calc(100vh - 200px);
         }
+        #video-container.initial-load {
+            aspect-ratio: 16/9;
+        }
         #video-container.visible {
             display: block;
+        }
+        #video-loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 15;
+            pointer-events: none;
+        }
+        #video-container.initial-load #video-loading-overlay {
+            display: flex;
+            background: #000;
+        }
+        #video-container.buffering #video-loading-overlay {
+            display: flex;
+            background: rgba(0, 0, 0, 0.3);
+        }
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.1);
+            border-top: 5px solid #f7931a;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
         video {
             width: 100%;
@@ -1303,6 +1338,9 @@
             </div>
             <div id="video-container">
                 <video id="video" playsinline></video>
+                <div id="video-loading-overlay">
+                    <div class="loading-spinner"></div>
+                </div>
                 <div id="action-indicator"><div class="pause-icon"></div></div>
                 <div id="payment-indicator">0 sats</div>
                 <div id="video-title"></div>
@@ -2964,10 +3002,13 @@
         function playVideo(manifestUrl, startTime = null, spriteMetaHash = null, title = null) {
             const video = document.getElementById('video');
             const qualitySelect = document.getElementById('quality-select');
+            const container = document.getElementById('video-container');
 
             // Show video container, hide placeholder
             document.getElementById('video-placeholder').classList.add('hidden');
-            document.getElementById('video-container').classList.add('visible');
+            container.classList.add('visible');
+            container.classList.add('initial-load');
+            container.classList.add('buffering');
             updateVideoListMaxHeight();
             stopAllSpriteAnimations();
             requestAnimationFrame(() => requestAnimationFrame(scrollVideoIntoViewIfNeeded));
@@ -4601,10 +4642,20 @@
 
             video.addEventListener('play', () => playBtn.classList.add('playing'));
             video.addEventListener('pause', () => playBtn.classList.remove('playing'));
+            video.addEventListener('playing', () => {
+                container.classList.remove('buffering');
+            });
+            video.addEventListener('waiting', () => {
+                container.classList.add('buffering');
+            });
             setControlsEnabled(false);
             video.addEventListener('timeupdate', updateProgress);
             video.addEventListener('progress', updateBuffered);
-            video.addEventListener('loadedmetadata', updateProgress);
+            video.addEventListener('loadedmetadata', () => {
+                container.classList.remove('initial-load');
+                updateVideoListMaxHeight();
+                updateProgress();
+            });
 
             // Save playback position periodically
             let lastSavedPosition = 0;
