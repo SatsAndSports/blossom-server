@@ -44,7 +44,7 @@
             min-width: 0;
         }
         #right-column {
-            width: 320px;
+            width: 400px;
             flex-shrink: 0;
         }
         h1 {
@@ -250,21 +250,29 @@
             width: 100%;
             transition: border-color 0.2s;
             flex: 0 0 auto;
-            display: flex;
-            flex-direction: row;
+            display: grid;
+            grid-template-columns: 160px 1fr auto;
+            align-items: stretch;
+            column-gap: 4px;
+            min-height: 94px;
+            padding: 1px;
         }
         .video-card:hover {
             border-color: #f7931a;
         }
         .video-card-thumb-wrapper {
             width: 160px;
+            aspect-ratio: 16/9;
             flex-shrink: 0;
             position: relative;
             background-color: #1a1a1a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .video-card-thumb {
             width: 100%;
-            height: 90px;
+            height: 100%;
             background-size: contain;
             background-position: center;
             background-repeat: no-repeat;
@@ -276,6 +284,22 @@
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
+            padding: 8px 0;
+            gap: 2px;
+        }
+        .video-card-costs {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: flex-end;
+            gap: 2px;
+            padding: 4px 6px;
+            font-size: 10px;
+            color: #6a6;
+            flex-shrink: 0;
+            min-width: 75px;
+            text-align: right;
+            border-left: 1px solid #333;
         }
         .video-card-progress {
             height: 3px;
@@ -284,39 +308,38 @@
             position: absolute;
             bottom: 0;
             left: 0;
+            z-index: 2;
+        }
+        .video-card-duration {
+            position: absolute;
+            bottom: 6px;
+            right: 6px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            z-index: 2;
         }
         .video-card-title {
-            padding: 8px 10px 4px;
+            padding: 0 4px;
             font-size: 13px;
             font-weight: 500;
             color: #e0e0e0;
             white-space: normal;
             display: -webkit-box;
-            -webkit-line-clamp: 2;
+            -webkit-line-clamp: 3;
             -webkit-box-orient: vertical;
             overflow: hidden;
-            line-height: 1.2;
+            line-height: 1.3;
         }
-        .video-card-meta {
-            display: flex;
-            flex-direction: column;
-            padding: 0 10px 8px;
+        .video-card-views {
+            padding: 0 4px;
             font-size: 11px;
-            color: #888;
-            gap: 2px;
-        }
-        .video-card-meta span {
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .video-card-costs {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px 8px;
-            padding: 0 10px 8px;
-            font-size: 10px;
-            color: #6a6;
+            color: #aaa;
+            line-height: 1.2;
+            margin-top: auto;
         }
         #log {
             background: #0a0a0a;
@@ -544,6 +567,7 @@
                 justify-content: center;
             }
             .video-card {
+                display: flex;
                 flex-direction: column;
                 width: calc(50% - 12px);
                 min-width: 160px;
@@ -556,9 +580,23 @@
             .video-card-thumb {
                 height: 100%;
             }
-            .video-card-meta {
+            .video-card-info {
+                padding: 4px 0;
+            }
+            .video-card-costs {
                 flex-direction: row;
-                justify-content: space-between;
+                justify-content: flex-start;
+                align-items: center;
+                gap: 8px;
+                padding: 4px 6px 8px;
+                width: 100%;
+                text-align: left;
+                border-top: 1px solid #333;
+                border-left: none;
+            }
+            .video-card-views {
+                padding: 4px 6px 8px;
+                margin-top: 0;
             }
             #header-bar {
                 gap: 10px;
@@ -3581,6 +3619,11 @@
                     thumbWrapper.appendChild(thumb);
                     thumbWrapper.appendChild(progressBar);
 
+                    const durationLabel = document.createElement('div');
+                    durationLabel.className = 'video-card-duration';
+                    durationLabel.textContent = formatDuration(video.duration);
+                    thumbWrapper.appendChild(durationLabel);
+
                     // Info wrapper for text content
                     const infoWrapper = document.createElement('div');
                     infoWrapper.className = 'video-card-info';
@@ -3606,25 +3649,12 @@
                     title.textContent = video.title;
                     title.title = video.title; // Tooltip for long titles
 
-                    const meta = document.createElement('div');
-                    meta.className = 'video-card-meta';
-
-                    const duration = document.createElement('span');
-                    duration.textContent = formatDuration(video.duration);
-
-                    const views = document.createElement('span');
+                    const views = document.createElement('div');
+                    views.className = 'video-card-views';
                     views.textContent = (video.views || 0) + ' views';
 
-                    meta.appendChild(duration);
-                    if (video.width && video.height) {
-                        const resolution = document.createElement('span');
-                        resolution.textContent = video.width + 'x' + video.height;
-                        meta.appendChild(resolution);
-                    }
-                    meta.appendChild(views);
-
                     infoWrapper.appendChild(title);
-                    infoWrapper.appendChild(meta);
+                    infoWrapper.appendChild(views);
 
                     card.appendChild(thumbWrapper);
                     card.appendChild(infoWrapper);
@@ -3641,7 +3671,7 @@
                                 costs.appendChild(row);
                             }
                         }
-                        infoWrapper.appendChild(costs);
+                        card.appendChild(costs);
                     }
 
                     // Sprite animation on hover
