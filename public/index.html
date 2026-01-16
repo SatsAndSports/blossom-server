@@ -2627,6 +2627,8 @@
         // ============================================
         const APP_VERSION = 'cashutube-v20260116c';
         const ALICE_KEY_STORAGE = 'cashu_alice_secret';
+        const BANDWIDTH_STORAGE_KEY = 'cashutube_last_bandwidth';
+        let lastBandwidthEstimate = 750000; // default 750 Kbps
 
         function getOrCreateAliceKey() {
             let secretHex = localStorage.getItem(ALICE_KEY_STORAGE);
@@ -3071,6 +3073,7 @@
 
             // Clean up previous instance
             if (currentHls) {
+                localStorage.setItem(BANDWIDTH_STORAGE_KEY, lastBandwidthEstimate);
                 currentHls.destroy();
                 currentHls = null;
             }
@@ -3079,10 +3082,15 @@
             qualitySelect.innerHTML = '<option value="-1">Auto</option>';
 
             if (Hls.isSupported()) {
+                console.log(`[HLS] Starting video with estimate: ${(lastBandwidthEstimate / 1000).toFixed(0)} Kbps`);
                 const hls = new Hls({
-                    // Buffer settings: balance between smooth playback and not paying for unwatched video
-                    maxBufferLength: 15,
-                    maxMaxBufferLength: 30,
+                    // Faster start settings
+                    maxBufferLength: 10,
+                    maxMaxBufferLength: 20,
+                    maxStarvationDelay: 1,
+                    maxLoadingDelay: 1,
+                    capLevelToPlayerSize: true,
+                    abrEwmaDefaultEstimate: lastBandwidthEstimate,
                     xhrSetup: function(xhr, url) {
                         // Add payment header for hash-based blob requests
                         if (isHashUrl(url)) {
@@ -3245,6 +3253,12 @@
 
                 hls.loadSource(manifestUrl);
                 hls.attachMedia(video);
+
+                hls.on(Hls.Events.FRAG_LOADED, () => {
+                    if (hls.bandwidthEstimate > 0) {
+                        lastBandwidthEstimate = hls.bandwidthEstimate;
+                    }
+                });
 
                 log(`Loading: ${manifestUrl}`);
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -3688,6 +3702,13 @@
                 log(`Generated new Alice keypair`);
             } else {
                 log(`Loaded Alice keypair from storage`);
+            }
+
+            // Load bandwidth memory
+            const storedBandwidth = localStorage.getItem(BANDWIDTH_STORAGE_KEY);
+            if (storedBandwidth) {
+                lastBandwidthEstimate = parseFloat(storedBandwidth);
+                console.log(`[HLS] Initial bandwidth memory: ${(lastBandwidthEstimate / 1000).toFixed(0)} Kbps`);
             }
 
             // Fetch params from all known servers
@@ -4791,8 +4812,11 @@
             let isTouchDevice = false;
 
             async function showProgressPreview(clientX) {
+                // Capture the current target hash to avoid race conditions
+                const targetHash = currentSpriteMetaHash;
+
                 // Don't show preview if no sprite meta or no duration
-                if (!currentSpriteMetaHash || !video.duration) {
+                if (!targetHash || !video.duration) {
                     progressPreview.classList.remove('visible');
                     return;
                 }
@@ -4800,17 +4824,22 @@
                 // Fetch sprite meta if needed (with payment)
                 if (!currentSpriteMeta) {
                     try {
-                        const metaUrl = await fetchBlobCached(currentSpriteMetaHash);
+                        const metaUrl = await fetchBlobCached(targetHash);
+                        // Abort if the user switched videos during the fetch
+                        if (targetHash !== currentSpriteMetaHash) return;
+
                         const res = await fetch(metaUrl);
+                        if (targetHash !== currentSpriteMetaHash) return;
+
                         currentSpriteMeta = await res.json();
-                        // Also prefetch the sprite image
-                        if (currentSpriteMeta.sprite_hash) {
-                            fetchBlobCached(currentSpriteMeta.sprite_hash);
-                        }
                     } catch (err) {
                         return;
                     }
                 }
+
+                // Ensure we still have valid meta after the fetches
+                const meta = currentSpriteMeta;
+                if (!meta || targetHash !== currentSpriteMetaHash) return;
 
                 const rect = progressContainer.getBoundingClientRect();
                 const x = clientX - rect.left;
@@ -4819,29 +4848,35 @@
 
                 // Calculate which frame to show
                 const frame = Math.min(
-                    Math.floor(timestamp / currentSpriteMeta.interval),
-                    currentSpriteMeta.frames - 1
+                    Math.floor(timestamp / meta.interval),
+                    meta.frames - 1
                 );
-                const col = frame % currentSpriteMeta.columns;
-                const row = Math.floor(frame / currentSpriteMeta.columns);
+                const col = frame % meta.columns;
+                const row = Math.floor(frame / meta.columns);
 
                 // Update preview image and position (use cached object URL)
-                const spriteUrl = await fetchBlobCached(currentSpriteMeta.sprite_hash);
-                progressPreview.style.backgroundImage = `url(${spriteUrl})`;
-                progressPreview.style.backgroundSize = `${currentSpriteMeta.columns * 160}px ${currentSpriteMeta.rows * 90}px`;
-                progressPreview.style.backgroundPosition = `-${col * 160}px -${row * 90}px`;
+                try {
+                    const spriteUrl = await fetchBlobCached(meta.sprite_hash);
+                    if (targetHash !== currentSpriteMetaHash) return;
 
-                // Position horizontally (clamped to container edges)
-                const previewWidth = 160;
-                const minLeft = previewWidth / 2;
-                const maxLeft = rect.width - previewWidth / 2;
-                const left = Math.max(minLeft, Math.min(maxLeft, x));
-                progressPreview.style.left = left + 'px';
+                    progressPreview.style.backgroundImage = `url(${spriteUrl})`;
+                    progressPreview.style.backgroundSize = `${meta.columns * 160}px ${meta.rows * 90}px`;
+                    progressPreview.style.backgroundPosition = `-${col * 160}px -${row * 90}px`;
 
-                // Update time display
-                progressPreviewTime.textContent = formatTime(timestamp);
+                    // Position horizontally (clamped to container edges)
+                    const previewWidth = 160;
+                    const minLeft = previewWidth / 2;
+                    const maxLeft = rect.width - previewWidth / 2;
+                    const left = Math.max(minLeft, Math.min(maxLeft, x));
+                    progressPreview.style.left = left + 'px';
 
-                progressPreview.classList.add('visible');
+                    // Update time display
+                    progressPreviewTime.textContent = formatTime(timestamp);
+
+                    progressPreview.classList.add('visible');
+                } catch (e) {
+                    // Ignore sprite fetch failures
+                }
             }
 
             function hideProgressPreview() {
@@ -5169,6 +5204,9 @@
 
         window.addEventListener('resize', updateVideoListMaxHeight);
         window.addEventListener('orientationchange', updateVideoListMaxHeight);
+        window.addEventListener('beforeunload', () => {
+            localStorage.setItem(BANDWIDTH_STORAGE_KEY, lastBandwidthEstimate);
+        });
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', updateVideoListMaxHeight);
             window.visualViewport.addEventListener('scroll', updateVideoListMaxHeight);
