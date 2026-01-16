@@ -1229,6 +1229,20 @@
         #channel-balance-section.visible {
             display: inline;
         }
+        .balance-separator {
+            color: #666;
+        }
+        #channel-balance-section.low-funds .balance-pill {
+            color: #ff4444;
+            font-weight: bold;
+            background: rgba(255, 68, 68, 0.15);
+            padding: 2px 8px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 68, 68, 0.4);
+        }
+        #channel-balance-section.low-funds .status-label {
+            color: #ff4444;
+        }
         #active-viewers {
             color: #888;
             font-size: 14px;
@@ -1344,9 +1358,12 @@
             <span id="channel-info-section">
                 <span class="status-label">Channel:</span> <span id="channel-id">No channel</span>
                 <span id="channel-balance-section">
-                     | <span class="status-label">Balance:</span>
-                    <span id="balance">0</span>/<span id="capacity">0</span>
-                    <span id="balance-unit">sat</span>
+                    <span class="balance-separator"> | </span>
+                    <span class="balance-pill">
+                        <span class="status-label">Balance:</span>
+                        <span id="balance">0</span>/<span id="capacity">0</span>
+                        <span id="balance-unit">sat</span>
+                    </span>
                 </span>
             </span>
         </span>
@@ -1649,6 +1666,7 @@
             });
 
             logAlternativesList();
+            updateStatus();
         }
 
         // Log current channel and alternatives
@@ -2755,12 +2773,19 @@
             if (currentChannel) {
                 channelIdEl.textContent = currentChannel.channelId.substring(0, 8) + '...';
                 balanceEl.textContent = currentChannel.balance;
-                capacityEl.textContent = currentChannel.params.capacity;
+                const capacity = currentChannel.params.capacity;
+                capacityEl.textContent = capacity;
                 balanceUnitEl.textContent = getUnitLabel(currentChannel.params.unit);
-                balanceSection.classList.add('visible');
+                
+                const usedFraction = currentChannel.balance / capacity;
+                if (usedFraction > 0.9 && alternativeChannels.length === 0) {
+                    balanceSection.classList.add('visible', 'low-funds');
+                } else {
+                    balanceSection.classList.remove('visible', 'low-funds');
+                }
             } else {
                 channelIdEl.textContent = 'No channel';
-                balanceSection.classList.remove('visible');
+                balanceSection.classList.remove('visible', 'low-funds');
             }
         }
 
