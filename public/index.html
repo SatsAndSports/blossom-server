@@ -75,17 +75,18 @@
             font-size: 24px;
         }
         #video-container {
-            background: #000;
-            border-radius: 8px;
-            overflow: hidden;
-            margin-bottom: 20px;
             position: relative;
-            display: none;
-            flex-direction: column;
-            align-items: center;
             width: 100%;
             height: auto;
-            max-height: var(--player-max-height);
+            max-height: 500px;
+            aspect-ratio: 16/9;
+            background: #000;
+            overflow: hidden;
+            display: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            margin: 0 auto;
+            touch-action: manipulation;
         }
         #video-container.initial-load {
             aspect-ratio: 16/9;
@@ -417,6 +418,7 @@
             cursor: pointer;
             display: flex;
             align-items: center;
+            touch-action: none;
         }
         #progress-bar {
             width: 100%;
@@ -511,6 +513,7 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            touch-action: manipulation;
         }
         .ctrl-btn svg {
             width: 20px;
@@ -3929,14 +3932,7 @@
             document.getElementById('share-url').value = url;
         }
 
-        document.getElementById('share-btn').onclick = () => {
-            if (!currentMasterHash) {
-                log('No video playing', 'error');
-                return;
-            }
-            updateShareUrl();
-            document.getElementById('share-modal').classList.add('visible');
-        };
+        document.getElementById('share-btn').onclick = null; // Handled in controls IIFE
 
         document.getElementById('share-timestamp').onchange = updateShareUrl;
 
@@ -4832,7 +4828,7 @@
             }
 
             const controlsVisible = () => controls.classList.contains('visible');
-            const tapDelayMs = 300;
+            const tapDelayMs = 400;
             let controlsUnlockAt = 0;
 
             const controlsUnlocked = () => performance.now() >= controlsUnlockAt;
@@ -4898,10 +4894,38 @@
             progressContainer.addEventListener('touchstart', (e) => {
                 isSeeking = true;
                 seekTo(e);
+            }, { passive: false });
+
+            document.addEventListener('mousemove', (e) => {
+                if (isSeeking) {
+                    seekTo(e);
+                    showProgressPreview(e.clientX);
+                }
+            });
+            document.addEventListener('touchmove', (e) => {
+                if (isSeeking && e.touches.length > 0) {
+                    seekTo(e.touches[0]);
+                    showProgressPreview(e.touches[0].clientX);
+                }
+            }, { passive: false });
+
+            document.addEventListener('mouseup', () => {
+                isSeeking = false;
+                hideProgressPreview();
+            });
+            document.addEventListener('touchend', () => {
+                isSeeking = false;
+                hideProgressPreview();
+            });
+            progressContainer.addEventListener('touchstart', (e) => {
+                isSeeking = true;
+                seekTo(e);
             });
 
             document.addEventListener('mousemove', (e) => {
-                if (isSeeking) seekTo(e);
+                if (isSeeking) {
+                    showProgressPreview(e.clientX);
+                }
             });
             document.addEventListener('touchmove', (e) => {
                 if (isSeeking) seekTo(e);
@@ -4913,7 +4937,6 @@
             // Progress bar sprite preview
             const progressPreview = document.getElementById('progress-preview');
             const progressPreviewTime = document.getElementById('progress-preview-time');
-            let isTouchDevice = false;
 
             async function showProgressPreview(clientX) {
                 // Capture the current target hash to avoid race conditions
@@ -4999,16 +5022,15 @@
                 }
             });
 
-            // Mobile: show only while dragging
-            progressContainer.addEventListener('touchstart', () => {
-                isTouchDevice = true;
-            });
+            progressContainer.onmousedown = () => {
+                // show only while dragging
+            };
             document.addEventListener('touchmove', (e) => {
                 if (isSeeking && e.touches.length > 0) {
                     showProgressPreview(e.touches[0].clientX);
                 }
             });
-            document.addEventListener('touchend', () => {
+            document.addEventListener('mouseup', () => {
                 hideProgressPreview();
             });
 
@@ -5047,6 +5069,17 @@
                 }
             };
 
+            // Share
+            document.getElementById('share-btn').onclick = () => {
+                if (!controlsVisible() || !controlsUnlocked()) return;
+                if (!currentMasterHash) {
+                    log('No video playing', 'error');
+                    return;
+                }
+                updateShareUrl();
+                document.getElementById('share-modal').classList.add('visible');
+            };
+
             document.addEventListener('fullscreenchange', () => {
                 const icon = document.getElementById('fullscreen-icon');
                 if (document.fullscreenElement) {
@@ -5062,17 +5095,6 @@
             const paymentIndicator = document.getElementById('payment-indicator');
             const videoTitle = document.getElementById('video-title');
             let hideTimeout = null;
-
-            const guardHiddenControls = (e) => {
-                if (!controlsVisible()) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    showOverlays();
-                }
-            };
-
-            controls.addEventListener('click', guardHiddenControls, true);
-            controls.addEventListener('touchend', guardHiddenControls, true);
 
             function updatePaymentIndicator() {
                 if (typeof currentChannel !== 'undefined' && currentChannel) {
@@ -5094,9 +5116,10 @@
                 controls.classList.add('visible');
                 paymentIndicator.classList.add('visible');
                 videoTitle.classList.add('visible');
-                if (!wasVisible) {
-                    controlsUnlockAt = performance.now() + tapDelayMs;
-                }
+                
+                // Set lock regardless of previous visibility to catch synthetic clicks
+                controlsUnlockAt = performance.now() + 400;
+                
                 setControlsEnabled(true);
                 clearTimeout(hideTimeout);
                 hideTimeout = setTimeout(() => {
@@ -5198,14 +5221,14 @@
             let lastTapX = 0;
             let tapTimeout = null;
 
-            function handleTap(e) {
+            function handleInteraction(e) {
                 // Ignore taps on control elements or payment indicator
                 if (e.target.closest('#video-controls') || e.target.closest('#payment-indicator')) {
                     return;
                 }
 
                 const rect = video.getBoundingClientRect();
-                const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX;
+                const clientX = e.clientX;
                 if (clientX === undefined) return;
 
                 const overlaysVisible = controls.classList.contains('visible');
@@ -5216,15 +5239,15 @@
                 const zone = x < third ? 'left' : x > (third * 2) ? 'right' : 'middle';
                 const isLeftHalf = x < width / 2;
 
-                // Check for double-tap (within tapDelayMs, same half of screen)
-                const isDoubleTap = (now - lastTapTime) < tapDelayMs &&
-                                    ((lastTapX < width / 2) === isLeftHalf);
+                // Check for double-click (within tapDelayMs, same half of screen)
+                const isDoubleClick = (now - lastTapTime) < tapDelayMs &&
+                                     ((lastTapX < width / 2) === isLeftHalf);
 
                 lastTapTime = now;
                 lastTapX = x;
 
-                if (isDoubleTap) {
-                    // Cancel pending single-tap action
+                if (isDoubleClick) {
+                    // Cancel pending single-click action
                     if (tapTimeout) {
                         clearTimeout(tapTimeout);
                         tapTimeout = null;
@@ -5246,9 +5269,9 @@
                         }
                     }
                 } else {
-                    showOverlays();
-
-                    if (overlaysVisible) {
+                    if (!overlaysVisible) {
+                        showOverlays();
+                    } else {
                         if (tapTimeout) {
                             clearTimeout(tapTimeout);
                         }
@@ -5264,33 +5287,8 @@
                 }
             }
 
-            // Use touchend on touch devices, click on desktop
-            // Once a touch is detected, disable click handling permanently
-            let useTouchEvents = false;
-            let touchStartX = 0;
-            let touchStartY = 0;
-
             // Listen on container only (events bubble up from video)
-            container.addEventListener('click', (e) => {
-                if (!useTouchEvents) {
-                    handleTap(e);
-                }
-            });
-            container.addEventListener('touchstart', (e) => {
-                useTouchEvents = true;
-                const touch = e.touches[0];
-                touchStartX = touch.clientX;
-                touchStartY = touch.clientY;
-            }, { passive: true });
-            container.addEventListener('touchend', (e) => {
-                const touch = e.changedTouches[0];
-                const dx = Math.abs(touch.clientX - touchStartX);
-                const dy = Math.abs(touch.clientY - touchStartY);
-                // Only treat as tap if movement was minimal (not a scroll)
-                if (dx < 15 && dy < 15) {
-                    handleTap(e);
-                }
-            });
+            container.addEventListener('click', handleInteraction);
 
             // Reset indicator position after animation
             indicator.addEventListener('animationend', () => {
