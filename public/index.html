@@ -441,6 +441,14 @@
             padding: 5px 8px;
             border-radius: 4px;
             line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .ctrl-btn svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
         }
         .ctrl-btn:hover {
             background: rgba(255,255,255,0.1);
@@ -1390,7 +1398,11 @@
                         <select id="quality-select" title="Quality">
                             <option value="-1">Auto</option>
                         </select>
-                        <button id="share-btn" class="ctrl-btn" title="Share">↗</button>
+                        <button id="share-btn" class="ctrl-btn" title="Share">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M14 9V5l7 7-7 7v-4.1c-5 0-9 1.6-11.5 5.1 1-5 4-10 11.5-11z"/>
+                            </svg>
+                        </button>
                         <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen">⛶</button>
                     </div>
                 </div>
