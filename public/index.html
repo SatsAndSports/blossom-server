@@ -28,7 +28,7 @@
         }
         #header-bar {
             background: #1a1a1a;
-            padding: 10px 0;
+            padding: 10px 15px;
             flex-wrap: wrap;
             row-gap: 8px;
         }
@@ -1197,6 +1197,8 @@
             display: inline-flex;
             align-items: center;
             gap: 4px;
+            flex-wrap: wrap;
+            row-gap: 4px;
         }
         #channel-status:hover {
             background: #3a3a3a;
@@ -1218,10 +1220,6 @@
         }
         #channel-status #server-name {
             color: #aaa;
-        }
-        #channel-status #server-name:not(:empty)::after {
-            content: " | ";
-            color: #666;
         }
         #channel-balance-section {
             display: none;
@@ -1355,12 +1353,13 @@
         <span id="channel-status" title="Manage Channels">
             <span>⚙️</span>
             <span id="server-name"></span>
+            <span id="channel-status-separator" style="color: #666; display: none;"> | </span>
             <span id="channel-info-section">
-                <span class="status-label">Channel:</span> <span id="channel-id">No channel</span>
+                <span class="status-label">Channel:</span>&nbsp;<span id="channel-id">No channel</span>
                 <span id="channel-balance-section">
                     <span class="balance-separator"> | </span>
                     <span class="balance-pill">
-                        <span class="status-label">Balance:</span>
+                        <span class="status-label">Balance:</span>&nbsp;
                         <span id="balance">0</span>/<span id="capacity">0</span>
                         <span id="balance-unit">sat</span>
                     </span>
@@ -3369,6 +3368,7 @@
         // Update server name display in header
         function updateServerNameDisplay() {
             const el = document.getElementById('server-name');
+            const separator = document.getElementById('channel-status-separator');
             if (el && currentServer) {
                 let display = '';
                 try {
@@ -3380,9 +3380,11 @@
                 } catch (e) {
                     display = currentServer;
                 }
-                el.innerHTML = `<span class="status-label">Server:</span> ${display}`;
+                el.innerHTML = `<span class="status-label">Server:</span>&nbsp;${display}`;
+                if (separator) separator.style.display = 'inline';
             } else if (el) {
                 el.innerHTML = '';
+                if (separator) separator.style.display = 'none';
             }
         }
 
@@ -4181,9 +4183,9 @@
                 const reqPrice = pricing.perRequestPpk / 1000;
                 const mbPrice = pricing.perMegabytePpk / 1000;
                 const unitLabel = getUnitLabel(unit);
-                pricingEl.textContent = `${reqPrice} ${unitLabel}/req + ${mbPrice} ${unitLabel}/MB`;
+                pricingEl.innerHTML = `${reqPrice}&nbsp;${unitLabel}/req + ${mbPrice}&nbsp;${unitLabel}/MB`;
             } else {
-                pricingEl.textContent = '';
+                pricingEl.innerHTML = '';
             }
         }
 
