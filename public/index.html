@@ -3411,6 +3411,7 @@
 
                 const listDiv = document.getElementById('video-list');
                 listDiv.innerHTML = '';
+                spriteAnimationStops.clear();
 
                 if (data.videos.length === 0) {
                     listDiv.innerHTML = '<em>No videos available</em>';
@@ -3513,8 +3514,10 @@
                     let spriteMeta = null;
                     let spriteUrl = null;
                     let thumbUrl = null; // Cache the thumbnail URL for restoring
+                    let isHovered = false;
 
                     const stopSpriteAnimation = () => {
+                        isHovered = false;
                         if (spriteInterval) {
                             clearInterval(spriteInterval);
                             spriteInterval = null;
@@ -3534,12 +3537,15 @@
 
                     card.onmouseenter = async () => {
                         if (!video.sprite_meta_hash || spriteInterval || !currentChannel) return;
+                        isHovered = true;
 
                         // Fetch sprite meta if not cached (with payment)
                         if (!spriteMeta) {
                             try {
                                 const metaUrl = await fetchBlobCached(video.sprite_meta_hash);
+                                if (!isHovered) return;
                                 const res = await fetch(metaUrl);
+                                if (!isHovered) return;
                                 spriteMeta = await res.json();
                             } catch (e) {
                                 return;
@@ -3550,10 +3556,13 @@
                         if (!spriteUrl) {
                             try {
                                 spriteUrl = await fetchBlobCached(spriteMeta.sprite_hash);
+                                if (!isHovered) return;
                             } catch (e) {
                                 return;
                             }
                         }
+
+                        if (!isHovered) return;
 
                         // Animate through sprite frames
                         // Scale sprite to fit 180px thumbnail height
