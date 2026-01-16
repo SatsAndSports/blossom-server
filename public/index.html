@@ -192,6 +192,13 @@
         #action-indicator.right {
             left: 75%;
         }
+        .video-overlay {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.3s, visibility 0.3s;
+            z-index: 10;
+        }
         #payment-indicator {
             position: absolute;
             top: 20px;
@@ -202,18 +209,8 @@
             border-radius: 6px;
             font-size: 28px;
             font-weight: bold;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.3s;
-            z-index: 10;
             cursor: pointer;
-        }
-        #payment-indicator.visible {
-            opacity: 1;
-            pointer-events: auto;
-        }
-        #payment-indicator:hover {
-            background: rgba(40, 40, 40, 0.8);
+            z-index: 11;
         }
         #video-title {
             position: absolute;
@@ -225,16 +222,10 @@
             padding: 15px 20px 30px;
             font-size: 18px;
             font-weight: 500;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.3s;
-            z-index: 10;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-        }
-        #video-title.visible {
-            opacity: 1;
+            pointer-events: none !important;
         }
         #video-list {
             display: flex;
@@ -392,15 +383,11 @@
             right: 0;
             background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0));
             padding: 10px;
-            opacity: 0;
-            transition: opacity 0.3s;
-            pointer-events: none;
-            visibility: hidden;
         }
-        #video-controls.visible {
+        .video-overlay.visible {
             opacity: 1;
-            pointer-events: auto;
             visibility: visible;
+            pointer-events: auto;
         }
         #video-controls button:disabled,
         #video-controls select:disabled,
@@ -1452,10 +1439,11 @@
                 <div id="video-loading-overlay">
                     <div class="loading-spinner"></div>
                 </div>
+                <div id="play-overlay"><div class="play-icon"></div></div>
                 <div id="action-indicator"><div class="pause-icon"></div></div>
-                <div id="payment-indicator">0 sats</div>
-                <div id="video-title"></div>
-                <div id="video-controls">
+                <div id="payment-indicator" class="video-overlay">0 sats</div>
+                <div id="video-title" class="video-overlay"></div>
+                <div id="video-controls" class="video-overlay">
                     <div id="progress-container">
                         <div id="progress-bar">
                             <div id="progress-buffered"></div>
@@ -4829,19 +4817,27 @@
 
             const controlsVisible = () => controls.classList.contains('visible');
             const tapDelayMs = 400;
-            let controlsUnlockAt = 0;
+            let controlsLastShownAt = 0;
 
-            const controlsUnlocked = () => performance.now() >= controlsUnlockAt;
+            const controlsUnlocked = () => controlsVisible() && (performance.now() >= controlsLastShownAt + 400);
+
+            // A unified wrapper that only allows an action if the UI is "unlocked"
+            function protectedAction(callback) {
+                return function(e) {
+                    if (e && e.stopPropagation) e.stopPropagation();
+                    if (!controlsUnlocked()) return;
+                    callback.apply(this, arguments);
+                };
+            }
 
             // Play/Pause
-            playBtn.onclick = () => {
-                if (!controlsVisible() || !controlsUnlocked()) return;
+            playBtn.onclick = protectedAction(() => {
                 if (video.paused) {
                     video.play();
                 } else {
                     video.pause();
                 }
-            };
+            });
 
             video.addEventListener('play', () => playBtn.classList.add('playing'));
             video.addEventListener('pause', () => playBtn.classList.remove('playing'));
@@ -4886,53 +4882,6 @@
                 video.currentTime = percent * video.duration;
                 updateProgress();
             }
-
-            progressContainer.addEventListener('mousedown', (e) => {
-                isSeeking = true;
-                seekTo(e);
-            });
-            progressContainer.addEventListener('touchstart', (e) => {
-                isSeeking = true;
-                seekTo(e);
-            }, { passive: false });
-
-            document.addEventListener('mousemove', (e) => {
-                if (isSeeking) {
-                    seekTo(e);
-                    showProgressPreview(e.clientX);
-                }
-            });
-            document.addEventListener('touchmove', (e) => {
-                if (isSeeking && e.touches.length > 0) {
-                    seekTo(e.touches[0]);
-                    showProgressPreview(e.touches[0].clientX);
-                }
-            }, { passive: false });
-
-            document.addEventListener('mouseup', () => {
-                isSeeking = false;
-                hideProgressPreview();
-            });
-            document.addEventListener('touchend', () => {
-                isSeeking = false;
-                hideProgressPreview();
-            });
-            progressContainer.addEventListener('touchstart', (e) => {
-                isSeeking = true;
-                seekTo(e);
-            });
-
-            document.addEventListener('mousemove', (e) => {
-                if (isSeeking) {
-                    showProgressPreview(e.clientX);
-                }
-            });
-            document.addEventListener('touchmove', (e) => {
-                if (isSeeking) seekTo(e);
-            });
-
-            document.addEventListener('mouseup', () => isSeeking = false);
-            document.addEventListener('touchend', () => isSeeking = false);
 
             // Progress bar sprite preview
             const progressPreview = document.getElementById('progress-preview');
@@ -5010,43 +4959,60 @@
                 progressPreview.classList.remove('visible');
             }
 
-            // Desktop: show on hover
+            progressContainer.addEventListener('mousedown', (e) => {
+                isSeeking = true;
+                seekTo(e);
+            });
+            progressContainer.addEventListener('touchstart', (e) => {
+                isSeeking = true;
+                seekTo(e);
+            }, { passive: false });
+
+            // Desktop hover preview
             progressContainer.addEventListener('mousemove', (e) => {
-                if (!isTouchDevice) {
+                if (!isSeeking) {
                     showProgressPreview(e.clientX);
                 }
             });
             progressContainer.addEventListener('mouseleave', () => {
-                if (!isTouchDevice) {
+                if (!isSeeking) {
                     hideProgressPreview();
                 }
             });
 
-            progressContainer.onmousedown = () => {
-                // show only while dragging
-            };
-            document.addEventListener('touchmove', (e) => {
-                if (isSeeking && e.touches.length > 0) {
-                    showProgressPreview(e.touches[0].clientX);
+            document.addEventListener('mousemove', (e) => {
+                if (isSeeking) {
+                    seekTo(e);
+                    showProgressPreview(e.clientX);
                 }
             });
-            document.addEventListener('mouseup', () => {
-                hideProgressPreview();
-            });
+            document.addEventListener('touchmove', (e) => {
+                if (isSeeking && e.touches.length > 0) {
+                    seekTo(e.touches[0]);
+                    showProgressPreview(e.touches[0].clientX);
+                }
+            }, { passive: false });
+
+            const stopSeeking = () => {
+                if (isSeeking) {
+                    isSeeking = false;
+                    hideProgressPreview();
+                }
+            };
+            document.addEventListener('mouseup', stopSeeking);
+            document.addEventListener('touchend', stopSeeking);
 
             // Volume
-            muteBtn.onclick = () => {
-                if (!controlsVisible() || !controlsUnlocked()) return;
+            muteBtn.onclick = protectedAction(() => {
                 video.muted = !video.muted;
                 muteBtn.textContent = video.muted ? '🔇' : '🔊';
-            };
+            });
 
-            volumeSlider.oninput = () => {
-                if (!controlsVisible() || !controlsUnlocked()) return;
+            volumeSlider.oninput = protectedAction(() => {
                 video.volume = volumeSlider.value;
                 video.muted = false;
                 muteBtn.textContent = video.volume == 0 ? '🔇' : '🔊';
-            };
+            });
 
             video.addEventListener('volumechange', () => {
                 volumeSlider.value = video.muted ? 0 : video.volume;
@@ -5054,31 +5020,28 @@
             });
 
             // Playback speed
-            speedSelect.onchange = () => {
-                if (!controlsVisible() || !controlsUnlocked()) return;
+            speedSelect.onchange = protectedAction(() => {
                 video.playbackRate = parseFloat(speedSelect.value);
-            };
+            });
 
             // Fullscreen
-            fullscreenBtn.onclick = () => {
-                if (!controlsVisible() || !controlsUnlocked()) return;
+            fullscreenBtn.onclick = protectedAction(() => {
                 if (document.fullscreenElement) {
                     document.exitFullscreen();
                 } else {
                     container.requestFullscreen();
                 }
-            };
+            });
 
             // Share
-            document.getElementById('share-btn').onclick = () => {
-                if (!controlsVisible() || !controlsUnlocked()) return;
+            document.getElementById('share-btn').onclick = protectedAction(() => {
                 if (!currentMasterHash) {
                     log('No video playing', 'error');
                     return;
                 }
                 updateShareUrl();
                 document.getElementById('share-modal').classList.add('visible');
-            };
+            });
 
             document.addEventListener('fullscreenchange', () => {
                 const icon = document.getElementById('fullscreen-icon');
@@ -5105,27 +5068,41 @@
                 }
             }
 
-            paymentIndicator.onclick = (e) => {
-                e.stopPropagation();
+            paymentIndicator.onclick = protectedAction(() => {
+                if (document.fullscreenElement) {
+                    document.exitFullscreen();
+                }
                 showChannelModal();
+            });
+
+            // Guard dropdowns from ghost clicks on mobile
+            const guardDropdown = (e) => {
+                if (!controlsUnlocked()) {
+                    e.preventDefault();
+                    e.target.blur();
+                    return false;
+                }
             };
+            speedSelect.onmousedown = guardDropdown;
+            qualitySelectEl.onmousedown = guardDropdown;
+            speedSelect.onfocus = guardDropdown;
+            qualitySelectEl.onfocus = guardDropdown;
+
+            const overlayElements = [controls, paymentIndicator, videoTitle];
 
             function showOverlays() {
                 updatePaymentIndicator();
-                const wasVisible = controlsVisible();
-                controls.classList.add('visible');
-                paymentIndicator.classList.add('visible');
-                videoTitle.classList.add('visible');
                 
-                // Set lock regardless of previous visibility to catch synthetic clicks
-                controlsUnlockAt = performance.now() + 400;
+                if (!controlsVisible()) {
+                    controlsLastShownAt = performance.now();
+                }
+                
+                overlayElements.forEach(el => el.classList.add('visible'));
                 
                 setControlsEnabled(true);
                 clearTimeout(hideTimeout);
                 hideTimeout = setTimeout(() => {
-                    controls.classList.remove('visible');
-                    paymentIndicator.classList.remove('visible');
-                    videoTitle.classList.remove('visible');
+                    overlayElements.forEach(el => el.classList.remove('visible'));
                     setControlsEnabled(false);
                 }, 3000);
             }
@@ -5231,7 +5208,6 @@
                 const clientX = e.clientX;
                 if (clientX === undefined) return;
 
-                const overlaysVisible = controls.classList.contains('visible');
                 const now = Date.now();
                 const x = clientX - rect.left;
                 const width = rect.width;
@@ -5269,7 +5245,7 @@
                         }
                     }
                 } else {
-                    if (!overlaysVisible) {
+                    if (!controlsUnlocked()) {
                         showOverlays();
                     } else {
                         if (tapTimeout) {
