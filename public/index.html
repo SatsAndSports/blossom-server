@@ -3671,35 +3671,19 @@
         init();
 
         // Manage Channels button
-        const manageButton = document.getElementById('manage-btn');
-        if (manageButton) {
-            manageButton.title = APP_VERSION;
-            let managePressTimer = null;
-            const clearManagePressTimer = () => {
-                if (managePressTimer) {
-                    clearTimeout(managePressTimer);
-                    managePressTimer = null;
-                }
-            };
-            manageButton.addEventListener('touchstart', () => {
-                clearManagePressTimer();
-                managePressTimer = setTimeout(() => {
-                    showToast(`Version: ${APP_VERSION}`, 'success');
-                }, 700);
-            }, { passive: true });
-            manageButton.addEventListener('touchend', clearManagePressTimer);
-            manageButton.addEventListener('touchmove', clearManagePressTimer);
-            manageButton.addEventListener('touchcancel', clearManagePressTimer);
-        }
-
         document.getElementById('manage-btn').onclick = () => {
             showChannelModal();
         };
 
-        // Channel status click (also opens modal)
-        document.getElementById('channel-status').onclick = () => {
-            showChannelModal();
-        };
+        const activeLabel = document.querySelector('#active-viewers');
+        if (activeLabel) {
+            const showVersionToast = () => {
+                showToast(`Version: ${APP_VERSION}`, 'success');
+            };
+            activeLabel.addEventListener('click', showVersionToast);
+            activeLabel.addEventListener('touchend', showVersionToast, { passive: true });
+        }
+
 
         // Dev tools
         document.getElementById('reset-alice').onclick = () => {
