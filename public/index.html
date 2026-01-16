@@ -2545,6 +2545,7 @@
         // ============================================
         // Alice's key management
         // ============================================
+        const APP_VERSION = 'cashutube-v20260116';
         const ALICE_KEY_STORAGE = 'cashu_alice_secret';
 
         function getOrCreateAliceKey() {
@@ -3667,6 +3668,27 @@
         init();
 
         // Manage Channels button
+        const manageButton = document.getElementById('manage-btn');
+        if (manageButton) {
+            manageButton.title = APP_VERSION;
+            let managePressTimer = null;
+            const clearManagePressTimer = () => {
+                if (managePressTimer) {
+                    clearTimeout(managePressTimer);
+                    managePressTimer = null;
+                }
+            };
+            manageButton.addEventListener('touchstart', () => {
+                clearManagePressTimer();
+                managePressTimer = setTimeout(() => {
+                    showToast(`Version: ${APP_VERSION}`, 'success');
+                }, 700);
+            }, { passive: true });
+            manageButton.addEventListener('touchend', clearManagePressTimer);
+            manageButton.addEventListener('touchmove', clearManagePressTimer);
+            manageButton.addEventListener('touchcancel', clearManagePressTimer);
+        }
+
         document.getElementById('manage-btn').onclick = () => {
             showChannelModal();
         };
