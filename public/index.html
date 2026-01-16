@@ -194,9 +194,14 @@
             opacity: 0;
             transition: opacity 0.3s;
             z-index: 10;
+            cursor: pointer;
         }
         #payment-indicator.visible {
             opacity: 1;
+            pointer-events: auto;
+        }
+        #payment-indicator:hover {
+            background: rgba(40, 40, 40, 0.8);
         }
         #video-title {
             position: absolute;
@@ -4018,6 +4023,9 @@
         }
 
         function showChannelModal() {
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            }
             const modal = document.getElementById('channel-modal');
             const modalContent = document.querySelector('#channel-modal .modal-content');
             
@@ -4997,6 +5005,11 @@
                 }
             }
 
+            paymentIndicator.onclick = (e) => {
+                e.stopPropagation();
+                showChannelModal();
+            };
+
             function showOverlays() {
                 updatePaymentIndicator();
                 const wasVisible = controlsVisible();
@@ -5108,8 +5121,8 @@
             let tapTimeout = null;
 
             function handleTap(e) {
-                // Ignore taps on control elements
-                if (e.target.closest('#video-controls')) {
+                // Ignore taps on control elements or payment indicator
+                if (e.target.closest('#video-controls') || e.target.closest('#payment-indicator')) {
                     return;
                 }
 
