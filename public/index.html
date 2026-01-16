@@ -189,6 +189,7 @@
             flex-direction: column;
             gap: 15px;
             overflow-y: auto;
+            padding-left: 12px;
         }
         .video-card {
             background: #2a2a2a;
@@ -478,6 +479,8 @@
             #video-list {
                 flex-direction: row;
                 flex-wrap: wrap;
+                padding-left: 0;
+                padding-right: 0;
             }
             .video-card {
                 width: 200px;
@@ -2545,7 +2548,7 @@
         // ============================================
         // Alice's key management
         // ============================================
-        const APP_VERSION = 'cashutube-v20260116b';
+        const APP_VERSION = 'cashutube-v20260116c';
         const ALICE_KEY_STORAGE = 'cashu_alice_secret';
 
         function getOrCreateAliceKey() {
