@@ -859,8 +859,13 @@
         }
         .channel-card.selected {
             border-color: #f7931a;
-            background: #3a3020;
+            background: #333;
         }
+        .channel-card.closing {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
         .channel-card-header {
             display: flex;
             justify-content: space-between;
@@ -878,9 +883,14 @@
             background: #444;
             color: #888;
         }
-        .channel-status.active {
+        .channel-status.active,
+        .channel-status.open {
             background: #2a4a2a;
             color: #4a9;
+        }
+        .channel-status.unused {
+            background: #2a3a4a;
+            color: #49a;
         }
         .channel-status.exhausted {
             background: #4a3a2a;
@@ -2046,6 +2056,20 @@
             
             try {
                 const res = await fetch(`${channelModalServerUnit.server}/channel/${channelId}/status`);
+                if (res.status === 404) {
+                    // Channel not found on server - mark as unused
+                    const record = await getChannel(channelId);
+                    if (record) {
+                        record.status = 'unused';
+                        await saveChannel(record);
+                    }
+                    showToast('Channel unknown to server, marked as unused', 'info');
+                    if (currentChannel && currentChannel.channelId === channelId) {
+                        await setCurrentChannel(null);
+                    }
+                    await renderChannelList();
+                    return;
+                }
                 if (!res.ok) {
                     console.log(`[Channel] Status request failed: ${res.status}`);
                     return;
@@ -2087,8 +2111,18 @@
         async function closeChannel(channelId, event) {
             event.stopPropagation();
 
-            // Disable button and show loading state
+            if (currentChannel && currentChannel.channelId === channelId) {
+                showToast('Cannot close the currently selected channel', 'error');
+                return;
+            }
+
+            // Find the card and show immediate feedback
             const button = event.currentTarget;
+            const card = button.closest('.channel-card');
+            if (card) card.classList.add('closing');
+            showToast('Closing channel and settling with mint...', 'info');
+
+            // Disable button and show loading state
             button.disabled = true;
             button.textContent = '...';
 
@@ -2097,7 +2131,21 @@
             try {
                 // Get server status to find exact amount_due
                 const statusRes = await fetch(`${channelModalServerUnit.server}/channel/${channelId}/status`);
+                if (statusRes.status === 404) {
+                    // Channel not found on server - mark as unused
+                    const record = await getChannel(channelId);
+                    if (record) {
+                        record.status = 'unused';
+                        await saveChannel(record);
+                    }
+                    showToast('Channel unknown to server, marked as unused', 'info');
+                    if (currentChannel && currentChannel.channelId === channelId) {
+                        await setCurrentChannel(null);
+                    }
+                    return;
+                }
                 if (!statusRes.ok) {
+                    showToast(`Failed to get channel status: ${statusRes.status}`, 'error');
                     console.log(`[Channel] Status request failed: ${statusRes.status}`);
                     return;
                 }
@@ -2153,11 +2201,14 @@
                     if (currentChannel && currentChannel.channelId === channelId) {
                         await setCurrentChannel(null);
                     }
+                    showToast('Channel closed and funds settled', 'success');
                 } else {
+                    showToast(`Close failed: ${closeResult.error || closeRes.status}`, 'error');
                     console.log(`[Channel] Close failed: ${closeResult.error || closeRes.status}`);
                 }
 
             } catch (e) {
+                showToast(`Error: ${e.message}`, 'error');
                 console.log(`[Channel] Close failed: ${e.message}`);
             } finally {
                 // Always re-render to restore button state
@@ -2801,7 +2852,10 @@
             if (!currentChannel) {
                 throw new Error('No payment channel available');
             }
-            const channelId = currentChannel.channelId;
+            const channelId = currentChannel?.channelId;
+            if (!channelId) {
+                throw new Error('No payment channel available');
+            }
             const url = currentServer + '/' + hash;
             // Increment request count before creating payment (adds worst-case bytes)
             incrementChannelRequestCount(channelId, url);
@@ -3051,10 +3105,12 @@
                                 xhr.open('GET', url, true);
                             }
 
-                            // Increment request count - this increases the balance owed,
-                            // which will be included in the payment header below
-                            const channelId = currentChannel.channelId;
-                            incrementChannelRequestCount(channelId, url);
+                             // Increment request count - this increases the balance owed,
+                             // which will be included in the payment header below
+                             const channelId = currentChannel?.channelId;
+                             if (!channelId) return;
+                             incrementChannelRequestCount(channelId, url);
+
 
                             let payment;
                             try {
