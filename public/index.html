@@ -1109,6 +1109,15 @@
             padding: 30px;
             font-style: italic;
         }
+        .modal-detail-text {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+            margin-bottom: 10px;
+            font-family: sans-serif;
+            width: 100%;
+            text-align: center;
+        }
         #toast {
             position: fixed;
             top: 20px;
@@ -1461,6 +1470,7 @@
                 <select id="modal-server-select"></select>
                 <button id="add-server-btn" title="Add server" style="margin-left:6px;padding:2px 8px;cursor:pointer;">+</button>
                 <button id="remove-server-btn" title="Remove server" style="padding:2px 8px;cursor:pointer;">−</button>
+                <div id="modal-server-pricing" class="modal-detail-text"></div>
             </div>
             <div class="channel-tabs">
                 <button class="channel-tab active" data-tab="open">Open Channels</button>
@@ -3981,6 +3991,7 @@
                 document.getElementById('modal-server-select').value = `${currentServer}|${currentUnit}`;
                 updateCapacityUI(currentServer, currentUnit);
                 populateMintDropdown(currentServer, currentUnit);
+                updateModalPricingDisplay();
             }
             
             // Render channel list
@@ -4083,6 +4094,24 @@
             const savedMint = getSelectedMint(server, unit);
             if (savedMint && mints.includes(savedMint)) {
                 select.value = savedMint;
+            }
+        }
+
+        function updateModalPricingDisplay() {
+            const pricingEl = document.getElementById('modal-server-pricing');
+            if (!pricingEl || !channelModalServerUnit) return;
+
+            const { server, unit } = channelModalServerUnit;
+            const info = serverInfo[server];
+            const pricing = info?.pricing?.[unit];
+
+            if (pricing) {
+                const reqPrice = pricing.perRequestPpk / 1000;
+                const mbPrice = pricing.perMegabytePpk / 1000;
+                const unitLabel = getUnitLabel(unit);
+                pricingEl.textContent = `${reqPrice} ${unitLabel}/req + ${mbPrice} ${unitLabel}/MB`;
+            } else {
+                pricingEl.textContent = '';
             }
         }
 
@@ -4464,6 +4493,9 @@
             // Update capacity input UI for new unit
             updateCapacityUI(server, unit);
             
+            // Update pricing display
+            updateModalPricingDisplay();
+            
             // Update mint dropdown for new server/unit
             populateMintDropdown(server, unit);
             
@@ -4537,6 +4569,8 @@
             const info = serverInfo[url.replace(/\/+$/, '')];
             if (info && info.units && info.units.length > 0) {
                 document.getElementById('modal-server-select').value = `${url.replace(/\/+$/, '')}|${info.units[0]}`;
+                channelModalServerUnit = { server: url.replace(/\/+$/, ''), unit: info.units[0] };
+                updateModalPricingDisplay();
                 document.getElementById('modal-server-select').dispatchEvent(new Event('change'));
             }
         };
