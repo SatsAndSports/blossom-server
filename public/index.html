@@ -2545,7 +2545,7 @@
         // ============================================
         // Alice's key management
         // ============================================
-        const APP_VERSION = 'cashutube-v20260116';
+        const APP_VERSION = 'cashutube-v20260116b';
         const ALICE_KEY_STORAGE = 'cashu_alice_secret';
 
         function getOrCreateAliceKey() {
@@ -5132,9 +5132,13 @@
         function registerServiceWorker() {
             if (!('serviceWorker' in navigator)) return;
 
+            let updateRequested = false;
+
             navigator.serviceWorker.register('/sw.js').then((registration) => {
-                if (registration.waiting) {
-                    showUpdateBanner(registration);
+                if (registration.waiting && navigator.serviceWorker.controller) {
+                    showUpdateBanner(registration, () => {
+                        updateRequested = true;
+                    });
                 }
 
                 registration.addEventListener('updatefound', () => {
@@ -5143,20 +5147,24 @@
 
                     installing.addEventListener('statechange', () => {
                         if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-                            showUpdateBanner(registration);
+                            showUpdateBanner(registration, () => {
+                                updateRequested = true;
+                            });
                         }
                     });
                 });
 
                 navigator.serviceWorker.addEventListener('controllerchange', () => {
-                    window.location.reload();
+                    if (updateRequested) {
+                        window.location.reload();
+                    }
                 });
             }).catch((err) => {
                 console.warn('Service worker registration failed', err);
             });
         }
 
-        function showUpdateBanner(registration) {
+        function showUpdateBanner(registration, onUpdateRequested) {
             const banner = document.getElementById('update-banner');
             const dismissBtn = document.getElementById('update-dismiss');
             const updateBtn = document.getElementById('update-now');
@@ -5174,6 +5182,7 @@
             updateBtn.onclick = () => {
                 const waiting = registration.waiting;
                 if (waiting) {
+                    onUpdateRequested?.();
                     waiting.postMessage({ type: 'SKIP_WAITING' });
                 }
             };

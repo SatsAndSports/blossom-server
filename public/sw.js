@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'cashutube-v20260116';
+const CACHE_VERSION = 'cashutube-v20260116b';
 const CACHE_NAME = `${CACHE_VERSION}`;
 const PRECACHE_URLS = [
   '/',
@@ -35,7 +35,6 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => cache.addAll(PRECACHE_URLS))
-      .then(() => self.skipWaiting())
   );
 });
 
