@@ -471,10 +471,12 @@
             cursor: pointer;
             accent-color: #f7931a;
         }
-        @media (max-width: 500px) {
+        @media (pointer: coarse), (max-width: 500px) {
             #volume-control {
-                display: none;
+                display: none !important;
             }
+        }
+        @media (max-width: 500px) {
             #video-controls {
                 padding: 10px 5px;
             }
