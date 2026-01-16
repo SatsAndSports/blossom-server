@@ -14,6 +14,9 @@
     <link rel="icon" type="image/svg+xml" href="/icon.svg">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13"></script>
     <style>
+        :root {
+            --player-max-height: 500px;
+        }
         * {
             box-sizing: border-box;
         }
@@ -78,13 +81,17 @@
             margin-bottom: 20px;
             position: relative;
             display: none;
-            max-height: calc(100vh - 200px);
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            height: auto;
+            max-height: var(--player-max-height);
         }
         #video-container.initial-load {
             aspect-ratio: 16/9;
         }
         #video-container.visible {
-            display: block;
+            display: flex;
         }
         #video-loading-overlay {
             position: absolute;
@@ -120,10 +127,14 @@
         }
         video {
             width: 100%;
-            max-height: calc(100vh - 200px);
+            height: auto;
+            max-width: 100%;
+            max-height: var(--player-max-height);
             object-fit: contain;
             display: block;
         }
+
+
         #action-indicator {
             position: absolute;
             top: 50%;
@@ -228,7 +239,6 @@
             display: flex;
             flex-direction: column;
             gap: 15px;
-            overflow-y: auto;
             padding-left: 12px;
         }
         .video-card {
@@ -504,7 +514,7 @@
             #left-column {
                 width: 100%;
             }
-            #video-container, video {
+            #video-container {
                 width: 100%;
             }
             #video-list {
@@ -558,6 +568,7 @@
         #video-container:fullscreen {
             background: #000;
             max-height: none;
+            height: 100%;
         }
         #video-container:fullscreen video {
             width: 100%;
@@ -1619,6 +1630,7 @@
             // Open channel manager automatically
             showChannelModal();
         }
+
 
         // Refresh the list of alternative channels (called when currentChannel changes)
         // Pre-loads FundedChannel objects for instant synchronous switching
@@ -3074,21 +3086,6 @@
             }
         }
 
-        function scrollVideoIntoViewIfNeeded() {
-            const videoContainer = document.getElementById('video-container');
-            if (!videoContainer || !videoContainer.classList.contains('visible')) return;
-
-            const rect = videoContainer.getBoundingClientRect();
-            const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-            const fullyVisible = rect.top >= 0 && rect.bottom <= viewportHeight;
-            if (fullyVisible) return;
-
-            window.scrollTo({
-                top: rect.top + window.scrollY,
-                behavior: 'smooth'
-            });
-        }
-
         // Initialize HLS player with payment injection
         function playVideo(manifestUrl, startTime = null, spriteMetaHash = null, title = null) {
             const video = document.getElementById('video');
@@ -3100,9 +3097,7 @@
             container.classList.add('visible');
             container.classList.add('initial-load');
             container.classList.add('buffering');
-            updateVideoListMaxHeight();
             stopAllSpriteAnimations();
-            requestAnimationFrame(() => requestAnimationFrame(scrollVideoIntoViewIfNeeded));
 
             // Extract master hash from URL for sharing
             const hashMatch = manifestUrl.match(/([0-9a-f]{64})/);
@@ -3266,7 +3261,6 @@
                             hls.destroy();
                             document.getElementById('video-container').classList.remove('visible');
                             document.getElementById('video-placeholder').classList.remove('hidden');
-                            updateVideoListMaxHeight();
                             return;
                         }
 
@@ -3720,7 +3714,6 @@
                 }
 
                 log(`Found ${data.videos.length} videos`);
-                updateVideoListMaxHeight();
 
                 // Auto-play video from URL hash if present (but not if modal is open)
                 playVideoFromHash(data.videos);
@@ -4557,7 +4550,6 @@
             document.getElementById('video').src = '';
             document.getElementById('video-placeholder').classList.remove('hidden');
             document.getElementById('video-container').classList.remove('visible');
-            updateVideoListMaxHeight();
             currentVideoTitle = null;
             document.getElementById('video-title').textContent = '';
             if (window.location.hash) {
@@ -4808,7 +4800,6 @@
             video.addEventListener('progress', updateBuffered);
             video.addEventListener('loadedmetadata', () => {
                 container.classList.remove('initial-load');
-                updateVideoListMaxHeight();
                 updateProgress();
             });
 
@@ -5267,62 +5258,9 @@
         updateActiveViewers();
         setInterval(updateActiveViewers, 5000);
 
-        window.addEventListener('resize', updateVideoListMaxHeight);
-        window.addEventListener('orientationchange', updateVideoListMaxHeight);
         window.addEventListener('beforeunload', () => {
             localStorage.setItem(BANDWIDTH_STORAGE_KEY, lastBandwidthEstimate);
         });
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', updateVideoListMaxHeight);
-            window.visualViewport.addEventListener('scroll', updateVideoListMaxHeight);
-        }
-
-        // Track player size changes to keep list height in sync
-        const videoContainerObserver = new ResizeObserver(() => {
-            updateVideoListMaxHeight();
-        });
-        const videoContainerTarget = document.getElementById('video-container');
-        if (videoContainerTarget) {
-            videoContainerObserver.observe(videoContainerTarget);
-        }
-
-        function updateVideoListMaxHeight() {
-            const videoList = document.getElementById('video-list');
-            const videoContainer = document.getElementById('video-container');
-            if (!videoList || !videoContainer) return;
-
-            const isStacked = window.matchMedia('(max-width: 900px)').matches;
-            const rect = videoContainer.getBoundingClientRect();
-            const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-            const topInPage = rect.top + window.scrollY;
-            const listRect = videoList.getBoundingClientRect();
-            const paddingUnderVideo = Math.max(0, listRect.top - rect.bottom);
-            const heightOfVideoPlayer = rect.height + paddingUnderVideo;
-
-            if (!rect.height) return;
-
-            const applyListHeight = (height) => {
-                const rounded = Math.round(height);
-                videoList.style.maxHeight = `${rounded}px`;
-                videoList.style.height = `${rounded}px`;
-            };
-
-            if (isStacked) {
-                if (heightOfVideoPlayer <= viewportHeight / 2) {
-                    const maxHeight = Math.max(25, viewportHeight - heightOfVideoPlayer);
-                    applyListHeight(maxHeight);
-                    return;
-                }
-
-                const maxHeight = Math.max(25, viewportHeight - heightOfVideoPlayer / 2);
-                applyListHeight(maxHeight);
-                return;
-            }
-
-            const clampedTop = Math.min(viewportHeight, Math.max(0, topInPage));
-            const maxHeight = Math.max(25, viewportHeight - clampedTop);
-            applyListHeight(maxHeight);
-        }
 
         const LOG_VISIBILITY_KEY = 'cashutube_log_visible';
         const UPDATE_BANNER_DISMISSED_KEY = 'cashutube_update_dismissed';
