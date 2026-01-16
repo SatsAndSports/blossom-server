@@ -250,43 +250,72 @@
             width: 100%;
             transition: border-color 0.2s;
             flex: 0 0 auto;
+            display: flex;
+            flex-direction: row;
         }
         .video-card:hover {
             border-color: #f7931a;
         }
+        .video-card-thumb-wrapper {
+            width: 160px;
+            flex-shrink: 0;
+            position: relative;
+            background-color: #1a1a1a;
+        }
         .video-card-thumb {
             width: 100%;
-            height: 180px;
-            background-color: #1a1a1a;
-            background-size: cover;
+            height: 90px;
+            background-size: contain;
             background-position: center;
+            background-repeat: no-repeat;
+            background-color: #000;
+        }
+        .video-card-info {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
         }
         .video-card-progress {
             height: 3px;
             background: #f7931a;
             width: 0;
+            position: absolute;
+            bottom: 0;
+            left: 0;
         }
         .video-card-title {
-            padding: 10px;
-            font-size: 14px;
+            padding: 8px 10px 4px;
+            font-size: 13px;
+            font-weight: 500;
             color: #e0e0e0;
+            white-space: normal;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            line-height: 1.2;
+        }
+        .video-card-meta {
+            display: flex;
+            flex-direction: column;
+            padding: 0 10px 8px;
+            font-size: 11px;
+            color: #888;
+            gap: 2px;
+        }
+        .video-card-meta span {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .video-card-meta {
-            display: flex;
-            justify-content: space-between;
-            padding: 0 10px 10px;
-            font-size: 12px;
-            color: #888;
-        }
         .video-card-costs {
             display: flex;
             flex-wrap: wrap;
-            gap: 6px 12px;
-            padding: 0 10px 10px;
-            font-size: 11px;
+            gap: 4px 8px;
+            padding: 0 10px 8px;
+            font-size: 10px;
             color: #6a6;
         }
         #log {
@@ -499,37 +528,8 @@
                 display: none !important;
             }
         }
-        @media (max-width: 500px) {
-            #video-controls {
-                padding: 10px 5px;
-            }
-            #controls-row {
-                gap: 6px;
-            }
-            #time-display {
-                min-width: auto;
-                font-size: 11px;
-            }
-            /* Portrait mobile: full-width layout */
-            #left-column {
-                width: 100%;
-            }
-            #video-container {
-                width: 100%;
-            }
-            #video-list {
-                flex-direction: column;
-            }
-            .video-card {
-                width: 100%;
-            }
-            .video-card-thumb {
-                width: 100%;
-                height: auto;
-                aspect-ratio: 16/9;
-            }
-        }
-        @media (max-width: 900px) {
+        /* Narrow Viewport (Portrait/Tall): height >= width */
+        @media (max-aspect-ratio: 1/1) {
             #main-content {
                 flex-direction: column;
             }
@@ -539,18 +539,36 @@
             #video-list {
                 flex-direction: row;
                 flex-wrap: wrap;
-                padding-left: 0;
-                padding-right: 0;
+                padding: 0;
+                gap: 12px;
+                justify-content: center;
             }
             .video-card {
-                width: 200px;
+                flex-direction: column;
+                width: calc(50% - 12px);
+                min-width: 160px;
+            }
+            .video-card-thumb-wrapper {
+                width: 100%;
+                height: auto;
+                aspect-ratio: 16/9;
             }
             .video-card-thumb {
-                width: 200px;
-                height: 113px;
+                height: 100%;
+            }
+            .video-card-meta {
+                flex-direction: row;
+                justify-content: space-between;
             }
             #header-bar {
                 gap: 10px;
+            }
+        }
+        
+        /* Mobile Portrait Specifics */
+        @media (max-aspect-ratio: 1/1) and (max-width: 500px) {
+            .video-card {
+                width: 100%;
             }
         }
         #controls-spacer {
@@ -3540,6 +3558,9 @@
                         card.dataset.previewHash = video.preview_hash;
                     }
 
+                    const thumbWrapper = document.createElement('div');
+                    thumbWrapper.className = 'video-card-thumb-wrapper';
+
                     const thumb = document.createElement('div');
                     thumb.className = 'video-card-thumb';
 
@@ -3556,6 +3577,13 @@
                             progressBar.style.width = percent + '%';
                         }
                     })();
+
+                    thumbWrapper.appendChild(thumb);
+                    thumbWrapper.appendChild(progressBar);
+
+                    // Info wrapper for text content
+                    const infoWrapper = document.createElement('div');
+                    infoWrapper.className = 'video-card-info';
 
                     // Load thumbnail on hover (desktop) or touch (mobile)
                     const loadThumb = async () => {
@@ -3595,10 +3623,11 @@
                     }
                     meta.appendChild(views);
 
-                    card.appendChild(thumb);
-                    card.appendChild(progressBar);
-                    card.appendChild(title);
-                    card.appendChild(meta);
+                    infoWrapper.appendChild(title);
+                    infoWrapper.appendChild(meta);
+
+                    card.appendChild(thumbWrapper);
+                    card.appendChild(infoWrapper);
 
                     // Show per-quality cost breakdown
                     if (video.quality_stats) {
@@ -3612,7 +3641,7 @@
                                 costs.appendChild(row);
                             }
                         }
-                        card.appendChild(costs);
+                        infoWrapper.appendChild(costs);
                     }
 
                     // Sprite animation on hover
@@ -3634,7 +3663,7 @@
                             if (cachedUrl) {
                                 thumb.style.backgroundImage = `url(${cachedUrl})`;
                             }
-                            thumb.style.backgroundSize = 'cover';
+                            thumb.style.backgroundSize = 'contain';
                             thumb.style.backgroundPosition = 'center';
                         }
                     };
@@ -3671,8 +3700,9 @@
                         if (!isHovered) return;
 
                         // Animate through sprite frames
-                        // Scale sprite to fit 180px thumbnail height
-                        const thumbContainerHeight = 180; // matches .video-card-thumb height
+                        // Scale sprite to fit thumbnail height
+                        const thumbRect = thumb.getBoundingClientRect();
+                        const thumbContainerHeight = thumbRect.height || (window.innerWidth <= window.innerHeight ? 113 : 90);
                         const scale = thumbContainerHeight / spriteMeta.thumb_height;
                         const frameWidth = spriteMeta.thumb_width * scale;
                         const frameHeight = thumbContainerHeight;
