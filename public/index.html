@@ -2745,6 +2745,7 @@
         const APP_VERSION = 'cashutube-v20260116e';
         const ALICE_KEY_STORAGE = 'cashu_alice_secret';
         const BANDWIDTH_STORAGE_KEY = 'cashutube_last_bandwidth';
+        const PREFERRED_QUALITY_KEY = 'cashutube_preferred_quality';
         let lastBandwidthEstimate = 750000; // default 750 Kbps
 
         function getOrCreateAliceKey() {
@@ -3297,6 +3298,18 @@
                         qualitySelect.appendChild(option);
                     });
 
+                    // Apply preferred quality if exists
+                    const preferredHeight = localStorage.getItem(PREFERRED_QUALITY_KEY);
+                    if (preferredHeight && preferredHeight !== "-1") {
+                        const targetHeight = parseInt(preferredHeight);
+                        const levelIndex = data.levels.findIndex(l => l.height === targetHeight);
+                        if (levelIndex !== -1) {
+                            hls.currentLevel = levelIndex;
+                            qualitySelect.value = levelIndex.toString();
+                            log(`Applied preferred quality: ${targetHeight}p`);
+                        }
+                    }
+
                     // Seek to start time if specified, otherwise check for saved position
                     if (startTime !== null && startTime > 0) {
                         video.currentTime = startTime;
@@ -3361,9 +3374,12 @@
                         hls.currentLevel = -1;  // Auto
                         this.options[0].text = 'Auto';
                         log('Quality: Auto');
+                        localStorage.setItem(PREFERRED_QUALITY_KEY, "-1");
                     } else {
                         hls.currentLevel = level;
-                        log(`Quality: ${hls.levels[level].height}p (manual)`);
+                        const height = hls.levels[level].height;
+                        log(`Quality: ${height}p (manual)`);
+                        localStorage.setItem(PREFERRED_QUALITY_KEY, height.toString());
                     }
                 });
 
