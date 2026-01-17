@@ -406,7 +406,7 @@
         }
         #progress-container {
             position: relative;
-            height: 20px;
+            height: 12px;
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -457,7 +457,7 @@
         }
         #progress-preview {
             position: absolute;
-            bottom: 30px;
+            bottom: 22px;
             width: 160px;
             height: 90px;
             background-color: #000;
@@ -491,7 +491,7 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            margin-top: 8px;
+            margin-top: 2px;
         }
         .ctrl-btn {
             background: transparent;
@@ -547,9 +547,36 @@
         }
         #volume-slider {
             width: 60px;
-            height: 4px;
+            height: 20px;
             cursor: pointer;
-            accent-color: #f7931a;
+            background: transparent;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        #volume-slider::-webkit-slider-runnable-track {
+            height: 4px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+        }
+        #volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 12px;
+            width: 12px;
+            background: #f7931a;
+            border-radius: 50%;
+            margin-top: -4px;
+        }
+        #volume-slider::-moz-range-track {
+            height: 4px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+        }
+        #volume-slider::-moz-range-thumb {
+            height: 12px;
+            width: 12px;
+            background: #f7931a;
+            border-radius: 50%;
+            border: none;
         }
         @media (pointer: coarse), (max-width: 500px) {
             #volume-control {
