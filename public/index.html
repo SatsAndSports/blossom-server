@@ -236,6 +236,9 @@
             text-overflow: ellipsis;
             pointer-events: none !important;
         }
+        #narrow-video-title {
+            display: none;
+        }
         #video-list {
             display: flex;
             flex-direction: column;
@@ -605,6 +608,13 @@
             }
             #right-column {
                 width: 100%;
+            }
+            #narrow-video-title.visible {
+                display: block;
+                font-weight: bold;
+                font-size: 1.2em;
+                padding: 15px 12px 5px;
+                color: #fff;
             }
             #video-list {
                 flex-direction: row;
@@ -1570,6 +1580,7 @@
         </div>
 
         <div id="right-column">
+            <div id="narrow-video-title"></div>
             <div id="video-list">
                 <em>Loading videos...</em>
             </div>
@@ -3251,6 +3262,13 @@
             // Store video title for display
             currentVideoTitle = title;
             document.getElementById('video-title').textContent = title || '';
+            const narrowTitle = document.getElementById('narrow-video-title');
+            if (title) {
+                narrowTitle.textContent = title;
+                narrowTitle.classList.add('visible');
+            } else {
+                narrowTitle.classList.remove('visible');
+            }
 
             // Clean up previous instance
             if (currentHls) {
@@ -4714,6 +4732,8 @@
             updateStickyOffset();
             currentVideoTitle = null;
             document.getElementById('video-title').textContent = '';
+            document.getElementById('narrow-video-title').classList.remove('visible');
+            document.getElementById('narrow-video-title').textContent = '';
             if (window.location.hash) {
                 history.replaceState(null, '', window.location.pathname + window.location.search);
             }
