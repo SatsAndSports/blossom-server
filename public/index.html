@@ -3306,7 +3306,16 @@
                         }
                     }
 
-                    video.play();
+                    const playPromise = video.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(e => {
+                            if (e.name === 'NotAllowedError') {
+                                showToast('Autoplay blocked. Tap video to play.');
+                                log('Autoplay blocked by browser', 'info');
+                                container.classList.remove('initial-load', 'buffering');
+                            }
+                        });
+                    }
                 });
 
                 hls.on(Hls.Events.LEVEL_SWITCHED, function(event, data) {
