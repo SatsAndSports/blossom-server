@@ -16,6 +16,7 @@
     <style>
         :root {
             --player-max-height: 562.5px;
+            --player-sticky-top: 0px;
         }
         * {
             box-sizing: border-box;
@@ -58,7 +59,7 @@
             align-items: center;
             justify-content: center;
             position: sticky;
-            top: 0;
+            top: var(--player-sticky-top);
             z-index: 100;
         }
         #video-placeholder.hidden {
@@ -78,7 +79,7 @@
         }
         #video-container {
             position: sticky;
-            top: 0;
+            top: var(--player-sticky-top);
             z-index: 100;
             width: 100%;
             height: auto;
@@ -593,7 +594,7 @@
             }
             #left-column {
                 position: sticky;
-                top: 0;
+                top: var(--player-sticky-top);
                 z-index: 100;
                 background: #1a1a1a;
                 width: 100%;
@@ -1711,6 +1712,34 @@
             toast.classList.add('visible');
             setTimeout(() => toast.classList.remove('visible'), duration);
         }
+
+        // Update the sticky top offset based on video and viewport height
+        function updateStickyOffset() {
+            const container = document.getElementById('video-container');
+            const placeholder = document.getElementById('video-placeholder');
+            
+            // Use the container if visible, otherwise the placeholder
+            const activeElement = container.classList.contains('visible') && container.offsetHeight > 0 
+                ? container 
+                : placeholder;
+                
+            const vh = activeElement.offsetHeight;
+            const sh = window.innerHeight;
+            const isNarrow = window.matchMedia("(max-aspect-ratio: 1/1)").matches;
+            
+            let stickyTop;
+            if (isNarrow) {
+                // Narrow: Limit video to 50% of screen height
+                stickyTop = Math.min(0, (sh * 0.5) - vh);
+            } else {
+                // Broad: Ensure the bottom of the video is visible
+                stickyTop = Math.min(0, sh - vh);
+            }
+            
+            document.documentElement.style.setProperty('--player-sticky-top', `${stickyTop}px`);
+        }
+
+        window.addEventListener('resize', updateStickyOffset);
 
         // Custom error for channel exhaustion
         class ChannelExhaustedError extends Error {
@@ -3202,6 +3231,7 @@
             // Show video container, hide placeholder
             document.getElementById('video-placeholder').classList.add('hidden');
             container.classList.add('visible');
+            updateStickyOffset();
             container.classList.add('initial-load');
             container.classList.add('buffering');
             stopAllSpriteAnimations();
@@ -4679,6 +4709,7 @@
             document.getElementById('video').src = '';
             document.getElementById('video-placeholder').classList.remove('hidden');
             document.getElementById('video-container').classList.remove('visible');
+            updateStickyOffset();
             currentVideoTitle = null;
             document.getElementById('video-title').textContent = '';
             if (window.location.hash) {
@@ -4943,7 +4974,10 @@
             video.addEventListener('progress', updateBuffered);
             video.addEventListener('loadedmetadata', () => {
                 container.classList.remove('initial-load');
+                // Re-apply the current speed selection
+                video.playbackRate = parseFloat(speedSelect.value);
                 updateProgress();
+                updateStickyOffset();
             });
 
             // Save playback position periodically
@@ -5480,6 +5514,7 @@
         }
 
         initializeLogVisibility();
+        updateStickyOffset();
         registerServiceWorker();
 
     </script>
