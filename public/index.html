@@ -57,6 +57,9 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
         #video-placeholder.hidden {
             display: none;
@@ -74,7 +77,9 @@
             font-size: 24px;
         }
         #video-container {
-            position: relative;
+            position: sticky;
+            top: 0;
+            z-index: 100;
             width: 100%;
             height: auto;
             max-height: var(--player-max-height);
@@ -130,6 +135,7 @@
             max-height: var(--player-max-height);
             object-fit: contain;
             display: block;
+            margin: 0 auto;
         }
 
 
@@ -584,6 +590,17 @@
         @media (max-aspect-ratio: 1/1) {
             #main-content {
                 flex-direction: column;
+            }
+            #left-column {
+                position: sticky;
+                top: 0;
+                z-index: 100;
+                background: #1a1a1a;
+                width: 100%;
+            }
+            #video-container, #video-placeholder {
+                position: relative;
+                top: auto;
             }
             #right-column {
                 width: 100%;
