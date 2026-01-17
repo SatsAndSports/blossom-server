@@ -3185,8 +3185,9 @@
                 currentHls = null;
             }
 
-            // Reset quality selector
+            // Reset quality selector and speed
             qualitySelect.innerHTML = '<option value="-1">Auto</option>';
+            document.getElementById('speed-select').value = "1";
 
             if (Hls.isSupported()) {
                 console.log(`[HLS] Starting video with estimate: ${(lastBandwidthEstimate / 1000).toFixed(0)} Kbps`);
