@@ -519,11 +519,21 @@
         #play-btn.playing .pause-icon {
             display: inline;
         }
+        #play-btn, #share-btn, #fullscreen-btn {
+            flex-shrink: 0;
+        }
         #time-display {
             color: #fff;
             font-size: 13px;
             font-family: monospace;
-            min-width: 90px;
+            min-width: 0;
+            flex-shrink: 1;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        #quality-select, #speed-select {
+            flex-shrink: 1;
+            min-width: 0;
         }
         #volume-control {
             display: flex;
@@ -590,6 +600,13 @@
             }
             #header-bar {
                 gap: 10px;
+            }
+            #controls-row {
+                gap: 4px;
+            }
+            #quality-select, #speed-select {
+                padding: 2px;
+                font-size: 11px;
             }
         }
         
@@ -4802,7 +4819,13 @@
 
                 progressPlayed.style.width = percent + '%';
                 progressHandle.style.left = percent + '%';
-                timeDisplay.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
+                
+                const isNarrow = window.matchMedia('(max-aspect-ratio: 1/1)').matches;
+                if (isNarrow) {
+                    timeDisplay.textContent = formatTime(current);
+                } else {
+                    timeDisplay.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
+                }
             }
 
             // Update buffered progress
