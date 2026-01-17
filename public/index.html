@@ -531,8 +531,11 @@
         #play-btn.playing .pause-icon {
             display: inline;
         }
-        #play-btn, #share-btn, #fullscreen-btn {
+        #play-btn, #share-btn, #fullscreen-btn, #rotate-btn {
             flex-shrink: 0;
+        }
+        #rotate-btn {
+            display: none;
         }
         #time-display {
             color: #fff;
@@ -1552,6 +1555,11 @@
                         <button id="share-btn" class="ctrl-btn" title="Share">
                             <svg viewBox="0 0 24 24">
                                 <path d="M14 9V5l7 7-7 7v-4.1c-5 0-9 1.6-11.5 5.1 1-5 4-10 11.5-11z"/>
+                            </svg>
+                        </button>
+                        <button id="rotate-btn" class="ctrl-btn" title="Rotate Orientation">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h2l-3.5 3.5-3.5-3.5h2c-.35-3.05-2.24-5.62-4.95-6.87L16.48 2.52zm-10.96 0L7.52 4.13C4.81 5.38 2.92 7.95 2.57 11h2c.36-3.76 2.7-6.93 5.97-8.48V0l3.5 3.5-3.5 3.5V2.52zM12 9c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3z"/>
                             </svg>
                         </button>
                         <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen">
@@ -4900,6 +4908,7 @@
             const muteBtn = document.getElementById('mute-btn');
             const volumeSlider = document.getElementById('volume-slider');
             const fullscreenBtn = document.getElementById('fullscreen-btn');
+            const rotateBtn = document.getElementById('rotate-btn');
             const speedSelect = document.getElementById('speed-select');
             const qualitySelectEl = document.getElementById('quality-select');
             const container = document.getElementById('video-container');
@@ -4911,6 +4920,7 @@
                 playBtn.disabled = !enabled;
                 muteBtn.disabled = !enabled;
                 fullscreenBtn.disabled = !enabled;
+                rotateBtn.disabled = !enabled;
                 if (volumeSlider) volumeSlider.disabled = !enabled;
                 if (speedSelect) speedSelect.disabled = !enabled;
                 if (qualitySelectEl) qualitySelectEl.disabled = !enabled;
@@ -5180,6 +5190,25 @@
                 }
             });
 
+            // Rotate
+            rotateBtn.onclick = protectedAction(async () => {
+                if (screen.orientation && screen.orientation.lock) {
+                    const type = screen.orientation.type;
+                    const isLandscape = type.startsWith('landscape');
+                    const target = isLandscape ? 'portrait-primary' : 'landscape';
+                    
+                    try {
+                        await screen.orientation.lock(target);
+                        log(`Orientation locked to ${target}`, 'info');
+                    } catch (err) {
+                        log('Orientation lock failed: ' + err.message, 'error');
+                        showToast('Rotation lock failed. Ensure auto-rotate is on.', 'info');
+                    }
+                } else {
+                    showToast('Orientation lock not supported by this browser', 'info');
+                }
+            });
+
             // Share
             document.getElementById('share-btn').onclick = protectedAction(() => {
                 if (!currentMasterHash) {
@@ -5190,15 +5219,28 @@
                 document.getElementById('share-modal').classList.add('visible');
             });
 
-            document.addEventListener('fullscreenchange', () => {
+            const handleFullscreenChange = () => {
                 const icon = document.getElementById('fullscreen-icon');
-                if (document.fullscreenElement) {
+                const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+                const isTouch = window.matchMedia('(pointer: coarse)').matches;
+                
+                rotateBtn.style.display = (isFullscreen && isTouch) ? 'inline-flex' : 'none';
+
+                if (isFullscreen) {
                     fullscreenBtn.title = 'Exit Fullscreen';
                     icon.innerHTML = '<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>';
                 } else {
                     fullscreenBtn.title = 'Fullscreen';
                     icon.innerHTML = '<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>';
+                    // Unlock orientation on exit
+                    if (screen.orientation && screen.orientation.unlock) {
+                        screen.orientation.unlock();
+                    }
                 }
+            };
+
+            ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'msfullscreenchange'].forEach(evt => {
+                document.addEventListener(evt, handleFullscreenChange);
             });
 
             // Show overlays (controls + payment indicator + title) on activity, hide after delay
