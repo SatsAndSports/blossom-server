@@ -1,4 +1,4 @@
-data
+data*
 .env
 node_modules
 .github
@@ -6,3 +6,9 @@ database.json
 dist
 admin/node_modules
 config.yml
+.cashutube.docker.tar.gz
+*.tar.gz
+.git
+.vscode
+build
+admin/dist
