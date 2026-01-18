@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'cashutube-v20260116e';
+const CACHE_VERSION = 'cashutube-v20260118a';
 const CACHE_NAME = `${CACHE_VERSION}`;
 const PRECACHE_URLS = [
   '/',
