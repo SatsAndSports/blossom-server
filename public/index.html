@@ -561,6 +561,14 @@
             width: 30px;
             height: 30px;
         }
+        @keyframes rotate-hint-pulse {
+            0% { transform: scale(1); color: #fff; }
+            50% { transform: scale(1.4); color: #f7931a; }
+            100% { transform: scale(1); color: #fff; }
+        }
+        .rotate-pulse {
+            animation: rotate-hint-pulse 0.8s ease-in-out 2;
+        }
         #time-display {
             color: #fff;
             font-size: 13px;
@@ -5312,6 +5320,14 @@
                 }
                 
                 overlayElements.forEach(el => el.classList.add('visible'));
+                
+                // Trigger rotation hint in fullscreen on mobile
+                const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+                if (isFullscreen && window.matchMedia('(pointer: coarse)').matches) {
+                    rotateBtn.classList.remove('rotate-pulse');
+                    void rotateBtn.offsetWidth; // Force reflow
+                    rotateBtn.classList.add('rotate-pulse');
+                }
                 
                 setControlsEnabled(true);
                 clearTimeout(hideTimeout);
