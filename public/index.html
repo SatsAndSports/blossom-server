@@ -531,8 +531,17 @@
         #play-btn.playing .pause-icon {
             display: inline;
         }
-        #play-btn, #share-btn, #fullscreen-btn, #rotate-btn {
+        #play-btn, #fullscreen-btn, #rotate-btn {
             flex-shrink: 0;
+        }
+        #share-btn {
+            flex-shrink: 1;
+            min-width: 0;
+        }
+        @media (max-width: 400px) {
+            #share-btn {
+                display: none !important;
+            }
         }
         #rotate-btn {
             display: none;
