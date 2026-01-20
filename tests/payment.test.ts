@@ -1593,19 +1593,19 @@ describe('Channel closing', () => {
       }),
     });
 
-    expect(closeResponse.status).toBe(402);
+    expect(closeResponse.status).toBe(400);
     const result = await closeResponse.json();
-    expect(result.error).toContain('Payment required');
-    // The bridge returns "insufficient balance" in the header error, 
-    // and "Payment required" in the body error.
+    expect(result.error).toBe('balance must equal amount_due for closing');
+    expect(result.balance).toBe(0);
+    expect(result.amount_due).toBe(amountDue);
     console.log(`Close rejected with balance < amount_due ✓`);
   });
 
-  test('rejects close with balance greater than amount_due', async ({ server }) => {
+  test('rejects close with nonzero balance of an unused channel', async ({ server }) => {
     // Mint a funded channel (no usage, so amount_due = 0)
     const channel = await mintFundedChannel(server, 'sat');
 
-    // Create balance update for balance=10 (greater than amount_due of 0)
+    // Create balance update for balance=10 (but amount_due is 0 since channel was never used)
     const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
       channel.channelParamsJson,
       JSON.stringify(channel.keysetInfo),
@@ -1631,7 +1631,80 @@ describe('Channel closing', () => {
     expect(result.error).toBe('balance must equal amount_due for closing');
     expect(result.balance).toBe(10);
     expect(result.amount_due).toBe(0);
-    console.log(`Close rejected with balance > amount_due ✓`);
+    console.log(`Close rejected with nonzero balance on unused channel ✓`);
+  });
+
+  test('rejects close with balance greater than amount_due on used channel', async ({ server }) => {
+    // Mint a funded channel and upload a blob
+    const channel = await mintFundedChannel(server, 'sat');
+    const testData = Buffer.from('test blob for close overpayment test');
+    const hash = createHash('sha256').update(testData).digest('hex');
+
+    // Upload the blob
+    await fetch(`${server.baseUrl}/upload`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Authorization': `Bearer ${server.adminAuth}`,
+      },
+      body: testData,
+    });
+
+    // Make a payment to create usage
+    const balanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(1)
+    );
+    const balanceUpdate = JSON.parse(balanceUpdateJson);
+
+    const paymentHeader = JSON.stringify({
+      channel_id: balanceUpdate.channel_id,
+      balance: balanceUpdate.amount,
+      signature: balanceUpdate.signature,
+      params: channel.channelParams,
+      funding_proofs: channel.proofs,
+    });
+
+    await fetch(`${server.baseUrl}/${hash}`, {
+      headers: { 'X-Cashu-Channel': paymentHeader },
+    });
+
+    // Get amount_due (should be 1)
+    const statusResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/status`);
+    const status = await statusResponse.json();
+    const amountDue = status.amount_due;
+    console.log(`amount_due=${amountDue}`);
+    expect(amountDue).toBeGreaterThan(0);
+
+    // Try to close with balance > amount_due
+    const overpayBalance = amountDue + 5;
+    const overpayBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
+      channel.channelParamsJson,
+      JSON.stringify(channel.keysetInfo),
+      channel.alice.secretHex,
+      JSON.stringify(channel.proofs),
+      BigInt(overpayBalance)
+    );
+    const overpayBalanceUpdate = JSON.parse(overpayBalanceUpdateJson);
+
+    const closeResponse = await fetch(`${server.baseUrl}/channel/${channel.channelId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balance: overpayBalance,
+        signature: overpayBalanceUpdate.signature,
+      }),
+    });
+
+    expect(closeResponse.status).toBe(400);
+    const result = await closeResponse.json();
+    expect(result.error).toBe('balance must equal amount_due for closing');
+    expect(result.balance).toBe(overpayBalance);
+    expect(result.amount_due).toBe(amountDue);
+    console.log(`Close rejected with balance > amount_due on used channel ✓`);
   });
 
   test('rejects close with invalid signature', async ({ server }) => {

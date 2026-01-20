@@ -15,7 +15,7 @@ import {
   channelClosed,
   channelActivity,
 } from "./stores.js";
-import { create_close_swap_request, unblind_and_verify_dleq } from "../wasm/cdk_wasm.js";
+import { unblind_and_verify_dleq } from "../wasm/cdk_wasm.js";
 
 const log = logger.extend("channel-mint-setup");
 
@@ -266,7 +266,7 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     }
   }
 
-  // Validate channel and signature using Bridge
+  // Get keyset info if params provided (for unknown channels)
   let keysetInfo: string | null = null;
   if (body.params) {
     keysetInfo = getKeysetInfoJson(
@@ -277,27 +277,37 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     );
   }
 
-  const bridgeResultJson = bridge.processPayment(
+  // Use bridge.createCloseData() to validate signature and get fully-signed swap request
+  // This also saves unknown channels to the funding store
+  const closeResultJson = bridge.createCloseData(
     JSON.stringify(body),
-    JSON.stringify({ type: "close" }),
     keysetInfo
   );
-  const bridgeResult = JSON.parse(bridgeResultJson);
+  const closeResult = JSON.parse(closeResultJson);
 
-  if (!bridgeResult.success) {
-    closeLog("Validation failed: %s", bridgeResult.error);
+  if (!closeResult.success) {
+    closeLog("Close validation failed: %s", closeResult.error);
     ctx.status = 402;
-    ctx.set("X-Cashu-Channel", JSON.stringify(bridgeResult.header));
-    ctx.body = bridgeResult.body;
+    ctx.set("X-Cashu-Channel", JSON.stringify({ error: closeResult.error }));
+    ctx.body = { error: "Payment required", reason: closeResult.error };
     return;
   }
 
-  // Bridge success means channel is valid, signature is valid, and balance >= amountDue
-  const funding = channelFunding.get(channelId)!;
-  const channelParams = JSON.parse(funding.paramsJson);
-  const amountDue = bridgeResult.header.amount_due;
-
-  // Verify balance === amount_due (exact match required for closing)
+  // Now that channel is validated/saved, check balance === amount_due (exact match required for closing)
+  const fundingAfterValidation = channelFunding.get(channelId)!;
+  const channelParams = JSON.parse(fundingAfterValidation.paramsJson);
+  const usage = channelUsage.get(channelId);
+  const pricing = config.channel.pricing[channelParams.unit];
+  if (!pricing) {
+    ctx.status = 400;
+    ctx.body = { error: `No pricing configured for unit: ${channelParams.unit}` };
+    return;
+  }
+  const amountDue = calculateAmountDue(
+    usage?.blobsServed ?? 0,
+    usage?.bytesServed ?? 0,
+    pricing
+  );
   if (balance !== amountDue) {
     closeLog("Balance mismatch: balance=%d amount_due=%d", balance, amountDue);
     ctx.status = 400;
@@ -309,30 +319,10 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     return;
   }
 
-  // Create fully-signed swap request using WASM
-  let swapRequestJson: string;
-  let expectedTotal: number;
-  let secretsWithBlinding: any[];
-  try {
-    const result = JSON.parse(create_close_swap_request(
-      funding.paramsJson,
-      funding.keysetInfoJson,
-      funding.secretKey,
-      funding.fundingProofsJson,
-      channelId,
-      BigInt(balance),
-      signature
-    ));
-    swapRequestJson = JSON.stringify(result.swap_request);
-    expectedTotal = result.expected_total;
-    secretsWithBlinding = result.secrets_with_blinding;
-    closeLog("Swap request created, expected_total=%d, secrets=%d", expectedTotal, secretsWithBlinding.length);
-  } catch (e) {
-    closeLog("Failed to create swap request: %s", (e as Error).message);
-    ctx.status = 400;
-    ctx.body = { error: "failed to create swap request", reason: (e as Error).message };
-    return;
-  }
+  const swapRequestJson = JSON.stringify(closeResult.swap_request);
+  const expectedTotal = closeResult.expected_total;
+  const secretsWithBlinding = closeResult.secrets_with_blinding;
+  closeLog("Swap request created, expected_total=%d, secrets=%d", expectedTotal, secretsWithBlinding.length);
 
   // Submit swap to mint
   const mintUrl = channelParams.mint;
@@ -371,9 +361,9 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     unblindResult = JSON.parse(unblind_and_verify_dleq(
       JSON.stringify(swapResponse.signatures || []),
       JSON.stringify(secretsWithBlinding),
-      funding.paramsJson,
-      funding.keysetInfoJson,
-      funding.sharedSecret,
+      fundingAfterValidation.paramsJson,
+      fundingAfterValidation.keysetInfoJson,
+      fundingAfterValidation.sharedSecret,
       BigInt(balance)
     ));
     closeLog(

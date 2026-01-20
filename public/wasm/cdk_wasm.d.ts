@@ -5,6 +5,27 @@ export class WasmSpilmanBridge {
   free(): void;
   [Symbol.dispose](): void;
   processPayment(payment_json: string, context_json: string, keyset_info_json?: string | null): string;
+  /**
+   * Create data needed to close a channel
+   *
+   * Validates the payment signature and creates the fully-signed swap request
+   * ready to submit to the mint, plus secrets for unblinding the response.
+   *
+   * # Arguments
+   * * `payment_json` - Payment request JSON with channel_id, balance, signature,
+   *   and optionally params + funding_proofs for unknown channels
+   * * `keyset_info_json` - Optional keyset info JSON (required for unknown channels)
+   *
+   * # Returns
+   * JSON with:
+   * - `swap_request`: The fully-signed swap request ready for mint
+   * - `expected_total`: Expected total output value after stage 1 fees
+   * - `secrets_with_blinding`: Array of {secret, blinding_factor, amount, index, is_receiver}
+   *
+   * # Errors
+   * Returns error JSON with same structure as processPayment 402 responses
+   */
+  createCloseData(payment_json: string, keyset_info_json?: string | null): string;
   constructor(js_host: any, server_secret_key_hex?: string | null);
 }
 
@@ -39,29 +60,6 @@ export function compute_shared_secret(my_secret_hex: string, their_pubkey_hex: s
  * Returns JSON array of proofs ready for use
  */
 export function construct_proofs(blind_signatures_json: string, secrets_with_blinding_json: string, keyset_info_json: string): string;
-
-/**
- * Create a fully-signed swap request for channel closing (Charlie's side)
- *
- * Charlie (the receiver/server) uses this to:
- * 1. Verify Alice's signature on the balance update
- * 2. Add his own signature to complete the 2-of-2 multisig
- * 3. Get the swap request ready to submit to the mint
- *
- * Takes:
- * - `params_json`: Channel parameters JSON
- * - `keyset_info_json`: KeysetInfo JSON (with full keys for output computation)
- * - `charlie_secret_hex`: Charlie's secret key (hex)
- * - `funding_proofs_json`: JSON array of funding proofs
- * - `channel_id`: The channel ID
- * - `balance`: Charlie's balance (the amount_due)
- * - `alice_signature`: Alice's Schnorr signature (hex) from the close request
- *
- * Returns JSON with:
- * - `swap_request`: The fully-signed swap request ready for mint
- * - `expected_total`: Expected total output amount (value after stage 1 fees)
- */
-export function create_close_swap_request(params_json: string, keyset_info_json: string, charlie_secret_hex: string, funding_proofs_json: string, channel_id: string, balance: bigint, alice_signature: string): string;
 
 /**
  * Create funding outputs for a Spilman channel
@@ -147,12 +145,12 @@ export function spilman_channel_sender_create_signed_balance_update(params_json:
  * Unblind blind signatures and verify DLEQ proofs
  *
  * Takes blind signatures from a mint swap response, unblinds them using the
- * secrets and blinding factors from create_close_swap_request, verifies DLEQ
+ * secrets and blinding factors from bridge.createCloseData(), verifies DLEQ
  * proofs, and returns the separated receiver/sender proofs.
  *
  * # Arguments
  * * `blind_signatures_json` - JSON array of blind signatures from mint's swap response
- * * `secrets_with_blinding_json` - JSON array from create_close_swap_request's secrets_with_blinding
+ * * `secrets_with_blinding_json` - JSON array from createCloseData's secrets_with_blinding
  * * `params_json` - Full channel parameters JSON (for keyset_info and maximum_amount)
  * * `keyset_info_json` - KeysetInfo JSON (from fetchKeysetInfo)
  * * `shared_secret_hex` - Pre-computed shared secret (hex) for blinded pubkey derivation
@@ -225,7 +223,6 @@ export interface InitOutput {
   readonly channel_parameters_get_channel_id: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly compute_shared_secret: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly construct_proofs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-  readonly create_close_swap_request: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number) => [number, number, number, number];
   readonly create_funding_outputs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly get_receiver_blinded_secret_key_for_stage2_output: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint, j: number) => [number, number, number, number];
   readonly get_sender_blinded_secret_key_for_stage2_output: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number) => [number, number, number, number];
@@ -234,6 +231,7 @@ export interface InitOutput {
   readonly verify_balance_update_signature: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number) => [number, number, number];
   readonly verify_channel: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly verify_proof_dleq: (a: number, b: number, c: number, d: number) => [number, number, number];
+  readonly wasmspilmanbridge_createCloseData: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
   readonly wasmspilmanbridge_new: (a: any, b: number, c: number) => [number, number, number];
   readonly wasmspilmanbridge_processPayment: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
   readonly init: () => void;

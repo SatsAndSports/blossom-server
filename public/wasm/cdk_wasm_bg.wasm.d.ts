@@ -5,7 +5,6 @@ export const __wbg_wasmspilmanbridge_free: (a: number, b: number) => void;
 export const channel_parameters_get_channel_id: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const compute_shared_secret: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const construct_proofs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-export const create_close_swap_request: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number) => [number, number, number, number];
 export const create_funding_outputs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const get_receiver_blinded_secret_key_for_stage2_output: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint, j: number) => [number, number, number, number];
 export const get_sender_blinded_secret_key_for_stage2_output: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number) => [number, number, number, number];
@@ -14,6 +13,7 @@ export const unblind_and_verify_dleq: (a: number, b: number, c: number, d: numbe
 export const verify_balance_update_signature: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number) => [number, number, number];
 export const verify_channel: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
 export const verify_proof_dleq: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const wasmspilmanbridge_createCloseData: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
 export const wasmspilmanbridge_new: (a: any, b: number, c: number) => [number, number, number];
 export const wasmspilmanbridge_processPayment: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
 export const init: () => void;

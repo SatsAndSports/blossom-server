@@ -163,6 +163,51 @@ export class WasmSpilmanBridge {
         }
     }
     /**
+     * Create data needed to close a channel
+     *
+     * Validates the payment signature and creates the fully-signed swap request
+     * ready to submit to the mint, plus secrets for unblinding the response.
+     *
+     * # Arguments
+     * * `payment_json` - Payment request JSON with channel_id, balance, signature,
+     *   and optionally params + funding_proofs for unknown channels
+     * * `keyset_info_json` - Optional keyset info JSON (required for unknown channels)
+     *
+     * # Returns
+     * JSON with:
+     * - `swap_request`: The fully-signed swap request ready for mint
+     * - `expected_total`: Expected total output value after stage 1 fees
+     * - `secrets_with_blinding`: Array of {secret, blinding_factor, amount, index, is_receiver}
+     *
+     * # Errors
+     * Returns error JSON with same structure as processPayment 402 responses
+     * @param {string} payment_json
+     * @param {string | null} [keyset_info_json]
+     * @returns {string}
+     */
+    createCloseData(payment_json, keyset_info_json) {
+        let deferred4_0;
+        let deferred4_1;
+        try {
+            const ptr0 = passStringToWasm0(payment_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            var ptr1 = isLikeNone(keyset_info_json) ? 0 : passStringToWasm0(keyset_info_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            var len1 = WASM_VECTOR_LEN;
+            const ret = wasm.wasmspilmanbridge_createCloseData(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+            var ptr3 = ret[0];
+            var len3 = ret[1];
+            if (ret[3]) {
+                ptr3 = 0; len3 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred4_0 = ptr3;
+            deferred4_1 = len3;
+            return getStringFromWasm0(ptr3, len3);
+        } finally {
+            wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+        }
+    }
+    /**
      * @param {any} js_host
      * @param {string | null} [server_secret_key_hex]
      */
@@ -287,66 +332,6 @@ export function construct_proofs(blind_signatures_json, secrets_with_blinding_js
         return getStringFromWasm0(ptr4, len4);
     } finally {
         wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
-    }
-}
-
-/**
- * Create a fully-signed swap request for channel closing (Charlie's side)
- *
- * Charlie (the receiver/server) uses this to:
- * 1. Verify Alice's signature on the balance update
- * 2. Add his own signature to complete the 2-of-2 multisig
- * 3. Get the swap request ready to submit to the mint
- *
- * Takes:
- * - `params_json`: Channel parameters JSON
- * - `keyset_info_json`: KeysetInfo JSON (with full keys for output computation)
- * - `charlie_secret_hex`: Charlie's secret key (hex)
- * - `funding_proofs_json`: JSON array of funding proofs
- * - `channel_id`: The channel ID
- * - `balance`: Charlie's balance (the amount_due)
- * - `alice_signature`: Alice's Schnorr signature (hex) from the close request
- *
- * Returns JSON with:
- * - `swap_request`: The fully-signed swap request ready for mint
- * - `expected_total`: Expected total output amount (value after stage 1 fees)
- * @param {string} params_json
- * @param {string} keyset_info_json
- * @param {string} charlie_secret_hex
- * @param {string} funding_proofs_json
- * @param {string} channel_id
- * @param {bigint} balance
- * @param {string} alice_signature
- * @returns {string}
- */
-export function create_close_swap_request(params_json, keyset_info_json, charlie_secret_hex, funding_proofs_json, channel_id, balance, alice_signature) {
-    let deferred8_0;
-    let deferred8_1;
-    try {
-        const ptr0 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(keyset_info_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(charlie_secret_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len2 = WASM_VECTOR_LEN;
-        const ptr3 = passStringToWasm0(funding_proofs_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len3 = WASM_VECTOR_LEN;
-        const ptr4 = passStringToWasm0(channel_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len4 = WASM_VECTOR_LEN;
-        const ptr5 = passStringToWasm0(alice_signature, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len5 = WASM_VECTOR_LEN;
-        const ret = wasm.create_close_swap_request(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, balance, ptr5, len5);
-        var ptr7 = ret[0];
-        var len7 = ret[1];
-        if (ret[3]) {
-            ptr7 = 0; len7 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred8_0 = ptr7;
-        deferred8_1 = len7;
-        return getStringFromWasm0(ptr7, len7);
-    } finally {
-        wasm.__wbindgen_free(deferred8_0, deferred8_1, 1);
     }
 }
 
@@ -555,12 +540,12 @@ export function spilman_channel_sender_create_signed_balance_update(params_json,
  * Unblind blind signatures and verify DLEQ proofs
  *
  * Takes blind signatures from a mint swap response, unblinds them using the
- * secrets and blinding factors from create_close_swap_request, verifies DLEQ
+ * secrets and blinding factors from bridge.createCloseData(), verifies DLEQ
  * proofs, and returns the separated receiver/sender proofs.
  *
  * # Arguments
  * * `blind_signatures_json` - JSON array of blind signatures from mint's swap response
- * * `secrets_with_blinding_json` - JSON array from create_close_swap_request's secrets_with_blinding
+ * * `secrets_with_blinding_json` - JSON array from createCloseData's secrets_with_blinding
  * * `params_json` - Full channel parameters JSON (for keyset_info and maximum_amount)
  * * `keyset_info_json` - KeysetInfo JSON (from fetchKeysetInfo)
  * * `shared_secret_hex` - Pre-computed shared secret (hex) for blinded pubkey derivation
