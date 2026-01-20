@@ -1,6 +1,13 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export class WasmSpilmanBridge {
+  free(): void;
+  [Symbol.dispose](): void;
+  processPayment(payment_json: string, context_json: string, keyset_info_json?: string | null): string;
+  constructor(js_host: any, server_secret_key_hex?: string | null);
+}
+
 /**
  * Get channel_id from params JSON, shared secret, and keyset info
  *
@@ -214,6 +221,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
+  readonly __wbg_wasmspilmanbridge_free: (a: number, b: number) => void;
   readonly channel_parameters_get_channel_id: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly compute_shared_secret: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly construct_proofs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
@@ -226,17 +234,19 @@ export interface InitOutput {
   readonly verify_balance_update_signature: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number) => [number, number, number];
   readonly verify_channel: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly verify_proof_dleq: (a: number, b: number, c: number, d: number) => [number, number, number];
+  readonly wasmspilmanbridge_new: (a: any, b: number, c: number) => [number, number, number];
+  readonly wasmspilmanbridge_processPayment: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
   readonly init: () => void;
   readonly rustsecp256k1_v0_10_0_context_create: (a: number) => number;
   readonly rustsecp256k1_v0_10_0_context_destroy: (a: number) => void;
   readonly rustsecp256k1_v0_10_0_default_error_callback_fn: (a: number, b: number) => void;
   readonly rustsecp256k1_v0_10_0_default_illegal_callback_fn: (a: number, b: number) => void;
+  readonly __wbindgen_malloc: (a: number, b: number) => number;
+  readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;
   readonly __externref_table_alloc: () => number;
   readonly __wbindgen_externrefs: WebAssembly.Table;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
-  readonly __wbindgen_malloc: (a: number, b: number) => number;
-  readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __externref_table_dealloc: (a: number) => void;
   readonly __wbindgen_start: () => void;
 }

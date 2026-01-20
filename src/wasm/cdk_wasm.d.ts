@@ -1,6 +1,13 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export class WasmSpilmanBridge {
+  free(): void;
+  [Symbol.dispose](): void;
+  processPayment(payment_json: string, context_json: string, keyset_info_json?: string | null): string;
+  constructor(js_host: any, server_secret_key_hex?: string | null);
+}
+
 /**
  * Get channel_id from params JSON, shared secret, and keyset info
  *

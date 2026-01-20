@@ -6,15 +6,14 @@ import logger from "../logger.js";
 import {
   getChannelStatus,
   calculateAmountDue,
-  validateChannelAndSignature,
-  isValidatedChannel,
   channelFunding,
   channelUsage,
   channelClosed,
   channelActivity,
+  bridge,
+  getKeysetInfoJson,
 } from "./fetch.js";
 import { create_close_swap_request, unblind_and_verify_dleq } from "../wasm/cdk_wasm.js";
-import { validatePaymentFields } from "../helpers/payment-validation.js";
 
 const log = logger.extend("channel-mint-setup");
 
@@ -36,7 +35,7 @@ type MintsUnitsKeysets = Record<string, Record<string, KeysetWithKeys[]>>;
 let mintsUnitsKeysets: MintsUnitsKeysets = {};
 
 // Derive compressed public key (33 bytes) from secret key
-function getReceiverPubkey(): string {
+export function getReceiverPubkey(): string {
   const secretHex = config.channel.secretKey;
   if (!secretHex) {
     throw new Error("Channel secretKey not configured");
@@ -226,21 +225,16 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   // Copy channel_id from URL params so we can use shared validation
   body.channel_id = channelId;
 
-  // Validate required fields
-  const fieldValidation = validatePaymentFields(body);
-  if (!fieldValidation.valid) {
+  const { balance, signature } = body;
+  if (balance === undefined || !signature) {
     ctx.status = 400;
-    ctx.body = { error: fieldValidation.error };
+    ctx.body = { error: "missing balance or signature" };
     return;
   }
-
-  const { balance, signature } = fieldValidation.fields;
 
   closeLog("Close request for channel=%s balance=%d", channelId.substring(0, 8), balance);
 
   // Check if channel is already closed FIRST (for idempotent closing)
-  // This must happen before validateChannelAndSignature because that function
-  // rejects closed channels (which is correct for payments, but not for close)
   const closedData = channelClosed.get(channelId);
   if (closedData !== null) {
     if (balance === closedData.closedAmount) {
@@ -270,42 +264,36 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     }
   }
 
-  // Validate channel and signature (handles both known and unknown channels)
-  const validationResult = validateChannelAndSignature(
-    channelId,
-    balance,
-    signature,
-    body.params,
-    body.funding_proofs,
-    0,  // blobSize not relevant for close
-    channelFunding
+  // Validate channel and signature using Bridge
+  let keysetInfo: string | null = null;
+  if (body.params) {
+    keysetInfo = getKeysetInfoJson(
+      body.params.mint,
+      body.params.keyset_id,
+      body.params.unit,
+      body.params.input_fee_ppk || 0
+    );
+  }
+
+  const bridgeResultJson = bridge.processPayment(
+    JSON.stringify(body),
+    JSON.stringify({ type: "close" }),
+    keysetInfo
   );
+  const bridgeResult = JSON.parse(bridgeResultJson);
 
-  if (!isValidatedChannel(validationResult)) {
-    closeLog("Validation failed: %s", validationResult.body.reason);
+  if (!bridgeResult.success) {
+    closeLog("Validation failed: %s", bridgeResult.error);
     ctx.status = 402;
-    ctx.set("X-Cashu-Channel", JSON.stringify(validationResult.header));
-    ctx.body = validationResult.body;
+    ctx.set("X-Cashu-Channel", JSON.stringify(bridgeResult.header));
+    ctx.body = bridgeResult.body;
     return;
   }
 
-  const { funding, params: channelParams } = validationResult;
-
-  // Calculate amount_due from usage
-  const usage = channelUsage.get(channelId);
-  const blobsServed = usage?.blobsServed ?? 0;
-  const bytesServed = usage?.bytesServed ?? 0;
-  const pricing = config.channel.pricing[channelParams.unit];
-
-  if (!pricing) {
-    closeLog("Unsupported unit: %s", channelParams.unit);
-    ctx.status = 400;
-    ctx.body = { error: "unsupported unit", unit: channelParams.unit };
-    return;
-  }
-
-  const amountDue = calculateAmountDue(blobsServed, bytesServed, pricing);
-  closeLog("Usage: blobs=%d bytes=%d amount_due=%d", blobsServed, bytesServed, amountDue);
+  // Bridge success means channel is valid, signature is valid, and balance >= amountDue
+  const funding = channelFunding.get(channelId)!;
+  const channelParams = JSON.parse(funding.paramsJson);
+  const amountDue = bridgeResult.header.amount_due;
 
   // Verify balance === amount_due (exact match required for closing)
   if (balance !== amountDue) {
