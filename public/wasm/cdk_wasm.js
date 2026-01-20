@@ -826,8 +826,8 @@ function __wbg_get_imports() {
         const ret = arg0.getAmountDue(getStringFromWasm0(arg1, arg2), getStringFromWasm0(arg3, arg4));
         return ret;
     };
-    imports.wbg.__wbg_getFunding_11becb312130bd4f = function(arg0, arg1, arg2) {
-        const ret = arg0.getFunding(getStringFromWasm0(arg1, arg2));
+    imports.wbg.__wbg_getFundingAndParams_c41a172dc138aeb5 = function(arg0, arg1, arg2) {
+        const ret = arg0.getFundingAndParams(getStringFromWasm0(arg1, arg2));
         return ret;
     };
     imports.wbg.__wbg_getRandomValues_b8f5dbd5f3995a9e = function() { return handleError(function (arg0, arg1) {
@@ -902,8 +902,8 @@ function __wbg_get_imports() {
         const ret = arg0.receiverKeyIsAcceptable(getStringFromWasm0(arg1, arg2));
         return ret;
     };
-    imports.wbg.__wbg_recordPayment_16f925818c21e2b9 = function(arg0, arg1, arg2, arg3, arg4, arg5, arg6) {
-        arg0.recordPayment(getStringFromWasm0(arg1, arg2), BigInt.asUintN(64, arg3), getStringFromWasm0(arg4, arg5), BigInt.asUintN(64, arg6));
+    imports.wbg.__wbg_recordPayment_994aad39e8953822 = function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+        arg0.recordPayment(getStringFromWasm0(arg1, arg2), BigInt.asUintN(64, arg3), getStringFromWasm0(arg4, arg5), getStringFromWasm0(arg6, arg7));
     };
     imports.wbg.__wbg_require_60cc747a6bc5215a = function() { return handleError(function () {
         const ret = module.require;

@@ -812,8 +812,8 @@ exports.__wbg_getAmountDue_4bcba6169881e28a = function(arg0, arg1, arg2, arg3, a
     return ret;
 };
 
-exports.__wbg_getFunding_11becb312130bd4f = function(arg0, arg1, arg2) {
-    const ret = arg0.getFunding(getStringFromWasm0(arg1, arg2));
+exports.__wbg_getFundingAndParams_c41a172dc138aeb5 = function(arg0, arg1, arg2) {
+    const ret = arg0.getFundingAndParams(getStringFromWasm0(arg1, arg2));
     return ret;
 };
 
@@ -907,8 +907,8 @@ exports.__wbg_receiverKeyIsAcceptable_efc9b113ec9ca0f3 = function(arg0, arg1, ar
     return ret;
 };
 
-exports.__wbg_recordPayment_16f925818c21e2b9 = function(arg0, arg1, arg2, arg3, arg4, arg5, arg6) {
-    arg0.recordPayment(getStringFromWasm0(arg1, arg2), BigInt.asUintN(64, arg3), getStringFromWasm0(arg4, arg5), BigInt.asUintN(64, arg6));
+exports.__wbg_recordPayment_994aad39e8953822 = function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+    arg0.recordPayment(getStringFromWasm0(arg1, arg2), BigInt.asUintN(64, arg3), getStringFromWasm0(arg4, arg5), getStringFromWasm0(arg6, arg7));
 };
 
 exports.__wbg_require_60cc747a6bc5215a = function() { return handleError(function () {

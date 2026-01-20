@@ -5,14 +5,16 @@ import { router } from "./router.js";
 import logger from "../logger.js";
 import {
   getChannelStatus,
+  bridge,
+  getKeysetInfoJson,
+} from "./fetch.js";
+import {
   calculateAmountDue,
   channelFunding,
   channelUsage,
   channelClosed,
   channelActivity,
-  bridge,
-  getKeysetInfoJson,
-} from "./fetch.js";
+} from "./stores.js";
 import { create_close_swap_request, unblind_and_verify_dleq } from "../wasm/cdk_wasm.js";
 
 const log = logger.extend("channel-mint-setup");

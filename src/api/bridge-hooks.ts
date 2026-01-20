@@ -1,7 +1,14 @@
 import dayjs from "dayjs";
 import * as secp from "@noble/secp256k1";
 import { config } from "../config.js";
-import { channelFunding, channelBalance, channelUsage, channelActivity, channelClosed, calculateAmountDue } from "./fetch.js";
+import { 
+  channelFunding, 
+  channelBalance, 
+  channelUsage, 
+  channelActivity, 
+  channelClosed, 
+  calculateAmountDue 
+} from "./stores.js";
 
 let cachedServerPubkey: string | null = null;
 
@@ -19,7 +26,7 @@ function getServerPubkey(): string | null {
 }
 
 export const spilmanHooks = {
-  getFunding: (channelId: string) => {
+  getFundingAndParams: (channelId: string) => {
     const funding = channelFunding.get(channelId);
     if (!funding) return null;
     return [
@@ -85,17 +92,17 @@ export const spilmanHooks = {
     return BigInt(calculateAmountDue(totalBlobs, totalBytes, pricing));
   },
 
-  recordPayment: (channelId: string, balance: bigint, signature: string, amountDue: bigint) => {
-    // Note: contextJson is not passed here, but we know the size from the previous getAmountDue call
-    // Wait, recordPayment needs to know which blob was served to update usage counters.
-    // Actually, recordPayment in bridge.rs is called AFTER successful validation.
-    
-    // In our current blossom-server implementation, we update counters in the router handler,
-    // not in validatePayment. We should probably keep it that way for now, or pass more info.
-    
-    // For now, we'll just update the balance and activity.
-    // usage counter update will still happen in router.get("/:hash")
+  recordPayment: (channelId: string, balance: bigint, signature: string, contextJson: string) => {
+    // 1. Commit the actual usage recorded in the context
+    const context = JSON.parse(contextJson);
+    if (context.type === "blob") {
+      channelUsage.recordBlobServed(channelId, context.size || 0);
+    }
+
+    // 2. Commit the payment proof for future channel closure
     channelBalance.update(channelId, Number(balance), signature);
+
+    // 3. Update activity heartbeat
     channelActivity.recordPayment(channelId);
   },
 
