@@ -151,14 +151,14 @@ router.get("/:hash", range, async (ctx, next) => {
         const result = JSON.parse(bridgeResultJson);
 
         if (!result.success) {
-          ctx.status = 402; // or result.code
+          ctx.status = result.status === "PaymentRequired" ? 402 : (result.status === "BadRequest" ? 400 : 500);
           if (result.header) {
             // Add size to header for client-side tracking
             result.header.size = storageResult.size;
             ctx.set("X-Cashu-Channel", JSON.stringify(result.header));
           }
           ctx.body = result.body;
-          paymentLog("402 %s", JSON.stringify(result.header));
+          paymentLog("%s %s", ctx.status, JSON.stringify(result.header));
           return;
         }
 
