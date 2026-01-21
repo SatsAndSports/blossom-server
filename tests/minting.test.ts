@@ -365,11 +365,14 @@ describe('Channel verification', () => {
     console.log('Baseline verified ✓');
 
     // Step 12: Tamper with a key and verify it's detected
+    // We'll substitute a completely different valid pubkey to trigger InvalidKeysetId
+    // (simply changing one character often creates an invalid curve point)
     const tamperedKeysetInfo = JSON.parse(JSON.stringify(keysetInfo));
-    // Change one character in the first key (amount "1")
     const originalKey = tamperedKeysetInfo.keys["1"];
-    tamperedKeysetInfo.keys["1"] = originalKey.slice(0, -1) + (originalKey.slice(-1) === 'a' ? 'b' : 'a');
-    console.log(`Tampered key for amount 1: ${originalKey} -> ${tamperedKeysetInfo.keys["1"]}`);
+    // Use a different valid pubkey (generator point G)
+    const differentValidPubkey = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+    tamperedKeysetInfo.keys["1"] = differentValidPubkey;
+    console.log(`Tampered key for amount 1: ${originalKey.substring(0, 20)}... -> ${differentValidPubkey.substring(0, 20)}...`);
 
     const tamperedResultJson = verify_channel(
       channelParamsJson,
@@ -696,19 +699,46 @@ describe('Channel verification', () => {
     expect(baselineResult.valid).toBe(true);
     console.log('Baseline verified ✓');
 
-    // Step 12: Tamper with BOTH keyset AND DLEQ proofs
-    const tamperedKeysetInfo = JSON.parse(JSON.stringify(keysetInfo));
-    const originalKey = tamperedKeysetInfo.keys["1"];
-    tamperedKeysetInfo.keys["1"] = originalKey.slice(0, -1) + (originalKey.slice(-1) === 'a' ? 'b' : 'a');
-
+    // Step 12: Introduce multiple distinct error types to test error collection
+    // We'll create four different errors:
+    // 1. InvalidKeysetId - tamper with a key in keysetInfo (changes computed keyset ID)
+    // 2. InvalidDleq - tamper with the DLEQ 'e' value on proof 0
+    // 3. MissingDleq - remove the dleq field entirely from proof 1
+    // 4. MissingMintKey - remove a key from keysetInfo for proof 2's amount
+    
     const tamperedProofs = JSON.parse(JSON.stringify(proofs));
+    const tamperedKeysetInfo = JSON.parse(JSON.stringify(keysetInfo));
+    
+    // Error 1: InvalidKeysetId - substitute a different valid pubkey for an unused amount
+    // Find an amount that's not in our proofs (e.g., amount "1" if no proof uses it)
+    const proofAmounts = new Set(tamperedProofs.map((p: any) => p.amount.toString()));
+    const unusedAmount = Object.keys(tamperedKeysetInfo.keys).find(amt => !proofAmounts.has(amt));
+    if (unusedAmount) {
+      // Use a different valid pubkey (generator point G) instead of tampering characters
+      const differentValidPubkey = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+      tamperedKeysetInfo.keys[unusedAmount] = differentValidPubkey;
+      console.log(`Tampered unused key for amount ${unusedAmount} to trigger InvalidKeysetId`);
+    }
+    
+    // Error 2: InvalidDleq on proof 0
     const originalE = tamperedProofs[0].dleq.e;
     tamperedProofs[0].dleq.e = originalE.slice(0, -1) + (originalE.slice(-1) === 'a' ? 'b' : 'a');
+    console.log(`Tampered DLEQ e on proof 0: ${originalE.substring(0, 16)}... -> ${tamperedProofs[0].dleq.e.substring(0, 16)}...`);
+    
+    // Error 3: MissingDleq on proof 1 (if we have at least 2 proofs)
+    if (tamperedProofs.length > 1) {
+      console.log(`Removing DLEQ from proof 1 (amount=${tamperedProofs[1].amount})`);
+      delete tamperedProofs[1].dleq;
+    }
+    
+    // Error 4: MissingMintKey on proof 2 (if we have at least 3 proofs)
+    if (tamperedProofs.length > 2) {
+      const amount2 = tamperedProofs[2].amount.toString();
+      console.log(`Removing mint key for amount ${amount2} from keysetInfo`);
+      delete tamperedKeysetInfo.keys[amount2];
+    }
 
-    console.log(`Tampered key for amount 1: ${originalKey.substring(0, 16)}... -> ${tamperedKeysetInfo.keys["1"].substring(0, 16)}...`);
-    console.log(`Tampered DLEQ e: ${originalE.substring(0, 16)}... -> ${tamperedProofs[0].dleq.e.substring(0, 16)}...`);
-
-    // Step 13: Verify with both tamperings - should collect BOTH errors
+    // Step 13: Verify with multiple tamperings - should collect ALL errors
     const tamperedResultJson = verify_channel(
       channelParamsJson,
       sharedSecret,
@@ -717,15 +747,27 @@ describe('Channel verification', () => {
     );
     const tamperedResult = JSON.parse(tamperedResultJson);
     console.log(`Tampered verification: valid=${tamperedResult.valid}, errors=${tamperedResult.errors.length}`);
-    console.log(`Error types: ${tamperedResult.errors.map((e: any) => e.type).join(', ')}`);
+    console.log(`Error details: ${JSON.stringify(tamperedResult.errors, null, 2)}`);
 
     expect(tamperedResult.valid).toBe(false);
-    expect(tamperedResult.errors.length).toBeGreaterThanOrEqual(2);
-
-    // Check that we have both error types
+    
+    // We should have at least 4 errors (one per tampering)
     const errorTypes = tamperedResult.errors.map((e: any) => e.type);
+    console.log(`Error types: ${errorTypes.join(', ')}`);
+    
+    // Verify we collected multiple distinct error types
     expect(errorTypes).toContain('InvalidKeysetId');
     expect(errorTypes).toContain('InvalidDleq');
-    console.log('Multiple errors collected ✓ (InvalidKeysetId + InvalidDleq)');
+    if (proofs.length > 1) {
+      expect(errorTypes).toContain('MissingDleq');
+    }
+    if (proofs.length > 2) {
+      expect(errorTypes).toContain('MissingMintKey');
+    }
+    
+    // Verify we have at least as many errors as tamperings we introduced
+    const expectedErrorCount = Math.min(proofs.length, 3);
+    expect(tamperedResult.errors.length).toBeGreaterThanOrEqual(expectedErrorCount);
+    console.log(`Multiple error types collected ✓ (${errorTypes.join(' + ')})`);
   });
 });
