@@ -12,6 +12,17 @@ export interface ChannelFundingData {
   keysetInfoJson: string;  // Complete keyset info (keysetId, unit, keys, inputFeePpk, amounts)
 }
 
+// Type for full keyset with keys
+export interface KeysetWithKeys {
+  id: string;
+  keys: Record<string, string>;  // { amount: pubkey }
+  active: boolean;
+}
+
+// Cached keyset data: { mintUrl: { unit: [{ id, keys, active }] } }
+export type MintsUnitsKeysets = Record<string, Record<string, KeysetWithKeys[]>>;
+export let mintsUnitsKeysets: MintsUnitsKeysets = {};
+
 export interface ChannelUsage {
   blobsServed: number;
   bytesServed: number;

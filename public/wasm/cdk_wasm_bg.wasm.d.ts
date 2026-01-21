@@ -9,7 +9,7 @@ export const create_funding_outputs: (a: number, b: number, c: number, d: number
 export const get_receiver_blinded_secret_key_for_stage2_output: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint, j: number) => [number, number, number, number];
 export const get_sender_blinded_secret_key_for_stage2_output: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number) => [number, number, number, number];
 export const spilman_channel_sender_create_signed_balance_update: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint) => [number, number, number, number];
-export const unblind_and_verify_dleq: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint) => [number, number, number, number];
+export const unblind_and_verify_dleq: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number) => [number, number, number, number];
 export const verify_balance_update_signature: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number) => [number, number, number];
 export const verify_channel: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
 export const verify_proof_dleq: (a: number, b: number, c: number, d: number) => [number, number, number];

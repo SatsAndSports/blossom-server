@@ -14,6 +14,9 @@ import {
   channelUsage,
   channelClosed,
   channelActivity,
+  KeysetWithKeys,
+  mintsUnitsKeysets,
+  MintsUnitsKeysets,
 } from "./stores.js";
 import { unblind_and_verify_dleq } from "../wasm/cdk_wasm.js";
 
@@ -24,17 +27,8 @@ interface MintKeyset {
   id: string;
   unit: string;
   active: boolean;
+  input_fee_ppk?: number;
 }
-
-// Type for full keyset with keys
-interface KeysetWithKeys {
-  id: string;
-  keys: Record<string, string>;  // { amount: pubkey }
-}
-
-// Cached keyset data: { mintUrl: { unit: [{ id, keys }] } }
-type MintsUnitsKeysets = Record<string, Record<string, KeysetWithKeys[]>>;
-let mintsUnitsKeysets: MintsUnitsKeysets = {};
 
 // Derive compressed public key (33 bytes) from secret key
 export function getReceiverPubkey(): string {
@@ -100,17 +94,17 @@ async function fetchKeysetsFromMint(mintUrl: string, units: string[]): Promise<R
       log(`Filtering for unit="${unit}": found ${keysetInfos.length} keysets`);
 
       if (keysetInfos.length > 0) {
-        const keysetsWithKeys: KeysetWithKeys[] = [];
+        const unitKeysets: KeysetWithKeys[] = [];
 
         for (const keysetInfo of keysetInfos) {
           const keys = await fetchKeysForKeyset(mintUrl, keysetInfo.id);
           if (keys) {
-            keysetsWithKeys.push({ id: keysetInfo.id, keys });
+            unitKeysets.push({ id: keysetInfo.id, keys, active: keysetInfo.active });
           }
         }
 
-        if (keysetsWithKeys.length > 0) {
-          result[unit] = keysetsWithKeys;
+        if (unitKeysets.length > 0) {
+          result[unit] = unitKeysets;
         }
       }
     }
@@ -322,6 +316,7 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   const swapRequestJson = JSON.stringify(closeResult.swap_request);
   const expectedTotal = closeResult.expected_total;
   const secretsWithBlinding = closeResult.secrets_with_blinding;
+  const outputKeysetInfoJson = JSON.stringify(closeResult.output_keyset_info);
   closeLog("Swap request created, expected_total=%d, secrets=%d", expectedTotal, secretsWithBlinding.length);
 
   // Submit swap to mint
@@ -364,7 +359,8 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
       fundingAfterValidation.paramsJson,
       fundingAfterValidation.keysetInfoJson,
       fundingAfterValidation.sharedSecret,
-      BigInt(balance)
+      BigInt(balance),
+      outputKeysetInfoJson
     ));
     closeLog(
       "Unblinded and DLEQ verified: receiver=%d proofs (%d nominal), sender=%d proofs (%d nominal)",

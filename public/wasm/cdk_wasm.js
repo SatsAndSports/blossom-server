@@ -590,6 +590,7 @@ export function spilman_channel_sender_create_signed_balance_update(params_json,
  * * `keyset_info_json` - KeysetInfo JSON (from fetchKeysetInfo)
  * * `shared_secret_hex` - Pre-computed shared secret (hex) for blinded pubkey derivation
  * * `balance` - The receiver's (Charlie's) intended balance (for verification)
+ * * `output_keyset_info_json` - Optional KeysetInfo JSON for outputs (if switched during close)
  *
  * # Returns
  * JSON object with:
@@ -603,11 +604,12 @@ export function spilman_channel_sender_create_signed_balance_update(params_json,
  * @param {string} keyset_info_json
  * @param {string} shared_secret_hex
  * @param {bigint} balance
+ * @param {string | null} [output_keyset_info_json]
  * @returns {string}
  */
-export function unblind_and_verify_dleq(blind_signatures_json, secrets_with_blinding_json, params_json, keyset_info_json, shared_secret_hex, balance) {
-    let deferred7_0;
-    let deferred7_1;
+export function unblind_and_verify_dleq(blind_signatures_json, secrets_with_blinding_json, params_json, keyset_info_json, shared_secret_hex, balance, output_keyset_info_json) {
+    let deferred8_0;
+    let deferred8_1;
     try {
         const ptr0 = passStringToWasm0(blind_signatures_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
@@ -619,18 +621,20 @@ export function unblind_and_verify_dleq(blind_signatures_json, secrets_with_blin
         const len3 = WASM_VECTOR_LEN;
         const ptr4 = passStringToWasm0(shared_secret_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len4 = WASM_VECTOR_LEN;
-        const ret = wasm.unblind_and_verify_dleq(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, balance);
-        var ptr6 = ret[0];
-        var len6 = ret[1];
+        var ptr5 = isLikeNone(output_keyset_info_json) ? 0 : passStringToWasm0(output_keyset_info_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len5 = WASM_VECTOR_LEN;
+        const ret = wasm.unblind_and_verify_dleq(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, balance, ptr5, len5);
+        var ptr7 = ret[0];
+        var len7 = ret[1];
         if (ret[3]) {
-            ptr6 = 0; len6 = 0;
+            ptr7 = 0; len7 = 0;
             throw takeFromExternrefTable0(ret[2]);
         }
-        deferred7_0 = ptr6;
-        deferred7_1 = len6;
-        return getStringFromWasm0(ptr6, len6);
+        deferred8_0 = ptr7;
+        deferred8_1 = len7;
+        return getStringFromWasm0(ptr7, len7);
     } finally {
-        wasm.__wbindgen_free(deferred7_0, deferred7_1, 1);
+        wasm.__wbindgen_free(deferred8_0, deferred8_1, 1);
     }
 }
 
@@ -853,12 +857,20 @@ function __wbg_get_imports() {
         const ret = Array.from(arg0);
         return ret;
     };
+    imports.wbg.__wbg_getActiveKeysetIds_89c0f59500efd972 = function(arg0, arg1, arg2, arg3, arg4) {
+        const ret = arg0.getActiveKeysetIds(getStringFromWasm0(arg1, arg2), getStringFromWasm0(arg3, arg4));
+        return ret;
+    };
     imports.wbg.__wbg_getAmountDue_4bcba6169881e28a = function(arg0, arg1, arg2, arg3, arg4) {
         const ret = arg0.getAmountDue(getStringFromWasm0(arg1, arg2), getStringFromWasm0(arg3, arg4));
         return ret;
     };
     imports.wbg.__wbg_getFundingAndParams_c41a172dc138aeb5 = function(arg0, arg1, arg2) {
         const ret = arg0.getFundingAndParams(getStringFromWasm0(arg1, arg2));
+        return ret;
+    };
+    imports.wbg.__wbg_getKeysetInfo_7359549655659127 = function(arg0, arg1, arg2, arg3, arg4) {
+        const ret = arg0.getKeysetInfo(getStringFromWasm0(arg1, arg2), getStringFromWasm0(arg3, arg4));
         return ret;
     };
     imports.wbg.__wbg_getLargestBalanceWithSignature_f5b1b393c70176e8 = function(arg0, arg1, arg2) {

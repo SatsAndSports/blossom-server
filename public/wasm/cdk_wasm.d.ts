@@ -174,6 +174,7 @@ export function spilman_channel_sender_create_signed_balance_update(params_json:
  * * `keyset_info_json` - KeysetInfo JSON (from fetchKeysetInfo)
  * * `shared_secret_hex` - Pre-computed shared secret (hex) for blinded pubkey derivation
  * * `balance` - The receiver's (Charlie's) intended balance (for verification)
+ * * `output_keyset_info_json` - Optional KeysetInfo JSON for outputs (if switched during close)
  *
  * # Returns
  * JSON object with:
@@ -182,7 +183,7 @@ export function spilman_channel_sender_create_signed_balance_update(params_json:
  * - `receiver_sum_after_stage1`: Sum of receiver proof amounts
  * - `sender_sum_after_stage1`: Sum of sender proof amounts
  */
-export function unblind_and_verify_dleq(blind_signatures_json: string, secrets_with_blinding_json: string, params_json: string, keyset_info_json: string, shared_secret_hex: string, balance: bigint): string;
+export function unblind_and_verify_dleq(blind_signatures_json: string, secrets_with_blinding_json: string, params_json: string, keyset_info_json: string, shared_secret_hex: string, balance: bigint, output_keyset_info_json?: string | null): string;
 
 /**
  * Verify a balance update signature from the sender (Alice)
@@ -246,7 +247,7 @@ export interface InitOutput {
   readonly get_receiver_blinded_secret_key_for_stage2_output: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint, j: number) => [number, number, number, number];
   readonly get_sender_blinded_secret_key_for_stage2_output: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number) => [number, number, number, number];
   readonly spilman_channel_sender_create_signed_balance_update: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint) => [number, number, number, number];
-  readonly unblind_and_verify_dleq: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint) => [number, number, number, number];
+  readonly unblind_and_verify_dleq: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number) => [number, number, number, number];
   readonly verify_balance_update_signature: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number) => [number, number, number];
   readonly verify_channel: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly verify_proof_dleq: (a: number, b: number, c: number, d: number) => [number, number, number];
