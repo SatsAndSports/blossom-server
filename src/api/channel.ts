@@ -74,7 +74,7 @@ async function fetchKeysForKeyset(mintUrl: string, keysetId: string): Promise<Re
   }
 }
 
-// Fetch active keysets from a mint for specific units (including full keys)
+// Fetch keysets from a mint for specific units (including full keys)
 async function fetchKeysetsFromMint(mintUrl: string, units: string[]): Promise<Record<string, KeysetWithKeys[]>> {
   const url = `${mintUrl}/v1/keysets`;
   log(`GET ${url}`);
@@ -96,13 +96,13 @@ async function fetchKeysetsFromMint(mintUrl: string, units: string[]): Promise<R
     const result: Record<string, KeysetWithKeys[]> = {};
 
     for (const unit of units) {
-      const activeKeysetInfos = data.keysets.filter(k => k.unit === unit && k.active);
-      log(`Filtering for unit="${unit}": found ${activeKeysetInfos.length} active`);
+      const keysetInfos = data.keysets.filter(k => k.unit === unit);
+      log(`Filtering for unit="${unit}": found ${keysetInfos.length} keysets`);
 
-      if (activeKeysetInfos.length > 0) {
+      if (keysetInfos.length > 0) {
         const keysetsWithKeys: KeysetWithKeys[] = [];
 
-        for (const keysetInfo of activeKeysetInfos) {
+        for (const keysetInfo of keysetInfos) {
           const keys = await fetchKeysForKeyset(mintUrl, keysetInfo.id);
           if (keys) {
             keysetsWithKeys.push({ id: keysetInfo.id, keys });
@@ -143,7 +143,7 @@ export async function initializeChannelKeysets(): Promise<void> {
         log(`  ${unit}: ${ids.join(", ")} (${keyCount} keys total)`);
       }
     } else {
-      log(`  No active keysets found`);
+      log(`  No keysets found`);
     }
   }
 
