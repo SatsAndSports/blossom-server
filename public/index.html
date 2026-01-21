@@ -2658,10 +2658,14 @@
             }
         }
 
-        // Handle successful payment response - parse header, log, and correct bytes
-        // channelId: the channel ID for bytes correction
+        // Handle payment response - parse header, log, correct bytes, and manage confirmed set
+        // channelId: the channel ID for bytes correction and confirmation tracking
+        // status: HTTP status code
         // getHeader: function that takes header name and returns value (works with both fetch Response and XHR)
-        function handlePaymentResponse(channelId, getHeader) {
+        // 
+        // On 2xx + X-Cashu-Channel header present: add channel to confirmedChannels
+        // On non-2xx (including 402): remove channel from confirmedChannels (will resend full params)
+        function handlePaymentResponse(channelId, status, getHeader) {
             // Log nginx cache status
             const cacheStatus = getHeader('X-Cache-Status');
             if (cacheStatus) {
@@ -2669,19 +2673,38 @@
             }
 
             const channelHeader = getHeader('X-Cashu-Channel');
-            if (!channelHeader) return null;
-
-            try {
-                const data = JSON.parse(channelHeader);
-                log(`Server: balance=${data.balance} amount_due=${data.amount_due} capacity=${data.capacity} size=${data.size}`, 'payment');
-                if (data.size !== undefined) {
-                    correctChannelBytes(channelId, data.size);
+            
+            // Non-2xx responses: remove from confirmed set so we resend full params
+            if (status < 200 || status >= 300) {
+                if (confirmedChannels.has(channelId)) {
+                    confirmedChannels.delete(channelId);
+                    log(`Channel ${channelId.substring(0,8)}... unconfirmed (status ${status}), will resend params`, 'payment');
                 }
-                return data;
-            } catch (e) {
-                console.log('[DEBUG] Parse error:', e);
                 return null;
             }
+            
+            // 2xx response: check for confirmation header
+            if (channelHeader) {
+                // Server confirmed it knows our channel
+                if (!confirmedChannels.has(channelId)) {
+                    confirmedChannels.add(channelId);
+                    log(`Channel ${channelId.substring(0,8)}... confirmed by server`, 'payment');
+                }
+                
+                try {
+                    const data = JSON.parse(channelHeader);
+                    log(`Server: balance=${data.balance} amount_due=${data.amount_due} capacity=${data.capacity} size=${data.size}`, 'payment');
+                    if (data.size !== undefined) {
+                        correctChannelBytes(channelId, data.size);
+                    }
+                    return data;
+                } catch (e) {
+                    console.log('[DEBUG] Parse error:', e);
+                    return null;
+                }
+            }
+            
+            return null;
         }
 
         // ============================================
@@ -2762,8 +2785,9 @@
         // FundedChannel - combines SpilmanChannelSender with current balance
         // ============================================
 
-        // Track which channels have sent params to server this session
-        const channelsSentParams = new Set();
+        // Track which channels have been confirmed by server (got 2xx + X-Cashu-Channel header)
+        // Channels not in this set will send full params + funding_proofs
+        const confirmedChannels = new Set();
 
         class FundedChannel {
             constructor(sender) {
@@ -2817,10 +2841,12 @@
                     balance: balanceUpdate.amount,
                     signature: balanceUpdate.signature
                 };
-                // Only include params and funding proofs if not yet successfully sent this session
-                if (!channelsSentParams.has(this.channelId)) {
+                // Only include params and funding proofs if not yet confirmed by server
+                if (!confirmedChannels.has(this.channelId)) {
                     payload.params = this.params;
                     payload.funding_proofs = this.sender.fundingProofs;
+                    console.log(`[Payment] Including channel params and funding proofs for ${this.channelId.substring(0,8)}...`);
+                    log(`Including channel params and funding proofs (not yet confirmed)`, 'payment');
                 }
                 return JSON.stringify(payload);
             }
@@ -3131,11 +3157,22 @@
                 }
             }
 
-            const response = await fetch(url, {
-                headers: { 'X-Cashu-Channel': payment }
-            });
+            let response;
+            try {
+                response = await fetch(url, {
+                    headers: { 'X-Cashu-Channel': payment }
+                });
+            } catch (e) {
+                // Network error (server down, etc.) - unconfirm so we resend params on retry
+                handlePaymentResponse(channelId, 0, () => null);
+                document.getElementById('video').pause();
+                showErrorModal({ message: `Network Error: ${e.message}`, url });
+                throw e;
+            }
 
             if (response.status === 402) {
+                // Unconfirm channel so we resend full params on retry
+                handlePaymentResponse(channelId, response.status, (name) => response.headers.get(name));
                 document.getElementById('video').pause();
                 try {
                     const errorBody = await response.json();
@@ -3154,13 +3191,15 @@
             }
 
             if (!response.ok) {
+                // Unconfirm channel so we resend full params on retry
+                handlePaymentResponse(channelId, response.status, (name) => response.headers.get(name));
                 document.getElementById('video').pause();
                 showErrorModal({ message: `HTTP ${response.status}`, status: response.status, url });
                 throw new Error(`Failed to fetch blob: ${response.status}`);
             }
 
-            // Handle payment response (log + correct bytes)
-            handlePaymentResponse(channelId, (name) => response.headers.get(name));
+            // Handle successful payment response (log, correct bytes, confirm channel)
+            handlePaymentResponse(channelId, response.status, (name) => response.headers.get(name));
 
             const blob = await response.blob();
             return URL.createObjectURL(blob);
@@ -3391,10 +3430,11 @@
 
                             // Handle response: success, 402, or other errors
                             xhr.addEventListener('load', function() {
+                                // Use centralized handler for all responses (manages confirmedChannels set)
+                                handlePaymentResponse(channelId, xhr.status, (name) => xhr.getResponseHeader(name));
+                                
                                 if (xhr.status >= 200 && xhr.status < 300) {
-                                    channelsSentParams.add(channelId);
-                                    // Handle payment response (log + correct bytes)
-                                    handlePaymentResponse(channelId, (name) => xhr.getResponseHeader(name));
+                                    // Success - already handled by handlePaymentResponse
                                 } else if (xhr.status === 402) {
                                     // Payment error - pause and show modal
                                     document.getElementById('video').pause();
@@ -3417,6 +3457,18 @@
                                     document.getElementById('video').pause();
                                     showErrorModal({ message: `HTTP ${xhr.status}`, status: xhr.status, url });
                                 }
+                            });
+
+                            // Handle network errors (connection refused, etc.)
+                            xhr.addEventListener('error', function() {
+                                handlePaymentResponse(channelId, 0, () => null);
+                                log(`Network error for ${hash}, unconfirming channel`, 'error');
+                            });
+
+                            // Handle timeouts
+                            xhr.addEventListener('timeout', function() {
+                                handlePaymentResponse(channelId, 0, () => null);
+                                log(`Timeout for ${hash}, unconfirming channel`, 'error');
                             });
                         }
                     }
