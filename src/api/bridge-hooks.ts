@@ -137,7 +137,7 @@ export const spilmanHooks = {
     if (!mintData) return [];
     const keysets = mintData[unit];
     if (!keysets) return [];
-    return keysets.filter(k => k.active).map(k => k.id);
+    return keysets.filter((k) => k.active).map((k) => k.id);
   },
 
   getKeysetInfo: (mint: string, keysetId: string) => {

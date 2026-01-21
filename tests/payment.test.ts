@@ -1598,7 +1598,7 @@ describe('Channel closing', () => {
     expect(result.error).toBe('balance must equal amount_due for closing');
     expect(result.balance).toBe(0);
     expect(result.amount_due).toBe(amountDue);
-    console.log(`Close rejected with balance < amount_due ✓`);
+    console.log('rejects close with insufficient balance ✓');
   });
 
   test('rejects close with nonzero balance of an unused channel', async ({ server }) => {

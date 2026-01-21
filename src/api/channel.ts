@@ -208,6 +208,7 @@ router.get("/channel/:channel_id/status", async (ctx) => {
 
 const closeLog = logger.extend("channel-close");
 
+// Channel closing endpoint
 router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   if (!config.channel?.enabled) {
     ctx.status = 404;
