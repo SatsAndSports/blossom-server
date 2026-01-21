@@ -14,6 +14,7 @@ export const verify_balance_update_signature: (a: number, b: number, c: number, 
 export const verify_channel: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
 export const verify_proof_dleq: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const wasmspilmanbridge_createCloseData: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+export const wasmspilmanbridge_createUnilateralCloseData: (a: number, b: number, c: number) => [number, number, number, number];
 export const wasmspilmanbridge_new: (a: any, b: number, c: number) => [number, number, number];
 export const wasmspilmanbridge_processPayment: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
 export const init: () => void;

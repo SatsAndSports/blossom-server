@@ -26,6 +26,25 @@ export class WasmSpilmanBridge {
    * Returns error JSON with same structure as processPayment 402 responses
    */
   createCloseData(payment_json: string, keyset_info_json?: string | null): string;
+  /**
+   * Create data for a unilateral (server-initiated) channel close
+   *
+   * This retrieves the largest balance and signature from the host
+   * and constructs a fully-signed swap request ready for the mint.
+   *
+   * # Arguments
+   * * `channel_id` - The channel ID to close
+   *
+   * # Returns
+   * JSON with same structure as createCloseData:
+   * - `swap_request`: The fully-signed swap request ready for mint
+   * - `expected_total`: Expected total output value after stage 1 fees
+   * - `secrets_with_blinding`: Array of {secret, blinding_factor, amount, index, is_receiver}
+   *
+   * # Errors
+   * Returns error JSON if no payment proof stored, channel closed, or validation fails
+   */
+  createUnilateralCloseData(channel_id: string): string;
   constructor(js_host: any, server_secret_key_hex?: string | null);
 }
 
@@ -232,6 +251,7 @@ export interface InitOutput {
   readonly verify_channel: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly verify_proof_dleq: (a: number, b: number, c: number, d: number) => [number, number, number];
   readonly wasmspilmanbridge_createCloseData: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+  readonly wasmspilmanbridge_createUnilateralCloseData: (a: number, b: number, c: number) => [number, number, number, number];
   readonly wasmspilmanbridge_new: (a: any, b: number, c: number) => [number, number, number];
   readonly wasmspilmanbridge_processPayment: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
   readonly init: () => void;

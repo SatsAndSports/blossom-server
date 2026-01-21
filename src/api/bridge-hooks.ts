@@ -120,4 +120,13 @@ export const spilmanHooks = {
   nowSeconds: () => {
     return BigInt(dayjs().unix());
   },
+
+  getLargestBalanceWithSignature: (channelId: string) => {
+    const balanceData = channelBalance.get(channelId);
+    if (!balanceData) {
+      return null;
+    }
+    // Return as [balance, signature] array for WASM consumption
+    return [balanceData.balance, balanceData.signature];
+  },
 };

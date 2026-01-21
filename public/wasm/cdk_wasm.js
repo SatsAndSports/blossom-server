@@ -208,6 +208,46 @@ export class WasmSpilmanBridge {
         }
     }
     /**
+     * Create data for a unilateral (server-initiated) channel close
+     *
+     * This retrieves the largest balance and signature from the host
+     * and constructs a fully-signed swap request ready for the mint.
+     *
+     * # Arguments
+     * * `channel_id` - The channel ID to close
+     *
+     * # Returns
+     * JSON with same structure as createCloseData:
+     * - `swap_request`: The fully-signed swap request ready for mint
+     * - `expected_total`: Expected total output value after stage 1 fees
+     * - `secrets_with_blinding`: Array of {secret, blinding_factor, amount, index, is_receiver}
+     *
+     * # Errors
+     * Returns error JSON if no payment proof stored, channel closed, or validation fails
+     * @param {string} channel_id
+     * @returns {string}
+     */
+    createUnilateralCloseData(channel_id) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(channel_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.wasmspilmanbridge_createUnilateralCloseData(this.__wbg_ptr, ptr0, len0);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
      * @param {any} js_host
      * @param {string | null} [server_secret_key_hex]
      */
@@ -769,6 +809,12 @@ function __wbg_get_imports() {
         const ret = arg0 === undefined;
         return ret;
     };
+    imports.wbg.__wbg___wbindgen_number_get_9619185a74197f95 = function(arg0, arg1) {
+        const obj = arg1;
+        const ret = typeof(obj) === 'number' ? obj : undefined;
+        getDataViewMemory0().setFloat64(arg0 + 8 * 1, isLikeNone(ret) ? 0 : ret, true);
+        getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
+    };
     imports.wbg.__wbg___wbindgen_string_get_a2a31e16edf96e42 = function(arg0, arg1) {
         const obj = arg1;
         const ret = typeof(obj) === 'string' ? obj : undefined;
@@ -813,6 +859,10 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbg_getFundingAndParams_c41a172dc138aeb5 = function(arg0, arg1, arg2) {
         const ret = arg0.getFundingAndParams(getStringFromWasm0(arg1, arg2));
+        return ret;
+    };
+    imports.wbg.__wbg_getLargestBalanceWithSignature_f5b1b393c70176e8 = function(arg0, arg1, arg2) {
+        const ret = arg0.getLargestBalanceWithSignature(getStringFromWasm0(arg1, arg2));
         return ret;
     };
     imports.wbg.__wbg_getRandomValues_b8f5dbd5f3995a9e = function() { return handleError(function (arg0, arg1) {
