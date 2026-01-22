@@ -13,10 +13,10 @@ export const unblind_and_verify_dleq: (a: number, b: number, c: number, d: numbe
 export const verify_balance_update_signature: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number) => [number, number, number];
 export const verify_channel: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
 export const verify_proof_dleq: (a: number, b: number, c: number, d: number) => [number, number, number];
-export const wasmspilmanbridge_createCloseData: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+export const wasmspilmanbridge_createCloseData: (a: number, b: number, c: number) => [number, number, number, number];
 export const wasmspilmanbridge_createUnilateralCloseData: (a: number, b: number, c: number) => [number, number, number, number];
 export const wasmspilmanbridge_new: (a: any, b: number, c: number) => [number, number, number];
-export const wasmspilmanbridge_processPayment: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
+export const wasmspilmanbridge_processPayment: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
 export const init: () => void;
 export const rustsecp256k1_v0_10_0_context_create: (a: number) => number;
 export const rustsecp256k1_v0_10_0_context_destroy: (a: number) => void;

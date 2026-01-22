@@ -131,22 +131,10 @@ router.get("/:hash", range, async (ctx, next) => {
         return;
       }
 
-      let keysetInfo: string | null = null;
       try {
-        const payment = JSON.parse(paymentHeader);
-        if (payment.params) {
-          keysetInfo = getKeysetInfoJson(
-            payment.params.mint,
-            payment.params.keyset_id,
-            payment.params.unit,
-            payment.params.input_fee_ppk || 0
-          );
-        }
-
         const bridgeResultJson = bridge.processPayment(
           paymentHeader,
-          JSON.stringify({ type: "blob", size: storageResult.size }),
-          keysetInfo
+          JSON.stringify({ type: "blob", size: storageResult.size })
         );
         const result = JSON.parse(bridgeResultJson);
 

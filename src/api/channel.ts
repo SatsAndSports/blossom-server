@@ -261,23 +261,9 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     }
   }
 
-  // Get keyset info if params provided (for unknown channels)
-  let keysetInfo: string | null = null;
-  if (body.params) {
-    keysetInfo = getKeysetInfoJson(
-      body.params.mint,
-      body.params.keyset_id,
-      body.params.unit,
-      body.params.input_fee_ppk || 0
-    );
-  }
-
   // Use bridge.createCloseData() to validate signature and get fully-signed swap request
   // This also saves unknown channels to the funding store
-  const closeResultJson = bridge.createCloseData(
-    JSON.stringify(body),
-    keysetInfo
-  );
+  const closeResultJson = bridge.createCloseData(JSON.stringify(body));
   const closeResult = JSON.parse(closeResultJson);
 
   if (!closeResult.success) {
