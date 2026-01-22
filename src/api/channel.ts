@@ -283,36 +283,14 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   if (!closeResult.success) {
     closeLog("Close validation failed: %s", closeResult.error);
     ctx.status = 402;
-    ctx.set("X-Cashu-Channel", JSON.stringify({ error: closeResult.error }));
-    ctx.body = { error: "Payment required", reason: closeResult.error };
+    ctx.set("X-Cashu-Channel", closeResultJson);
+    ctx.body = { ...closeResult, error: "Payment required", reason: closeResult.error };
     return;
   }
 
-  // Now that channel is validated/saved, check balance === amount_due (exact match required for closing)
+  // Get funding after validation (in case it was just saved)
   const fundingAfterValidation = channelFunding.get(channelId)!;
   const channelParams = JSON.parse(fundingAfterValidation.paramsJson);
-  const usage = channelUsage.get(channelId);
-  const pricing = config.channel.pricing[channelParams.unit];
-  if (!pricing) {
-    ctx.status = 400;
-    ctx.body = { error: `No pricing configured for unit: ${channelParams.unit}` };
-    return;
-  }
-  const amountDue = calculateAmountDue(
-    usage?.blobsServed ?? 0,
-    usage?.bytesServed ?? 0,
-    pricing
-  );
-  if (balance !== amountDue) {
-    closeLog("Balance mismatch: balance=%d amount_due=%d", balance, amountDue);
-    ctx.status = 400;
-    ctx.body = {
-      error: "balance must equal amount_due for closing",
-      balance: balance,
-      amount_due: amountDue,
-    };
-    return;
-  }
 
   const swapRequestJson = JSON.stringify(closeResult.swap_request);
   const expectedTotal = closeResult.expected_total;

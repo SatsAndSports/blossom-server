@@ -69,8 +69,7 @@ export const spilmanHooks = {
     });
   },
 
-  getAmountDue: (channelId: string, contextJson: string) => {
-    const context = JSON.parse(contextJson);
+  getAmountDue: (channelId: string, contextJson: string | null) => {
     const usage = channelUsage.get(channelId);
     const blobsServed = usage?.blobsServed ?? 0;
     const bytesServed = usage?.bytesServed ?? 0;
@@ -86,9 +85,12 @@ export const spilmanHooks = {
     let totalBlobs = blobsServed;
     let totalBytes = bytesServed;
 
-    if (context.type === "blob") {
-      totalBlobs += 1;
-      totalBytes += context.size || 0;
+    if (contextJson) {
+      const context = JSON.parse(contextJson);
+      if (context.type === "blob") {
+        totalBlobs += 1;
+        totalBytes += context.size || 0;
+      }
     }
 
     return BigInt(calculateAmountDue(totalBlobs, totalBytes, pricing));

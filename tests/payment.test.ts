@@ -1593,11 +1593,12 @@ describe('Channel closing', () => {
       }),
     });
 
-    expect(closeResponse.status).toBe(400);
+    expect(closeResponse.status).toBe(402);
     const result = await closeResponse.json();
-    expect(result.error).toBe('balance must equal amount_due for closing');
-    expect(result.balance).toBe(0);
-    expect(result.amount_due).toBe(amountDue);
+    expect(result.error).toBe('Payment required');
+    expect(result.reason).toContain('balance mismatch');
+    expect(result.actual).toBe(0);
+    expect(result.expected).toBe(amountDue);
     console.log('rejects close with insufficient balance ✓');
   });
 
@@ -1626,11 +1627,12 @@ describe('Channel closing', () => {
       }),
     });
 
-    expect(closeResponse.status).toBe(400);
+    expect(closeResponse.status).toBe(402);
     const result = await closeResponse.json();
-    expect(result.error).toBe('balance must equal amount_due for closing');
-    expect(result.balance).toBe(10);
-    expect(result.amount_due).toBe(0);
+    expect(result.error).toBe('Payment required');
+    expect(result.reason).toContain('balance mismatch');
+    expect(result.actual).toBe(10);
+    expect(result.expected).toBe(0);
     console.log(`Close rejected with nonzero balance on unused channel ✓`);
   });
 
@@ -1699,11 +1701,12 @@ describe('Channel closing', () => {
       }),
     });
 
-    expect(closeResponse.status).toBe(400);
+    expect(closeResponse.status).toBe(402);
     const result = await closeResponse.json();
-    expect(result.error).toBe('balance must equal amount_due for closing');
-    expect(result.balance).toBe(overpayBalance);
-    expect(result.amount_due).toBe(amountDue);
+    expect(result.error).toBe('Payment required');
+    expect(result.reason).toContain('balance mismatch');
+    expect(result.actual).toBe(overpayBalance);
+    expect(result.expected).toBe(amountDue);
     console.log(`Close rejected with balance > amount_due on used channel ✓`);
   });
 
