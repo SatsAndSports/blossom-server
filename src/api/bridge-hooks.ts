@@ -114,7 +114,7 @@ export const spilmanHooks = {
     return channelClosed.isClosed(channelId);
   },
 
-  getServerConfig: () => {
+  getChannelPolicy: () => {
     return JSON.stringify({
       min_expiry_in_seconds: config.channel.minExpiryInSeconds,
       pricing: config.channel.pricing,
@@ -125,7 +125,7 @@ export const spilmanHooks = {
     return BigInt(dayjs().unix());
   },
 
-  getLargestBalanceWithSignature: (channelId: string) => {
+  getBalanceAndSignatureForUnilateralExit: (channelId: string) => {
     const balanceData = channelBalance.get(channelId);
     if (!balanceData) {
       return null;
