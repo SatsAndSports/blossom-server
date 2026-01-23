@@ -158,4 +158,36 @@ export const spilmanHooks = {
     }
     return null;
   },
+
+  callMintSwap: async (mintUrl: string, swapRequestJson: string): Promise<string> => {
+    const response = await fetch(`${mintUrl}/v1/swap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: swapRequestJson,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return JSON.stringify({ error: `Mint rejected swap: ${text}` });
+    }
+    return await response.text();
+  },
+
+  markChannelClosed: (
+    channelId: string,
+    locktime: number,
+    balance: number,
+    receiverProofsJson: string,
+    senderProofsJson: string,
+    receiverSum: number,
+    senderSum: number
+  ): void => {
+    channelClosed.markClosed(
+      channelId,
+      locktime,
+      balance,
+      receiverSum + senderSum,  // valueAfterStage1
+      receiverProofsJson,
+      senderProofsJson
+    );
+  },
 };

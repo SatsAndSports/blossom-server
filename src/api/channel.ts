@@ -19,6 +19,7 @@ import {
   MintsUnitsKeysets,
 } from "./stores.js";
 import { unblind_and_verify_dleq } from "../wasm/cdk_wasm.js";
+import { spilmanHooks } from "./bridge-hooks.js";
 
 const log = logger.extend("channel-mint-setup");
 
@@ -284,24 +285,21 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   const outputKeysetInfoJson = JSON.stringify(closeResult.output_keyset_info);
   closeLog("Swap request created, expected_total=%d, secrets=%d", expectedTotal, secretsWithBlinding.length);
 
-  // Submit swap to mint
+  // Submit swap to mint via host hook
   const mintUrl = channelParams.mint;
   let swapResponse: any;
   try {
-    closeLog("Submitting swap to mint: %s", mintUrl);
-    const response = await fetch(`${mintUrl}/v1/swap`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: swapRequestJson,
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      closeLog("Mint rejected swap: %s", errorText);
+    closeLog("Submitting swap to mint via hook: %s", mintUrl);
+    const swapResponseText = await spilmanHooks.callMintSwap(mintUrl, swapRequestJson);
+    swapResponse = JSON.parse(swapResponseText);
+    
+    // Check if the hook returned an error
+    if (swapResponse.error) {
+      closeLog("Mint swap hook returned error: %s", swapResponse.error);
       ctx.status = 502;
-      ctx.body = { error: "mint rejected swap", mint_error: errorText };
+      ctx.body = { error: "mint rejected swap", mint_error: swapResponse.error };
       return;
     }
-    swapResponse = await response.json();
     closeLog("Swap response received: %d signatures", swapResponse.signatures?.length ?? 0);
   } catch (e) {
     closeLog("Failed to contact mint: %s", (e as Error).message);
@@ -360,14 +358,15 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   const receiverProofsJson = JSON.stringify(unblindResult.receiver_proofs);
   const senderProofsJson = JSON.stringify(unblindResult.sender_proofs);
 
-  // Mark channel as closed (prevents reuse until locktime expires)
-  channelClosed.markClosed(
+  // Mark channel as closed via host hook (prevents reuse until locktime expires)
+  spilmanHooks.markChannelClosed(
     channelId,
     channelParams.locktime,
     balance,
-    actualTotal,
     receiverProofsJson,
-    senderProofsJson
+    senderProofsJson,
+    unblindResult.receiver_sum_after_stage1,
+    unblindResult.sender_sum_after_stage1
   );
 
   // Success - return sender proofs so Alice can claim her change
