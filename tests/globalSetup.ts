@@ -6,7 +6,7 @@ import path from 'path';
 const TEST_PORT = 3099;
 const TEST_DATA_DIR = 'data-test';
 const TEST_CONFIG_PATH = 'config.test.yml';
-const MINT_URL = 'http://localhost:3338';
+const MINT_URL = process.env.MINT_URL || 'http://localhost:3338';
 
 let serverProcess: ChildProcess | null = null;
 
@@ -15,14 +15,14 @@ async function checkMintAvailable(): Promise<void> {
 ===========================================
 ERROR: Mint not available at ${MINT_URL}
 
-The blossom-server tests require a Cashu mint running at localhost:3338.
+The blossom-server tests require a Cashu mint.
 
-To start the development mint:
-  ./target/debug/cdk-mintd --config dev-mint/config.toml --work-dir dev-mint
+Recommended: Use the Makefile targets that start an ephemeral mint:
+  make test-blossom-cdk      # Uses CDK mint
+  make test-blossom-nutmix   # Uses NutMix mint
 
-Or build and run:
-  cargo build -p cdk-mintd --features fakewallet
-  ./target/debug/cdk-mintd --config dev-mint/config.toml --work-dir dev-mint
+Or set MINT_URL to an existing mint:
+  MINT_URL=http://localhost:3338 npm test
 
 See AGENTS.md for more details.
 ===========================================
@@ -88,7 +88,7 @@ channel:
   enabled: true
   secretKey: "0102030405060708091011121314151617181920212223242526272829303132"
   approvedMintsAndUnits:
-    http://localhost:3338:
+    ${MINT_URL}:
       - sat
       - usd
       - msat

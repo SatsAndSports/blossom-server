@@ -2,7 +2,7 @@ import { test as base } from 'vitest';
 
 // Test configuration
 const TEST_PORT = 3099;
-const MINT_URL = 'http://localhost:3338';
+const MINT_URL = process.env.MINT_URL || 'http://localhost:3338';
 
 // Types
 interface Pricing {
