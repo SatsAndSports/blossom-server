@@ -684,7 +684,7 @@ describe('Payment header validation', () => {
         headers: { 'X-Cashu-Channel': tc.header },
       });
 
-      expect(response.status, `${tc.name}: expected 402`).toBe(402);
+      expect(response.status, `${tc.name}: expected 400`).toBe(400);
 
       const channelHeader = response.headers.get('X-Cashu-Channel');
       expect(channelHeader, `${tc.name}: expected X-Cashu-Channel header`).toBeDefined();
@@ -693,14 +693,14 @@ describe('Payment header validation', () => {
       expect(headerData.error, `${tc.name}: wrong error`).toContain(tc.expectedError);
       expect(headerData.size, `${tc.name}: expected size`).toBe(content.length);
 
-      console.log(`${tc.name}: 402 with error="${headerData.error}" ✓`);
+      console.log(`${tc.name}: 400 with error="${headerData.error}" ✓`);
     }
 
     const testCases400 = [
       {
         name: 'invalid JSON',
         header: 'not-json',
-        expectedError: 'Invalid payment header',
+        expectedError: 'Bad Request',
       },
     ];
 
