@@ -6,8 +6,46 @@ import path from 'path';
 const TEST_PORT = 3099;
 const TEST_DATA_DIR = 'data-test';
 const TEST_CONFIG_PATH = 'config.test.yml';
+const MINT_URL = 'http://localhost:3338';
 
 let serverProcess: ChildProcess | null = null;
+
+async function checkMintAvailable(): Promise<void> {
+  const errorMessage = `
+===========================================
+ERROR: Mint not available at ${MINT_URL}
+
+The blossom-server tests require a Cashu mint running at localhost:3338.
+
+To start the development mint:
+  ./target/debug/cdk-mintd --config dev-mint/config.toml --work-dir dev-mint
+
+Or build and run:
+  cargo build -p cdk-mintd --features fakewallet
+  ./target/debug/cdk-mintd --config dev-mint/config.toml --work-dir dev-mint
+
+See AGENTS.md for more details.
+===========================================
+`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+
+    const response = await fetch(`${MINT_URL}/v1/keysets`, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`Mint returned HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log(`Mint available at ${MINT_URL} (${data.keysets?.length || 0} keysets)`);
+  } catch (e) {
+    console.error(errorMessage);
+    throw new Error(`Mint not available at ${MINT_URL}`);
+  }
+}
 
 // Test config with channel enabled
 const testConfig = `
@@ -94,6 +132,9 @@ async function waitForServer(port: number, timeoutMs: number = 10000): Promise<v
 }
 
 export async function setup() {
+  // Check mint is available before starting tests
+  await checkMintAvailable();
+
   // Clean up test data directory
   rmSync(TEST_DATA_DIR, { recursive: true, force: true });
   mkdirSync(TEST_DATA_DIR, { recursive: true });
