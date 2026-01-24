@@ -1,8 +1,8 @@
 import React from "react";
-import { Layout } from "react-admin";
+import { Layout, LayoutProps } from "react-admin";
 import { ReactQueryDevtools } from "react-query/devtools";
 
-export function CustomLayout(props) {
+export function CustomLayout(props: LayoutProps) {
   return (
     <>
       <Layout {...props} />
