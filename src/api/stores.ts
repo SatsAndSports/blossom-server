@@ -17,6 +17,7 @@ export interface KeysetWithKeys {
   id: string;
   keys: Record<string, string>;  // { amount: pubkey }
   active: boolean;
+  input_fee_ppk: number;  // Fee in parts per thousand (from mint's /v1/keysets response)
 }
 
 // Cached keyset data: { mintUrl: { unit: [{ id, keys, active }] } }

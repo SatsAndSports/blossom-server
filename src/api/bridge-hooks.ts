@@ -146,14 +146,11 @@ export const spilmanHooks = {
     const mintData = mintsUnitsKeysets[mint];
     if (!mintData) return null;
     
-    // Find the keyset to get its unit and fees (for now fees are in params but we need them for KeysetInfo)
+    // Find the keyset to get its unit and fee
     for (const [unit, keysets] of Object.entries(mintData)) {
       const keyset = keysets.find(k => k.id === keysetId);
       if (keyset) {
-        // We need to provide the input_fee_ppk. It's usually in the config or fetched from mint.
-        // For now we'll assume 0 if not easily available, or we could look it up from config.
-        const inputFeePpk = config.channel.approvedMintsAndUnits[mint]?.includes(unit) ? 0 : 0; // TODO: better fee lookup
-        return getKeysetInfoJson(mint, keysetId, unit, inputFeePpk);
+        return getKeysetInfoJson(mint, keysetId, unit, keyset.input_fee_ppk);
       }
     }
     return null;

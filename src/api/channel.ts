@@ -100,7 +100,12 @@ async function fetchKeysetsFromMint(mintUrl: string, units: string[]): Promise<R
         for (const keysetInfo of keysetInfos) {
           const keys = await fetchKeysForKeyset(mintUrl, keysetInfo.id);
           if (keys) {
-            unitKeysets.push({ id: keysetInfo.id, keys, active: keysetInfo.active });
+            unitKeysets.push({
+              id: keysetInfo.id,
+              keys,
+              active: keysetInfo.active,
+              input_fee_ppk: keysetInfo.input_fee_ppk ?? 0,
+            });
           }
         }
 
