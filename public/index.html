@@ -2848,7 +2848,7 @@
                     console.log(`[Payment] Including channel params and funding proofs for ${this.channelId.substring(0,8)}...`);
                     log(`Including channel params and funding proofs (not yet confirmed)`, 'payment');
                 }
-                return JSON.stringify(payload);
+                return encodePaymentHeader(payload);
             }
 
             // Convert to IndexedDB record
@@ -3029,6 +3029,11 @@
         }
 
         let logPayments = false;
+
+        // Encode payment object to base64 for X-Cashu-Channel header
+        function encodePaymentHeader(payment) {
+            return btoa(JSON.stringify(payment));
+        }
 
         function log(msg, type = 'info') {
             if (type === 'payment' && !logPayments) {

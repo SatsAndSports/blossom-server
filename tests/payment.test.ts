@@ -37,6 +37,11 @@ function generateBlob(): { content: Buffer; hash: string } {
   return { content, hash };
 }
 
+// Encode payment object to base64 for X-Cashu-Channel header
+function encodePaymentHeader(payment: object): string {
+  return Buffer.from(JSON.stringify(payment)).toString('base64');
+}
+
 // Fetch keyset info from mint
 async function fetchKeysetInfo(mintUrl: string, keysetId: string): Promise<any> {
   const keysRes = await fetch(`${mintUrl}/v1/keys/${keysetId}`);
@@ -219,7 +224,7 @@ describe('New channel payment', () => {
 
     // Step 4: Request the blob with payment header
     // First request includes params and funding_proofs to establish the channel
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -277,7 +282,7 @@ describe('New channel payment', () => {
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
     // Step 4: Request the blob with pre-payment
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -335,7 +340,7 @@ describe('New channel payment', () => {
     console.log(`Signed balance update: balance=${balanceUpdate.amount}, sig=${balanceUpdate.signature.substring(0, 16)}...`);
 
     // Step 4: Request the blob with payment header
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -391,7 +396,7 @@ describe('New channel payment', () => {
         );
         const insufficientBalanceUpdate = JSON.parse(insufficientBalanceUpdateJson);
 
-        const insufficientPaymentHeader = JSON.stringify({
+        const insufficientPaymentHeader = encodePaymentHeader({
           channel_id: insufficientBalanceUpdate.channel_id,
           balance: insufficientBalance,
           signature: insufficientBalanceUpdate.signature,
@@ -417,7 +422,7 @@ describe('New channel payment', () => {
       );
       const balanceUpdate = JSON.parse(balanceUpdateJson);
 
-      const paymentHeader = JSON.stringify({
+      const paymentHeader = encodePaymentHeader({
         channel_id: balanceUpdate.channel_id,
         balance: balance,
         signature: balanceUpdate.signature,
@@ -501,7 +506,7 @@ describe('New channel payment', () => {
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
     // Step 5: Retry WITH payment - should get 200
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -554,7 +559,7 @@ describe('New channel payment', () => {
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
     // Step 5: Request the blob with tampered payment
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -604,7 +609,7 @@ describe('New channel payment', () => {
 
     // Send directly with tampered proofs - server will fail on channel validation
     // before checking signature, so we can use a fake signature
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: channel.channelId,
       balance: 1,
       signature: 'fake_signature',
@@ -639,42 +644,42 @@ describe('Payment header validation', () => {
     const testCases402 = [
       {
         name: 'missing channel_id',
-        header: JSON.stringify({ balance: 1, signature: 'def456' }),
+        header: encodePaymentHeader({ balance: 1, signature: 'def456' }),
         expectedError: 'channel_id',
       },
       {
         name: 'empty channel_id',
-        header: JSON.stringify({ channel_id: '', balance: 1, signature: 'def456' }),
+        header: encodePaymentHeader({ channel_id: '', balance: 1, signature: 'def456' }),
         expectedError: 'missing channel_id',
       },
       {
         name: 'non-string channel_id',
-        header: JSON.stringify({ channel_id: 12345, balance: 1, signature: 'def456' }),
+        header: encodePaymentHeader({ channel_id: 12345, balance: 1, signature: 'def456' }),
         expectedError: 'integer',
       },
       {
         name: 'missing balance',
-        header: JSON.stringify({ channel_id: 'abc123', signature: 'def456' }),
+        header: encodePaymentHeader({ channel_id: 'abc123', signature: 'def456' }),
         expectedError: 'balance',
       },
       {
         name: 'non-integer balance',
-        header: JSON.stringify({ channel_id: 'abc123', balance: 1.5, signature: 'def456' }),
+        header: encodePaymentHeader({ channel_id: 'abc123', balance: 1.5, signature: 'def456' }),
         expectedError: 'u64',
       },
       {
         name: 'missing signature',
-        header: JSON.stringify({ channel_id: 'abc123', balance: 1 }),
+        header: encodePaymentHeader({ channel_id: 'abc123', balance: 1 }),
         expectedError: 'signature',
       },
       {
         name: 'empty signature',
-        header: JSON.stringify({ channel_id: 'abc123', balance: 1, signature: '' }),
+        header: encodePaymentHeader({ channel_id: 'abc123', balance: 1, signature: '' }),
         expectedError: 'signature',
       },
       {
         name: 'non-string signature',
-        header: JSON.stringify({ channel_id: 'abc123', balance: 1, signature: 12345 }),
+        header: encodePaymentHeader({ channel_id: 'abc123', balance: 1, signature: 12345 }),
         expectedError: 'string',
       },
     ];
@@ -698,9 +703,10 @@ describe('Payment header validation', () => {
 
     const testCases400 = [
       {
-        name: 'invalid JSON',
-        header: 'not-json',
-        expectedError: 'Bad Request',
+        name: 'invalid base64',
+        header: '!!!not-base64!!!',
+        expectedError: 'Invalid payment header',
+        expectedReason: 'invalid base64 encoding',
       },
     ];
 
@@ -712,7 +718,8 @@ describe('Payment header validation', () => {
       expect(response.status, `${tc.name}: expected 400`).toBe(400);
       const body = await response.json();
       expect(body.error).toBe(tc.expectedError);
-      console.log(`${tc.name}: 400 with error="${body.error}" ✓`);
+      expect(body.reason).toBe(tc.expectedReason);
+      console.log(`${tc.name}: 400 with error="${body.error}" reason="${body.reason}" ✓`);
     }
 
   });
@@ -745,7 +752,7 @@ describe('Channel validation errors', () => {
     const tamperedChannelId = balanceUpdate.channel_id.slice(0, -1) +
       (balanceUpdate.channel_id.slice(-1) === 'a' ? 'b' : 'a');
 
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: tamperedChannelId,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -773,7 +780,7 @@ describe('Channel validation errors', () => {
     });
 
     // Send payment header with random channel_id (no params/funding_proofs)
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: randomBytes(32).toString('hex'),
       balance: 1,
       signature: 'fake_signature',
@@ -806,7 +813,7 @@ describe('Channel validation errors', () => {
 
     // Use a fake channel_id - the server will reject based on unknown keyset 
     // before it even checks the channel_id
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: 'aaaa' + channel.channelId.substring(4),  // fake channel_id
       balance: 1,
       signature: 'fake_signature',  // Won't get this far anyway
@@ -938,7 +945,7 @@ describe('Channel validation errors', () => {
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
     // Send payment with low-capacity channel
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -1071,7 +1078,7 @@ describe('Channel validation errors', () => {
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
     // Send payment with too-soon locktime
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -1121,7 +1128,7 @@ describe('Channel validation errors', () => {
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
     // Try to make a payment - should get 402
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: 1,
       signature: balanceUpdate.signature,
@@ -1164,7 +1171,7 @@ describe('Channel validation errors', () => {
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
     // Send with balance=2 but signature for balance=1
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: 2,  // Wrong balance!
       signature: balanceUpdate.signature,  // Signature is for balance=1
@@ -1208,7 +1215,7 @@ describe('Channel validation errors', () => {
     // Establish channel with valid payment
     const establishRes = await fetch(`${server.baseUrl}/${hash}`, {
       headers: {
-        'X-Cashu-Channel': JSON.stringify({
+        'X-Cashu-Channel': encodePaymentHeader({
           channel_id: balanceUpdate.channel_id,
           balance: balanceUpdate.amount,
           signature: balanceUpdate.signature,
@@ -1221,7 +1228,7 @@ describe('Channel validation errors', () => {
 
     // Now send a request with balance exceeding capacity (fake signature is fine
     // because capacity check happens before signature verification)
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: channel.channelId,
       balance: 101,  // Exceeds capacity of 100
       signature: 'fake_signature',
@@ -1365,7 +1372,7 @@ describe('Channel closing', () => {
         );
         const insufficientBalanceUpdate = JSON.parse(insufficientBalanceUpdateJson);
 
-        const insufficientPaymentHeader = JSON.stringify({
+        const insufficientPaymentHeader = encodePaymentHeader({
           channel_id: insufficientBalanceUpdate.channel_id,
           balance: insufficientBalance,
           signature: insufficientBalanceUpdate.signature,
@@ -1391,7 +1398,7 @@ describe('Channel closing', () => {
       );
       const balanceUpdate = JSON.parse(balanceUpdateJson);
 
-      const paymentHeader = JSON.stringify({
+      const paymentHeader = encodePaymentHeader({
         channel_id: balanceUpdate.channel_id,
         balance: balance,
         signature: balanceUpdate.signature,
@@ -1471,7 +1478,7 @@ describe('Channel closing', () => {
     );
     const balanceUpdate1 = JSON.parse(balanceUpdate1Json);
 
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate1.channel_id,
       balance: balanceUpdate1.amount,
       signature: balanceUpdate1.signature,
@@ -1556,7 +1563,7 @@ describe('Channel closing', () => {
     );
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -1662,7 +1669,7 @@ describe('Channel closing', () => {
     );
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -1837,7 +1844,7 @@ describe('Channel closing', () => {
 
     const blobResponse = await fetch(`${server.baseUrl}/${hash}`, {
       headers: {
-        'X-Cashu-Channel': JSON.stringify({
+        'X-Cashu-Channel': encodePaymentHeader({
           channel_id: paymentBalanceUpdate.channel_id,
           balance: paymentBalanceUpdate.amount,
           signature: paymentBalanceUpdate.signature,
@@ -1951,7 +1958,7 @@ describe('Channel closing', () => {
     );
     const paymentBalanceUpdate = JSON.parse(paymentBalanceUpdateJson);
 
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: paymentBalanceUpdate.channel_id,
       balance: paymentBalanceUpdate.amount,
       signature: paymentBalanceUpdate.signature,
@@ -1993,7 +2000,7 @@ describe('Channel status endpoint', () => {
     );
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -2031,7 +2038,7 @@ describe('Channel status endpoint', () => {
     );
     const balanceUpdate2 = JSON.parse(balanceUpdate2Json);
 
-    const paymentHeader2 = JSON.stringify({
+    const paymentHeader2 = encodePaymentHeader({
       channel_id: balanceUpdate2.channel_id,
       balance: balanceUpdate2.amount,
       signature: balanceUpdate2.signature,
@@ -2077,7 +2084,7 @@ describe('Channel status endpoint', () => {
     );
     const balanceUpdate = JSON.parse(balanceUpdateJson);
 
-    const paymentHeader = JSON.stringify({
+    const paymentHeader = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: balanceUpdate.amount,
       signature: balanceUpdate.signature,
@@ -2100,7 +2107,7 @@ describe('Channel status endpoint', () => {
     console.log(`Channel status after payment: balance=${status.balance} blobs=${status.blobs_served} bytes=${status.bytes_served} amount_due=${status.amount_due} ✓`);
 
     // Attempt a second request with wrong balance (signature is for balance=1, but we send balance=2)
-    const paymentHeader2 = JSON.stringify({
+    const paymentHeader2 = encodePaymentHeader({
       channel_id: balanceUpdate.channel_id,
       balance: 2,  // Wrong! Signature is for balance=1
       signature: balanceUpdate.signature,

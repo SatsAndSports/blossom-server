@@ -32,6 +32,15 @@ import {
 
 const paymentLog = logger.extend("payments");
 
+// Decode base64-encoded payment header to JSON string
+function decodePaymentHeader(header: string): string {
+  // Validate base64 format (standard base64 alphabet + padding)
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(header)) {
+    throw new Error("invalid base64 encoding");
+  }
+  return Buffer.from(header, 'base64').toString('utf-8');
+}
+
 export const bridge = new WasmSpilmanBridge(spilmanHooks, config.channel.secretKey);
 
 // ============================================================================
@@ -131,9 +140,20 @@ router.get("/:hash", range, async (ctx, next) => {
         return;
       }
 
+      // Decode base64-encoded payment header
+      let paymentJson: string;
+      try {
+        paymentJson = decodePaymentHeader(paymentHeader);
+      } catch (e) {
+        ctx.status = 400;
+        ctx.set("X-Cashu-Channel", JSON.stringify({ error: "invalid base64", size: storageResult.size }));
+        ctx.body = { error: "Invalid payment header", reason: "invalid base64 encoding" };
+        return;
+      }
+
       try {
         const bridgeResultJson = bridge.processPayment(
-          paymentHeader,
+          paymentJson,
           JSON.stringify({ type: "blob", size: storageResult.size })
         );
         const result = JSON.parse(bridgeResultJson);
