@@ -7,11 +7,11 @@
 #   make wasm       # Optimized WASM build (~16s) - for production
 #   make build      # Build the TypeScript project
 #   make dev        # Start development server with hot reload
-#   make clean      # Remove WASM build artifacts (preserves .gitignore)
+#   make clean      # Remove local WASM copies (preserves .gitignore)
 #
 # For video encoding/uploading, see tools/hls-*.sh
 
-.PHONY: test test-full wasm wasm-dev wasm-web wasm-nodejs wasm-web-dev wasm-nodejs-dev build dev clean
+.PHONY: test test-full wasm wasm-dev build dev clean .check-cdk-repo
 
 # Default target: run tests without rebuilding WASM
 test:
@@ -30,6 +30,7 @@ dev:
 	npm run dev
 
 # --- WASM Build Targets ---
+# Build via parent CDK Makefile, then copy to local directories
 
 WASM_WEB_SRC := ../wasm-web
 WASM_WEB_DEST := public/wasm
@@ -37,44 +38,37 @@ WASM_NODEJS_SRC := ../wasm-nodejs
 WASM_NODEJS_DEST := src/wasm
 WASM_FILES := cdk_wasm.js cdk_wasm.d.ts cdk_wasm_bg.wasm cdk_wasm_bg.wasm.d.ts package.json
 
+# Check we're inside the CDK repo
+.check-cdk-repo:
+	@if [ ! -f ../../crates/cdk-wasm/Cargo.toml ]; then \
+		echo ""; \
+		echo "ERROR: blossom-server must be inside the CDK repo to build WASM."; \
+		echo "Expected to find ../../crates/cdk-wasm/Cargo.toml"; \
+		echo ""; \
+		echo "If running blossom-server standalone, copy pre-built WASM files to:"; \
+		echo "  $(WASM_WEB_DEST)/"; \
+		echo "  $(WASM_NODEJS_DEST)/"; \
+		echo ""; \
+		exit 1; \
+	fi
+
 # Fast development WASM build (skips wasm-opt, ~1s)
-wasm-dev: wasm-web-dev wasm-nodejs-dev
-	@echo "WASM dev build complete (no optimization)"
+wasm-dev: .check-cdk-repo
+	$(MAKE) -C ../.. wasm-dev
+	@mkdir -p $(WASM_WEB_DEST) $(WASM_NODEJS_DEST)
+	cp $(addprefix $(WASM_WEB_SRC)/,$(WASM_FILES)) $(WASM_WEB_DEST)/
+	cp $(addprefix $(WASM_NODEJS_SRC)/,$(WASM_FILES)) $(WASM_NODEJS_DEST)/
+	@echo "WASM copied to blossom-server"
 
 # Optimized release WASM build (~16s)
-wasm: wasm-web wasm-nodejs
-	@echo "WASM release build complete"
-
-# Browser WASM - fast dev build
-wasm-web-dev:
-	cd ../../crates/cdk-wasm && wasm-pack build --release --no-opt --target web --out-dir ../../web/wasm-web
-	@mkdir -p $(WASM_WEB_DEST)
+wasm: .check-cdk-repo
+	$(MAKE) -C ../.. wasm
+	@mkdir -p $(WASM_WEB_DEST) $(WASM_NODEJS_DEST)
 	cp $(addprefix $(WASM_WEB_SRC)/,$(WASM_FILES)) $(WASM_WEB_DEST)/
-	@echo "Browser WASM (dev) copied to $(WASM_WEB_DEST)/"
-
-# Browser WASM - optimized release build
-wasm-web:
-	cd ../../crates/cdk-wasm && wasm-pack build --release --target web --out-dir ../../web/wasm-web
-	@mkdir -p $(WASM_WEB_DEST)
-	cp $(addprefix $(WASM_WEB_SRC)/,$(WASM_FILES)) $(WASM_WEB_DEST)/
-	@echo "Browser WASM (release) copied to $(WASM_WEB_DEST)/"
-
-# Node.js WASM - fast dev build
-wasm-nodejs-dev:
-	cd ../../crates/cdk-wasm && wasm-pack build --release --no-opt --target nodejs --out-dir ../../web/wasm-nodejs
-	@mkdir -p $(WASM_NODEJS_DEST)
 	cp $(addprefix $(WASM_NODEJS_SRC)/,$(WASM_FILES)) $(WASM_NODEJS_DEST)/
-	@echo "Node.js WASM (dev) copied to $(WASM_NODEJS_DEST)/"
+	@echo "WASM copied to blossom-server"
 
-# Node.js WASM - optimized release build
-wasm-nodejs:
-	cd ../../crates/cdk-wasm && wasm-pack build --release --target nodejs --out-dir ../../web/wasm-nodejs
-	@mkdir -p $(WASM_NODEJS_DEST)
-	cp $(addprefix $(WASM_NODEJS_SRC)/,$(WASM_FILES)) $(WASM_NODEJS_DEST)/
-	@echo "Node.js WASM (release) copied to $(WASM_NODEJS_DEST)/"
-
-# Clean WASM build artifacts (preserves .gitignore files)
+# Clean local WASM copies (preserves .gitignore files)
 clean:
-	rm -rf ../wasm-web ../wasm-nodejs
 	find $(WASM_WEB_DEST) $(WASM_NODEJS_DEST) -type f ! -name '.gitignore' -delete 2>/dev/null || true
-	@echo "WASM directories cleaned"
+	@echo "Local WASM copies cleaned"
