@@ -8,7 +8,7 @@ function generateBlob(): { content: Buffer; hash: string } {
   return { content, hash };
 }
 
-describe('Blob operations', () => {
+describe.concurrent('Blob operations', () => {
   test('PUT uploads a blob and returns its hash', async ({ server }) => {
     const { content, hash } = generateBlob();
 

@@ -267,9 +267,9 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     }
   }
 
-  // Use bridge.createCloseData() to validate signature and get fully-signed swap request
+  // Use bridge.validateAndPrepareCooperativeClose() to validate signature and get fully-signed swap request
   // This also saves unknown channels to the funding store
-  const closeResultJson = bridge.createCloseData(JSON.stringify(body));
+  const closeResultJson = bridge.validateAndPrepareCooperativeClose(JSON.stringify(body));
   const closeResult = JSON.parse(closeResultJson);
 
   if (!closeResult.success) {

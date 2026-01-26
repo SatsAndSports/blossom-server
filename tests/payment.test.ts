@@ -193,7 +193,7 @@ async function mintFundedChannel(server: Server, unit: string, maximumAmount: nu
 
 
 
-describe('New channel payment', () => {
+describe.concurrent('New channel payment', () => {
   test('accepts valid payment on new channel and serves blob', async ({ server }) => {
     // Step 1: Upload a blob
     const { content, hash } = generateBlob();
@@ -630,7 +630,7 @@ describe('New channel payment', () => {
   });
 });
 
-describe('Payment header validation', () => {
+describe.concurrent('Payment header validation', () => {
   test('returns 402 for invalid or missing header fields', async ({ server }) => {
     // Upload a blob to test against
     const { content, hash } = generateBlob();
@@ -725,7 +725,7 @@ describe('Payment header validation', () => {
   });
 });
 
-describe('Channel validation errors', () => {
+describe.concurrent('Channel validation errors', () => {
   test('returns 402 when channel_id does not match params', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();
@@ -1247,7 +1247,7 @@ describe('Channel validation errors', () => {
   });
 });
 
-describe('Channel closing', () => {
+describe.concurrent('Channel closing', () => {
   test('closes unused channel and verifies sender can derive secret keys for returned proofs', async ({ server }) => {
     // Alice mints a funded channel but never uses it
     // She can close immediately with balance=0
@@ -1977,7 +1977,7 @@ describe('Channel closing', () => {
   });
 });
 
-describe('Channel status endpoint', () => {
+describe.concurrent('Channel status endpoint', () => {
   test('returns status with zeroes before payment, then updated after payment', async ({ server }) => {
     // Upload a blob
     const { content, hash } = generateBlob();

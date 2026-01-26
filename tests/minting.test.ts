@@ -49,7 +49,7 @@ async function fetchKeysetInfo(mintUrl: string, keysetId: string): Promise<any> 
   };
 }
 
-describe('Minting flow', () => {
+describe.concurrent('Minting flow', () => {
   test('mints a funding token with deterministic outputs', async ({ server }) => {
     // Step 1: Use cached channel params from fixture
     const charliePubkey = server.channelParams.receiver_pubkey;
@@ -210,7 +210,7 @@ describe('Minting flow', () => {
   });
 });
 
-describe('Channel verification', () => {
+describe.concurrent('Channel verification', () => {
   test('detects tampered keyset keys', async ({ server }) => {
     // Step 1: Use cached channel params from fixture
     const charliePubkey = server.channelParams.receiver_pubkey;

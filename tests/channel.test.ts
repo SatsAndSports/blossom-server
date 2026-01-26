@@ -1,7 +1,7 @@
 import { test, describe, expect } from './fixtures';
 import { randomBytes } from 'crypto';
 
-describe('GET /channel/params', () => {
+describe.concurrent('GET /channel/params', () => {
   test('returns receiver pubkey', async ({ server }) => {
     // Using cached channelParams from fixture
     expect(server.channelParams.receiver_pubkey).toBeDefined();
@@ -29,7 +29,7 @@ describe('GET /channel/params', () => {
   });
 });
 
-describe('GET /channel/:channel_id/status', () => {
+describe.concurrent('GET /channel/:channel_id/status', () => {
   test('returns 404 for unknown channel', async ({ server }) => {
     const fakeChannelId = randomBytes(32).toString('hex');
     const response = await fetch(`${server.baseUrl}/channel/${fakeChannelId}/status`);
