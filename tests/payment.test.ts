@@ -1733,10 +1733,9 @@ describe.concurrent('Channel closing', () => {
     });
 
     expect(closeResponse.status).toBe(402);
-    const channelHeader = closeResponse.headers.get('X-Cashu-Channel');
-    expect(channelHeader).toBeDefined();
-    const headerData = JSON.parse(channelHeader!);
-    expect(headerData.error).toContain('invalid signature');
+    const result = await closeResponse.json();
+    expect(result.success).toBe(false);
+    expect(result.reason).toContain('invalid signature');
     console.log(`Close rejected with invalid signature ✓`);
   });
 
@@ -1754,11 +1753,10 @@ describe.concurrent('Channel closing', () => {
       }),
     });
 
-    expect(closeResponse.status).toBe(402);
-    const channelHeader = closeResponse.headers.get('X-Cashu-Channel');
-    expect(channelHeader).toBeDefined();
-    const headerData = JSON.parse(channelHeader!);
-    expect(headerData.error).toBe('unknown channel');
+    expect(closeResponse.status).toBe(404);
+    const result = await closeResponse.json();
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('unknown channel');
     console.log(`Close rejected for unknown channel without params ✓`);
   });
 

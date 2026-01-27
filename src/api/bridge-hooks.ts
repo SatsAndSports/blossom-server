@@ -97,7 +97,9 @@ export const spilmanHooks = {
     return BigInt(calculateAmountDue(totalBlobs, totalBytes, pricing));
   },
 
-  recordPayment: (channelId: string, balance: bigint, signature: string, contextJson: string) => {
+  // Note: WASM passes u64 values as BigInt; we convert to number at this boundary
+  // since all channel values fit safely in JS number (< 2^53).
+  recordPayment: (channelId: string, balance: number, signature: string, contextJson: string) => {
     // 1. Commit the actual usage recorded in the context
     const context = JSON.parse(contextJson);
     if (context.type === "blob") {
@@ -179,11 +181,17 @@ export const spilmanHooks = {
     receiverSum: number,
     senderSum: number
   ): void => {
+    const locktimeNum = Number(locktime);
+    const balanceNum = Number(balance);
+    const receiverSumNum = Number(receiverSum);
+    const senderSumNum = Number(senderSum);
     channelClosed.markClosed(
       channelId,
-      locktime,
-      balance,
-      receiverSum + senderSum,  // valueAfterStage1
+      locktimeNum,
+      balanceNum,
+      receiverSumNum + senderSumNum,  // valueAfterStage1
+      receiverSumNum,
+      senderSumNum,
       receiverProofsJson,
       senderProofsJson
     );

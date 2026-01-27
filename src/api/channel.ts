@@ -10,7 +10,6 @@ import {
 } from "./fetch.js";
 import {
   calculateAmountDue,
-  channelFunding,
   channelUsage,
   channelClosed,
   channelActivity,
@@ -18,8 +17,6 @@ import {
   mintsUnitsKeysets,
   MintsUnitsKeysets,
 } from "./stores.js";
-import { unblind_and_verify_dleq } from "../wasm/cdk_wasm.js";
-import { spilmanHooks } from "./bridge-hooks.js";
 
 const log = logger.extend("channel-mint-setup");
 
@@ -269,11 +266,13 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
       // Idempotent close - same amount, return success with cached sender proofs
       closeLog("Channel already closed with same amount: channel=%s amount=%d",
         channelId.substring(0, 8), closedData.closedAmount);
-      ctx.status = 200;
+       ctx.status = 200;
       ctx.body = {
         success: true,
         channel_id: channelId,
         total_value: closedData.valueAfterStage1,
+        receiver_sum: closedData.receiverSum,
+        sender_sum: closedData.senderSum,
         sender_proofs: JSON.parse(closedData.senderProofsJson),
         already_closed: true,
       };
@@ -292,120 +291,83 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
     }
   }
 
-  // Use bridge.validateAndPrepareCooperativeClose() to validate signature and get fully-signed swap request
-  // This also saves unknown channels to the funding store
-  const closeResultJson = bridge.validateAndPrepareCooperativeClose(JSON.stringify(body));
-  const closeResult = JSON.parse(closeResultJson);
-
-  if (!closeResult.success) {
-    closeLog("Close validation failed: %s", closeResult.error);
-    ctx.status = 402;
-    ctx.set("X-Cashu-Channel", closeResultJson);
-    ctx.body = { ...closeResult, error: "Payment required", reason: closeResult.error };
-    return;
-  }
-
-  // Get funding after validation (in case it was just saved)
-  const fundingAfterValidation = channelFunding.get(channelId)!;
-  const channelParams = JSON.parse(fundingAfterValidation.paramsJson);
-
-  const swapRequestJson = JSON.stringify(closeResult.swap_request);
-  const expectedTotal = closeResult.expected_total;
-  const secretsWithBlinding = closeResult.secrets_with_blinding;
-  const outputKeysetInfoJson = JSON.stringify(closeResult.output_keyset_info);
-  closeLog("Swap request created, expected_total=%d, secrets=%d", expectedTotal, secretsWithBlinding.length);
-
-  // Submit swap to mint via host hook
-  const mintUrl = channelParams.mint;
-  let swapResponse: any;
+  // Execute cooperative close via bridge (validates, submits swap, unblinds, marks closed)
+  let resultJson: string;
   try {
-    closeLog("Submitting swap to mint via hook: %s", mintUrl);
-    const swapResponseText = await spilmanHooks.callMintSwap(mintUrl, swapRequestJson);
-    swapResponse = JSON.parse(swapResponseText);
-    
-    // Check if the hook returned an error
-    if (swapResponse.error) {
-      closeLog("Mint swap hook returned error: %s", swapResponse.error);
-      ctx.status = 502;
-      ctx.body = { error: "mint rejected swap", mint_error: swapResponse.error };
-      return;
-    }
-    closeLog("Swap response received: %d signatures", swapResponse.signatures?.length ?? 0);
+    resultJson = await bridge.executeCooperativeClose(JSON.stringify(body));
   } catch (e) {
-    closeLog("Failed to contact mint: %s", (e as Error).message);
-    ctx.status = 502;
-    ctx.body = { error: "failed to contact mint", reason: (e as Error).message };
+    closeLog("Close bridge error: %s", String(e));
+    ctx.status = 500;
+    ctx.body = { error: "internal close error", reason: String(e) };
+    return;
+  }
+  const result = JSON.parse(resultJson);
+
+  if (!result.success) {
+    const status = result.status || 402;
+    closeLog("Close failed: %s (status=%d)", result.error, status);
+    ctx.status = status;
+    ctx.body = result;
     return;
   }
 
-  // Unblind signatures and verify DLEQ proofs
-  let unblindResult: {
-    receiver_proofs: any[];
-    sender_proofs: any[];
-    receiver_sum_after_stage1: number;
-    sender_sum_after_stage1: number;
-  };
-  try {
-    unblindResult = JSON.parse(unblind_and_verify_dleq(
-      JSON.stringify(swapResponse.signatures || []),
-      JSON.stringify(secretsWithBlinding),
-      fundingAfterValidation.paramsJson,
-      fundingAfterValidation.keysetInfoJson,
-      fundingAfterValidation.sharedSecret,
-      BigInt(balance),
-      outputKeysetInfoJson
-    ));
-    closeLog(
-      "Unblinded and DLEQ verified: receiver=%d proofs (%d nominal), sender=%d proofs (%d nominal)",
-      unblindResult.receiver_proofs.length,
-      unblindResult.receiver_sum_after_stage1,
-      unblindResult.sender_proofs.length,
-      unblindResult.sender_sum_after_stage1
-    );
-  } catch (e) {
-    closeLog("Unblind/DLEQ verification failed: %s", (e as Error).message || e);
-    ctx.status = 500;
-    ctx.body = { error: "unblind verification failed", reason: String(e) };
+  closeLog("Channel closed successfully: channel=%s total_value=%d", channelId.substring(0, 8), result.total_value);
+  ctx.status = 200;
+  ctx.body = result;
+});
+
+// Unilateral (server-initiated) channel close endpoint
+router.post("/channel/:channel_id/unilateral-close", async (ctx) => {
+  if (!config.channel?.enabled) {
+    ctx.status = 404;
+    ctx.body = { error: "Channel payments not enabled" };
     return;
   }
 
-  // Verify total matches expected
-  const actualTotal = unblindResult.receiver_sum_after_stage1 + unblindResult.sender_sum_after_stage1;
-  if (actualTotal !== expectedTotal) {
-    closeLog("Total mismatch: expected=%d actual=%d", expectedTotal, actualTotal);
-    ctx.status = 500;
+  const channelId = ctx.params.channel_id;
+
+  closeLog("Unilateral close request for channel=%s", channelId.substring(0, 8));
+
+  // Check if already closed (idempotent)
+  const closedData = channelClosed.get(channelId);
+  if (closedData !== null) {
+    closeLog("Channel already closed, returning cached result");
+    ctx.status = 200;
     ctx.body = {
-      error: "swap response total mismatch",
-      expected: expectedTotal,
-      actual: actualTotal,
+      success: true,
+      channel_id: channelId,
+      earnedBeforeStage2Fees: closedData.receiverSum,
+      already_closed: true,
     };
     return;
   }
 
-  closeLog("Channel closed successfully: channel=%s total_value=%d", channelId.substring(0, 8), actualTotal);
+  // Execute unilateral close via bridge (gets stored balance/sig, submits swap with retry, unblinds, marks closed)
+  let resultJson: string;
+  try {
+    resultJson = await bridge.executeUnilateralClose(channelId);
+  } catch (e) {
+    closeLog("Unilateral close bridge error: %s", String(e));
+    ctx.status = 500;
+    ctx.body = { error: "internal close error", reason: String(e) };
+    return;
+  }
+  const result = JSON.parse(resultJson);
 
-  // Stringify proofs for storage
-  const receiverProofsJson = JSON.stringify(unblindResult.receiver_proofs);
-  const senderProofsJson = JSON.stringify(unblindResult.sender_proofs);
+  if (!result.success) {
+    const status = result.status || 500;
+    closeLog("Unilateral close failed: %s (status=%d)", result.error, status);
+    ctx.status = status;
+    ctx.body = result;
+    return;
+  }
 
-  // Mark channel as closed via host hook (prevents reuse until locktime expires)
-  spilmanHooks.markChannelClosed(
-    channelId,
-    channelParams.locktime,
-    balance,
-    receiverProofsJson,
-    senderProofsJson,
-    unblindResult.receiver_sum_after_stage1,
-    unblindResult.sender_sum_after_stage1
-  );
-
-  // Success - return sender proofs so Alice can claim her change
+  closeLog("Unilateral close successful: channel=%s earned=%d", channelId.substring(0, 8), result.receiver_sum);
   ctx.status = 200;
   ctx.body = {
     success: true,
     channel_id: channelId,
-    total_value: actualTotal,
-    sender_proofs: unblindResult.sender_proofs,
+    earnedBeforeStage2Fees: result.receiver_sum,
     already_closed: false,
   };
 });
