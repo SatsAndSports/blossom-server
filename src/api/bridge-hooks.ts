@@ -11,6 +11,7 @@ import {
   mintsUnitsKeysets
 } from "./stores.js";
 import { getKeysetInfoJson } from "./fetch.js";
+import { refreshKeysetsForMint } from "./channel.js";
 
 let cachedServerPubkey: string | null = null;
 
@@ -186,5 +187,9 @@ export const spilmanHooks = {
       receiverProofsJson,
       senderProofsJson
     );
+  },
+
+  refreshActiveKeysets: async (mint: string): Promise<void> => {
+    await refreshKeysetsForMint(mint);
   },
 };

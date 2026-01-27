@@ -150,6 +150,31 @@ export async function initializeChannelKeysets(): Promise<void> {
   log("Keyset initialization complete");
 }
 
+// Refresh keysets for a specific mint (called when a swap fails, possibly due to stale keyset data)
+export async function refreshKeysetsForMint(mintUrl: string): Promise<void> {
+  const approvedMintsAndUnits = config.channel.approvedMintsAndUnits || {};
+  const units = approvedMintsAndUnits[mintUrl];
+
+  if (!units) {
+    log(`refreshKeysetsForMint: ${mintUrl} not in approved mints list`);
+    return;
+  }
+
+  log(`Refreshing keysets from ${mintUrl} for units: ${units.join(", ")}`);
+  const keysets = await fetchKeysetsFromMint(mintUrl, units);
+
+  if (Object.keys(keysets).length > 0) {
+    mintsUnitsKeysets[mintUrl] = keysets;
+    for (const [unit, keysetsForUnit] of Object.entries(keysets)) {
+      const ids = keysetsForUnit.map(k => k.id);
+      const keyCount = keysetsForUnit.reduce((sum, k) => sum + Object.keys(k.keys).length, 0);
+      log(`  ${unit}: ${ids.join(", ")} (${keyCount} keys total)`);
+    }
+  } else {
+    log(`  No keysets found during refresh`);
+  }
+}
+
 // Get keys for a specific keyset (for payment verification)
 export function getKeysetKeys(mintUrl: string, keysetId: string): Record<string, string> | null {
   const mintData = mintsUnitsKeysets[mintUrl];
