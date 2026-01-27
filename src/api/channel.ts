@@ -10,6 +10,7 @@ import {
 } from "./fetch.js";
 import {
   calculateAmountDue,
+  channelFunding,
   channelUsage,
   channelClosed,
   channelActivity,
@@ -327,6 +328,13 @@ router.post("/channel/:channel_id/unilateral-close", async (ctx) => {
   const channelId = ctx.params.channel_id;
 
   closeLog("Unilateral close request for channel=%s", channelId.substring(0, 8));
+
+  // Check if channel exists
+  if (!channelFunding.get(channelId)) {
+    ctx.status = 404;
+    ctx.body = { error: "unknown channel" };
+    return;
+  }
 
   // Check if already closed (idempotent)
   const closedData = channelClosed.get(channelId);
