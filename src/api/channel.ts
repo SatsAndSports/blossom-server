@@ -393,3 +393,54 @@ router.get("/channel/stats", async (ctx) => {
     window_seconds: windowSeconds,
   };
 });
+
+const registerLog = logger.extend("channel-register");
+
+// POST /channel/register - Pre-register a channel (balance=0, no usage recorded)
+router.post("/channel/register", koaBody(), async (ctx) => {
+  if (!config.channel?.enabled) {
+    ctx.status = 404;
+    ctx.body = { error: "Channel payments not enabled" };
+    return;
+  }
+
+  const { channel_id, balance, signature, params, funding_proofs } = ctx.request.body as any;
+
+  if (!channel_id || signature === undefined || !params || !funding_proofs) {
+    ctx.status = 400;
+    ctx.body = {
+      error: "Bad request",
+      reason: "missing required fields: channel_id, signature, params, funding_proofs",
+    };
+    return;
+  }
+
+  // balance must be 0 for registration
+  if (balance !== 0) {
+    ctx.status = 400;
+    ctx.body = {
+      error: "Bad request",
+      reason: `registration requires balance=0, got ${balance}`,
+    };
+    return;
+  }
+
+  registerLog("Register request for channel=%s", channel_id.substring(0, 8));
+
+  // Use fundChannel to validate and store the channel
+  const registerBody = { channel_id, balance: 0, signature, params, funding_proofs };
+  const resultJson = bridge.fundChannel(JSON.stringify(registerBody));
+  const result = JSON.parse(resultJson);
+
+  if (!result.success) {
+    const status = result.status || 400;
+    registerLog("Register REJECTED: %s", result.reason || result.error);
+    ctx.status = status;
+    ctx.body = result;
+    return;
+  }
+
+  registerLog("Register SUCCESS: channel=%s capacity=%d already_known=%s",
+    result.channel_id.substring(0, 8), result.capacity, result.already_known);
+  ctx.body = result;
+});

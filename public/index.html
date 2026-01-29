@@ -4768,6 +4768,45 @@
                 const newChannel = new FundedChannel(sender);
                 await newChannel.save();
 
+                // Register channel with server immediately (balance=0 signature)
+                try {
+                    console.log(`[Channel] Registering channel ${newChannel.channelId.substring(0, 8)}... with server`);
+                    invoiceLog('Registering channel with server...');
+
+                    // Create balance=0 signature for registration
+                    const balanceUpdate = sender.createSignedBalanceUpdate(0);
+
+                    const registerPayload = {
+                        channel_id: balanceUpdate.channel_id,
+                        balance: 0,
+                        signature: balanceUpdate.signature,
+                        params: newChannel.params,
+                        funding_proofs: sender.fundingProofs
+                    };
+
+                    const registerResponse = await fetch(`${server}/channel/register`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(registerPayload)
+                    });
+
+                    if (registerResponse.ok) {
+                        const registerResult = await registerResponse.json();
+                        confirmedChannels.add(newChannel.channelId);
+                        console.log(`[Channel] Registration successful: capacity=${registerResult.capacity}, already_known=${registerResult.already_known}`);
+                        invoiceLog('Channel registered with server', 'success');
+                    } else {
+                        const errorBody = await registerResponse.json().catch(() => ({}));
+                        console.warn(`[Channel] Registration failed (${registerResponse.status}): ${errorBody.reason || errorBody.error || 'unknown'}`);
+                        invoiceLog(`Registration warning: ${errorBody.reason || 'will register on first payment'}`, 'warn');
+                        // Continue anyway - channel will register on first payment
+                    }
+                } catch (e) {
+                    console.warn(`[Channel] Registration error: ${e}`);
+                    invoiceLog('Registration skipped: will register on first payment', 'warn');
+                    // Continue anyway - channel will register on first payment
+                }
+
                 // If no channel selected, select this one; otherwise add to alternatives
                 const wasSelected = await selectNewChannelOrAddAsAlternative(newChannel, server, unit);
                 if (wasSelected) {
