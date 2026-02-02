@@ -293,28 +293,60 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   }
 
   // Execute cooperative close via bridge (validates, submits swap, unblinds, marks closed)
-  let resultJson: string;
+  // Returns CloseSuccess on success, throws CloseError on failure
+  let result: { channel_id: string; total_value: number; receiver_sum: number; sender_sum: number; sender_proofs: string; already_closed: boolean };
   try {
-    resultJson = await bridge.executeCooperativeClose(JSON.stringify(body));
-  } catch (e) {
-    closeLog("Close bridge error: %s", String(e));
-    ctx.status = 500;
-    ctx.body = { error: "internal close error", reason: String(e) };
-    return;
-  }
-  const result = JSON.parse(resultJson);
-
-  if (!result.success) {
-    const status = result.status || 402;
-    closeLog("Close failed: %s (status=%d)", result.error, status);
+    result = await bridge.executeCooperativeClose(JSON.stringify(body)) as any;
+  } catch (e: any) {
+    // CloseError is thrown as a JS object (not a string), so access its properties directly
+    let closeError: any;
+    if (typeof e === 'object' && e !== null && 'type' in e) {
+      closeError = e;
+    } else {
+      const errorMsg = (e as Error).message || String(e);
+      try {
+        closeError = JSON.parse(errorMsg);
+      } catch {
+        closeError = { type: "InternalError", reason: errorMsg, status: 500 };
+      }
+    }
+    const status = closeError.status || 402;
+    const reason = closeError.reason || closeError.mint_error || String(closeError);
+    closeLog("Close failed: %s (status=%d)", reason, status);
     ctx.status = status;
-    ctx.body = result;
+    // Map to expected response format for compatibility with tests
+    const responseBody: any = { 
+      success: false, 
+      error: status === 402 ? "Payment required" : reason,
+      reason: reason,
+    };
+    // Map expected_balance/actual_balance to expected/actual for tests
+    if (closeError.expected_balance !== undefined) {
+      responseBody.expected = closeError.expected_balance;
+    }
+    if (closeError.actual_balance !== undefined) {
+      responseBody.actual = closeError.actual_balance;
+    }
+    ctx.body = responseBody;
     return;
   }
+
+  // Parse sender_proofs from JSON string to array
+  const senderProofs = typeof result.sender_proofs === 'string' 
+    ? JSON.parse(result.sender_proofs) 
+    : result.sender_proofs;
 
   closeLog("Channel closed successfully: channel=%s total_value=%d", channelId.substring(0, 8), result.total_value);
   ctx.status = 200;
-  ctx.body = result;
+  ctx.body = {
+    success: true,
+    channel_id: result.channel_id,
+    total_value: result.total_value,
+    receiver_sum: result.receiver_sum,
+    sender_sum: result.sender_sum,
+    sender_proofs: senderProofs,
+    already_closed: result.already_closed,
+  };
 });
 
 // Unilateral (server-initiated) channel close endpoint
@@ -351,22 +383,28 @@ router.post("/channel/:channel_id/unilateral-close", async (ctx) => {
   }
 
   // Execute unilateral close via bridge (gets stored balance/sig, submits swap with retry, unblinds, marks closed)
-  let resultJson: string;
+  // Returns CloseSuccess on success, throws CloseError on failure
+  let result: { channel_id: string; total_value: number; receiver_sum: number; sender_sum: number; sender_proofs: string; already_closed: boolean };
   try {
-    resultJson = await bridge.executeUnilateralClose(channelId);
-  } catch (e) {
-    closeLog("Unilateral close bridge error: %s", String(e));
-    ctx.status = 500;
-    ctx.body = { error: "internal close error", reason: String(e) };
-    return;
-  }
-  const result = JSON.parse(resultJson);
-
-  if (!result.success) {
-    const status = result.status || 500;
-    closeLog("Unilateral close failed: %s (status=%d)", result.error, status);
+    result = await bridge.executeUnilateralClose(channelId) as any;
+  } catch (e: any) {
+    // CloseError is thrown as a JS object (not a string), so access its properties directly
+    let closeError: any;
+    if (typeof e === 'object' && e !== null && 'type' in e) {
+      closeError = e;
+    } else {
+      const errorMsg = (e as Error).message || String(e);
+      try {
+        closeError = JSON.parse(errorMsg);
+      } catch {
+        closeError = { type: "InternalError", reason: errorMsg, status: 500 };
+      }
+    }
+    const status = closeError.status || 500;
+    const reason = closeError.reason || closeError.mint_error || String(closeError);
+    closeLog("Unilateral close failed: %s (status=%d)", reason, status);
     ctx.status = status;
-    ctx.body = result;
+    ctx.body = { success: false, error: reason, ...closeError };
     return;
   }
 
