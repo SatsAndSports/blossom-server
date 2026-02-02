@@ -152,32 +152,104 @@ router.get("/:hash", range, async (ctx, next) => {
       }
 
       try {
-        const bridgeResultJson = bridge.processPayment(
+        // processPayment now returns PaymentSuccess directly and throws on error
+        const result = bridge.processPayment(
           paymentJson,
           JSON.stringify({ type: "blob", size: storageResult.size })
         );
-        const result = JSON.parse(bridgeResultJson);
 
-        if (!result.success) {
-          ctx.status = result.status === "PaymentRequired" ? 402 : (result.status === "BadRequest" ? 400 : 500);
-          if (result.header) {
-            // Add size to header for client-side tracking
-            result.header.size = storageResult.size;
-            ctx.set("X-Cashu-Channel", JSON.stringify(result.header));
-          }
-          ctx.body = result.body;
-          paymentLog("%s %s", ctx.status, JSON.stringify(result.header));
-          return;
-        }
-
-        // Success - update confirmation header with size
-        if (result.header) {
-          result.header.size = storageResult.size;
-          ctx.set("X-Cashu-Channel", JSON.stringify(result.header));
-        }
+        // Success - result IS the payment data: { channel_id, balance, amount_due, capacity }
+        const header = {
+          channel_id: result.channel_id,
+          balance: result.balance,
+          amount_due: result.amount_due,
+          capacity: result.capacity,
+          size: storageResult.size,
+        };
+        ctx.set("X-Cashu-Channel", JSON.stringify(header));
       } catch (e) {
-        ctx.status = 400;
-        ctx.body = { error: "Invalid payment header", reason: (e as Error).message };
+        // Error is thrown - determine status from error message
+        const errorMsg = (e as Error).message || String(e);
+        const lowerMsg = errorMsg.toLowerCase();
+
+        // Determine HTTP status from error type
+        // Most payment/validation errors are 402 (Payment Required)
+        // Only structural/format errors are 400 (Bad Request)
+        let status = 402; // Default to Payment Required
+        if (lowerMsg.includes("invalid base64") ||
+            lowerMsg.includes("invalid utf8") ||
+            lowerMsg.includes("invalid json") ||
+            lowerMsg.includes("missing channel_id") ||
+            lowerMsg.includes("missing signature") ||
+            lowerMsg.includes("missing balance") ||
+            // Serde deserialization errors for missing fields: "missing field `channel_id`"
+            lowerMsg.includes("missing field") ||
+            // Serde deserialization errors for wrong types
+            lowerMsg.includes("invalid type") ||
+            (lowerMsg.includes("expected") && (lowerMsg.includes("string") || lowerMsg.includes("integer") || lowerMsg.includes("u64")))) {
+          status = 400; // Bad Request for malformed request
+        } else if (lowerMsg.includes("internal") || lowerMsg.includes("misconfigured")) {
+          status = 500; // Server Error
+        }
+
+        // Parse extra fields from error message for client use
+        const headerData: Record<string, any> = { error: errorMsg, size: storageResult.size };
+
+        // Extract balance/capacity from "balance exceeds capacity: X > Y"
+        const balanceCapacityMatch = errorMsg.match(/balance exceeds capacity: (\d+) > (\d+)/);
+        if (balanceCapacityMatch) {
+          headerData.balance = parseInt(balanceCapacityMatch[1]);
+          headerData.capacity = parseInt(balanceCapacityMatch[2]);
+        }
+
+        // Extract balance/amount_due from "insufficient balance: X < Y"
+        const insufficientMatch = errorMsg.match(/insufficient balance: (\d+) < (\d+)/);
+        if (insufficientMatch) {
+          headerData.balance = parseInt(insufficientMatch[1]);
+          headerData.amount_due = parseInt(insufficientMatch[2]);
+        }
+
+        // Extract capacity/min_capacity from "capacity too small: X < Y"
+        const capacityMatch = errorMsg.match(/capacity too small: (\d+) < (\d+)/);
+        if (capacityMatch) {
+          headerData.capacity = parseInt(capacityMatch[1]);
+          headerData.min_capacity = parseInt(capacityMatch[2]);
+        }
+
+        // Extract locktime info from "locktime too soon: X < Y (Zs remaining)"
+        const locktimeMatch = errorMsg.match(/locktime too soon: (\d+) < (\d+) \((\d+)s remaining\)/);
+        if (locktimeMatch) {
+          const locktime = parseInt(locktimeMatch[1]);
+          const minLocktime = parseInt(locktimeMatch[2]);
+          const secondsRemaining = parseInt(locktimeMatch[3]);
+          headerData.locktime = locktime;
+          headerData.min_locktime = minLocktime;
+          // min_expiry_in_seconds = min_locktime - now, where now = locktime - seconds_remaining
+          headerData.min_expiry_in_seconds = minLocktime - locktime + secondsRemaining;
+          headerData.seconds_remaining = secondsRemaining;
+        }
+
+        // Extract max_amount info from "max_amount_per_output exceeded: X > Y"
+        const maxAmountMatch = errorMsg.match(/max_amount_per_output exceeded: (\d+) > (\d+)/);
+        if (maxAmountMatch) {
+          headerData.maximum_amount = parseInt(maxAmountMatch[1]);
+          headerData.max_allowed = parseInt(maxAmountMatch[2]);
+        }
+
+        // Extract validation_errors from "channel validation failed: [...]"
+        const validationMatch = errorMsg.match(/channel validation failed: (\[.*\])/);
+        if (validationMatch) {
+          try {
+            headerData.validation_errors = JSON.parse(validationMatch[1]);
+          } catch {
+            // Ignore parse errors
+          }
+        }
+
+        ctx.status = status;
+        ctx.set("X-Cashu-Channel", JSON.stringify(headerData));
+        ctx.body = { error: "Payment failed", reason: errorMsg };
+        paymentLog("%s %s", status, errorMsg);
         return;
       }
     }

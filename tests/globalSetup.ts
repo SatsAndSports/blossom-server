@@ -18,8 +18,8 @@ ERROR: Mint not available at ${MINT_URL}
 The blossom-server tests require a Cashu mint.
 
 Recommended: Use the Makefile targets that start an ephemeral mint:
-  make test-blossom-cdk      # Uses CDK mint
-  make test-blossom-nutmix   # Uses NutMix mint
+  make test-blossom-cdkmintd      # Uses CDK mint
+  make test-blossom-nutmix        # Uses NutMix mint
 
 Or set MINT_URL to an existing mint:
   MINT_URL=http://localhost:3338 npm test

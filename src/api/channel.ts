@@ -429,18 +429,43 @@ router.post("/channel/register", koaBody(), async (ctx) => {
 
   // Use fundChannel to validate and store the channel
   const registerBody = { channel_id, balance: 0, signature, params, funding_proofs };
-  const resultJson = bridge.fundChannel(JSON.stringify(registerBody));
-  const result = JSON.parse(resultJson);
 
-  if (!result.success) {
-    const status = result.status || 400;
-    registerLog("Register REJECTED: %s", result.reason || result.error);
+  try {
+    // fundChannel now returns FundChannelResult directly and throws on error
+    const result = bridge.fundChannel(JSON.stringify(registerBody));
+
+    registerLog("Register SUCCESS: channel=%s capacity=%d already_known=%s",
+      result.channel_id.substring(0, 8), result.capacity, result.already_known);
+    ctx.body = {
+      success: true,
+      channel_id: result.channel_id,
+      capacity: result.capacity,
+      already_known: result.already_known,
+    };
+  } catch (e) {
+    const errorMsg = (e as Error).message || String(e);
+    const lowerMsg = errorMsg.toLowerCase();
+
+    // Determine HTTP status from error type
+    // Most payment/validation errors are 402 (Payment Required)
+    // Only structural/format errors are 400 (Bad Request)
+    let status = 402;
+    if (lowerMsg.includes("unknown channel")) {
+      status = 404;
+    } else if (lowerMsg.includes("invalid base64") ||
+               lowerMsg.includes("invalid utf8") ||
+               lowerMsg.includes("invalid json") ||
+               lowerMsg.includes("missing channel_id") ||
+               lowerMsg.includes("missing signature") ||
+               lowerMsg.includes("missing params") ||
+               lowerMsg.includes("missing funding_proofs")) {
+      status = 400; // Bad Request for malformed request
+    } else if (lowerMsg.includes("internal") || lowerMsg.includes("misconfigured")) {
+      status = 500;
+    }
+
+    registerLog("Register REJECTED: %s", errorMsg);
     ctx.status = status;
-    ctx.body = result;
-    return;
+    ctx.body = { success: false, error: errorMsg, reason: errorMsg };
   }
-
-  registerLog("Register SUCCESS: channel=%s capacity=%d already_known=%s",
-    result.channel_id.substring(0, 8), result.capacity, result.already_known);
-  ctx.body = result;
 });
