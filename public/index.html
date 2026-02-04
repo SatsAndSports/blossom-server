@@ -2658,13 +2658,67 @@
             }
         }
 
-        // Handle payment response - parse header, log, correct bytes, and manage confirmed set
-        // channelId: the channel ID for bytes correction and confirmation tracking
+        // Register a channel with the server
+        // Called during channel creation (with invoiceLog for UI feedback) and on 402 responses
+        // Returns true on success, false on failure
+        async function registerChannel(channelId, invoiceLog = null) {
+            try {
+                const record = await getChannel(channelId);
+                if (!record) {
+                    console.log(`[Register] Channel ${channelId.substring(0,8)}... not found in IndexedDB`);
+                    return false;
+                }
+                
+                const sender = SpilmanChannelSender.fromJSON(JSON.parse(record.sender_json));
+                const serverUrl = record.server_url;
+                
+                // Create a balance=0 signature for registration
+                const balanceUpdate = sender.createSignedBalanceUpdate(0);
+                
+                const payload = {
+                    channel_id: channelId,
+                    balance: 0,
+                    signature: balanceUpdate.signature,
+                    params: sender.getParams(),
+                    funding_proofs: sender.fundingProofs
+                };
+                
+                console.log(`[Register] Registering channel ${channelId.substring(0,8)}... with ${serverUrl}`);
+                if (invoiceLog) invoiceLog('Registering channel with server...');
+                
+                const response = await fetch(`${serverUrl}/channel/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log(`[Register] Success: capacity=${result.capacity}, already_known=${result.already_known}`);
+                    log(`Channel ${channelId.substring(0,8)}... registered`, 'payment');
+                    if (invoiceLog) invoiceLog('Channel registered with server', 'success');
+                    return true;
+                } else {
+                    const errorBody = await response.json().catch(() => ({}));
+                    console.log(`[Register] Failed (${response.status}): ${errorBody.reason || errorBody.error || 'unknown'}`);
+                    log(`Channel registration failed: ${response.status}`, 'error');
+                    if (invoiceLog) invoiceLog(`Registration warning: ${errorBody.reason || 'will re-register on 402'}`, 'warn');
+                    return false;
+                }
+            } catch (e) {
+                console.error('[Register] Error:', e);
+                log(`Channel registration error: ${e.message}`, 'error');
+                if (invoiceLog) invoiceLog('Registration skipped: will re-register on 402', 'warn');
+                return false;
+            }
+        }
+
+        // Handle payment response - parse header, log, correct bytes
+        // channelId: the channel ID for bytes correction
         // status: HTTP status code
         // getHeader: function that takes header name and returns value (works with both fetch Response and XHR)
         // 
-        // On 2xx + X-Cashu-Channel header present: add channel to confirmedChannels
-        // On non-2xx (including 402): remove channel from confirmedChannels (will resend full params)
+        // On 4xx responses: calls registerChannel() to re-register with server (fire-and-forget)
         function handlePaymentResponse(channelId, status, getHeader) {
             // Log nginx cache status
             const cacheStatus = getHeader('X-Cache-Status');
@@ -2674,23 +2728,21 @@
 
             const channelHeader = getHeader('X-Cashu-Channel');
             
-            // Non-2xx responses: remove from confirmed set so we resend full params
-            if (status < 200 || status >= 300) {
-                if (confirmedChannels.has(channelId)) {
-                    confirmedChannels.delete(channelId);
-                    log(`Channel ${channelId.substring(0,8)}... unconfirmed (status ${status}), will resend params`, 'payment');
-                }
+            // 4xx responses: re-register channel with server (fire-and-forget)
+            // HLS.js will retry the segment; by then registration should be complete
+            if (status >= 400 && status < 500) {
+                log(`Got ${status}, re-registering channel ${channelId.substring(0,8)}...`, 'payment');
+                registerChannel(channelId); // async, don't await
                 return null;
             }
             
-            // 2xx response: check for confirmation header
+            // Other non-2xx responses
+            if (status < 200 || status >= 300) {
+                return null;
+            }
+            
+            // 2xx response: parse confirmation header if present
             if (channelHeader) {
-                // Server confirmed it knows our channel
-                if (!confirmedChannels.has(channelId)) {
-                    confirmedChannels.add(channelId);
-                    log(`Channel ${channelId.substring(0,8)}... confirmed by server`, 'payment');
-                }
-                
                 try {
                     const data = JSON.parse(channelHeader);
                     log(`Server: balance=${data.balance} amount_due=${data.amount_due} capacity=${data.capacity} size=${data.size}`, 'payment');
@@ -2785,10 +2837,6 @@
         // FundedChannel - combines SpilmanChannelSender with current balance
         // ============================================
 
-        // Track which channels have been confirmed by server (got 2xx + X-Cashu-Channel header)
-        // Channels not in this set will send full params + funding_proofs
-        const confirmedChannels = new Set();
-
         class FundedChannel {
             constructor(sender) {
                 this.sender = sender;       // SpilmanChannelSender
@@ -2829,6 +2877,7 @@
 
             // Create payment header for a segment (sync for HLS.js xhrSetup)
             // Throws ChannelExhaustedError if balance exceeds capacity
+            // Note: Never includes params/funding_proofs - channel must be registered via /channel/register
             createPayment() {
                 const balance = this.balance;
                 const capacity = this.params.capacity;
@@ -2841,13 +2890,6 @@
                     balance: balanceUpdate.amount,
                     signature: balanceUpdate.signature
                 };
-                // Only include params and funding proofs if not yet confirmed by server
-                if (!confirmedChannels.has(this.channelId)) {
-                    payload.params = this.params;
-                    payload.funding_proofs = this.sender.fundingProofs;
-                    console.log(`[Payment] Including channel params and funding proofs for ${this.channelId.substring(0,8)}...`);
-                    log(`Including channel params and funding proofs (not yet confirmed)`, 'payment');
-                }
                 return encodePaymentHeader(payload);
             }
 
@@ -3435,7 +3477,7 @@
 
                             // Handle response: success, 402, or other errors
                             xhr.addEventListener('load', function() {
-                                // Use centralized handler for all responses (manages confirmedChannels set)
+                                // Use centralized handler for all responses (re-registers on 4xx)
                                 handlePaymentResponse(channelId, xhr.status, (name) => xhr.getResponseHeader(name));
                                 
                                 if (xhr.status >= 200 && xhr.status < 300) {
@@ -4768,44 +4810,8 @@
                 const newChannel = new FundedChannel(sender);
                 await newChannel.save();
 
-                // Register channel with server immediately (balance=0 signature)
-                try {
-                    console.log(`[Channel] Registering channel ${newChannel.channelId.substring(0, 8)}... with server`);
-                    invoiceLog('Registering channel with server...');
-
-                    // Create balance=0 signature for registration
-                    const balanceUpdate = sender.createSignedBalanceUpdate(0);
-
-                    const registerPayload = {
-                        channel_id: balanceUpdate.channel_id,
-                        balance: 0,
-                        signature: balanceUpdate.signature,
-                        params: newChannel.params,
-                        funding_proofs: sender.fundingProofs
-                    };
-
-                    const registerResponse = await fetch(`${server}/channel/register`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(registerPayload)
-                    });
-
-                    if (registerResponse.ok) {
-                        const registerResult = await registerResponse.json();
-                        confirmedChannels.add(newChannel.channelId);
-                        console.log(`[Channel] Registration successful: capacity=${registerResult.capacity}, already_known=${registerResult.already_known}`);
-                        invoiceLog('Channel registered with server', 'success');
-                    } else {
-                        const errorBody = await registerResponse.json().catch(() => ({}));
-                        console.warn(`[Channel] Registration failed (${registerResponse.status}): ${errorBody.reason || errorBody.error || 'unknown'}`);
-                        invoiceLog(`Registration warning: ${errorBody.reason || 'will register on first payment'}`, 'warn');
-                        // Continue anyway - channel will register on first payment
-                    }
-                } catch (e) {
-                    console.warn(`[Channel] Registration error: ${e}`);
-                    invoiceLog('Registration skipped: will register on first payment', 'warn');
-                    // Continue anyway - channel will register on first payment
-                }
+                // Register channel with server immediately
+                await registerChannel(newChannel.channelId, invoiceLog);
 
                 // If no channel selected, select this one; otherwise add to alternatives
                 const wasSelected = await selectNewChannelOrAddAsAlternative(newChannel, server, unit);
