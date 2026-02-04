@@ -44,6 +44,13 @@ export interface ClosedChannelData {
   senderProofsJson: string;    // Alice's proofs (her change)
 }
 
+// Pre-swap state for channels in CLOSING state
+export interface ClosingChannelData {
+  locktime: number;
+  balance: number;
+  signature: string;
+}
+
 // ============================================================================
 // Channel Funding Store
 // ============================================================================
@@ -153,6 +160,36 @@ export interface ChannelStatus {
   closed_amount?: number;
 }
 
+// ============================================================================
+// Channel Closing Store (pre-swap state for CLOSING channels)
+// ============================================================================
+
+const channelClosingStore = new Map<string, ClosingChannelData>();
+
+export const channelClosing = {
+  get(channelId: string): ClosingChannelData | null {
+    return channelClosingStore.get(channelId) ?? null;
+  },
+
+  markClosing(channelId: string, locktime: number, balance: number, signature: string): void {
+    channelClosingStore.set(channelId, { locktime, balance, signature });
+    paymentLog("channelClosing: channel=%s marked CLOSING balance=%d",
+      channelId.substring(0, 8), balance);
+  },
+
+  isClosing(channelId: string): boolean {
+    return channelClosingStore.has(channelId);
+  },
+
+  remove(channelId: string): void {
+    channelClosingStore.delete(channelId);
+  },
+};
+
+// ============================================================================
+// Channel Closed Store (finalized channels)
+// ============================================================================
+
 const channelClosedStore = new Map<string, ClosedChannelData>();
 
 export const channelClosed = {
@@ -179,6 +216,8 @@ export const channelClosed = {
       receiverProofsJson,
       senderProofsJson,
     });
+    // Remove from closing store if present
+    channelClosingStore.delete(channelId);
     paymentLog("channelClosed: channel=%s locktime=%d closedAmount=%d valueAfterStage1=%d receiverProofs=%d senderProofs=%d",
       channelId.substring(0, 8), locktime, closedAmount, valueAfterStage1,
       JSON.parse(receiverProofsJson).length, JSON.parse(senderProofsJson).length);

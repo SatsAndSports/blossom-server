@@ -6,6 +6,7 @@ import {
   channelBalance, 
   channelUsage, 
   channelActivity, 
+  channelClosing,
   channelClosed, 
   calculateAmountDue, 
   mintsUnitsKeysets
@@ -59,7 +60,9 @@ export const spilmanHooks = {
     paramsJson: string,
     fundingProofsJson: string,
     sharedSecret: string,
-    keysetInfoJson: string
+    keysetInfoJson: string,
+    initialBalance: number,
+    initialSignature: string
   ) => {
     channelFunding.insert(channelId, {
       paramsJson,
@@ -68,6 +71,9 @@ export const spilmanHooks = {
       secretKey: config.channel.secretKey!,
       keysetInfoJson,
     });
+    // Store the initial balance/signature for closing
+    // Note: WASM passes u64 as BigInt, convert to number for JSON serialization
+    channelBalance.update(channelId, Number(initialBalance), initialSignature);
   },
 
   getAmountDue: (channelId: string, contextJson: string | null) => {
@@ -113,8 +119,36 @@ export const spilmanHooks = {
     channelActivity.recordPayment(channelId);
   },
 
-  isClosed: (channelId: string) => {
-    return channelClosed.isClosed(channelId);
+  // Returns: "open" | "closing" | "closed"
+  getChannelState: (channelId: string): string => {
+    if (channelClosed.isClosed(channelId)) return "closed";
+    if (channelClosing.isClosing(channelId)) return "closing";
+    return "open";
+  },
+
+  // Throws on error, returns nothing on success
+  markChannelClosing: (
+    channelId: string,
+    locktime: number,
+    balance: number,
+    signature: string
+  ): void => {
+    // Check if already closed - reject with error
+    if (channelClosed.isClosed(channelId)) {
+      throw new Error("channel already closed");
+    }
+    // Open or Closing channels can be marked as closing
+    channelClosing.markClosing(channelId, Number(locktime), Number(balance), signature);
+  },
+
+  getClosingData: (channelId: string) => {
+    const data = channelClosing.get(channelId);
+    if (!data) return null;
+    return {
+      locktime: data.locktime,
+      balance: data.balance,
+      signature: data.signature,
+    };
   },
 
   getChannelPolicy: () => {
@@ -172,6 +206,7 @@ export const spilmanHooks = {
     return await response.text();
   },
 
+  // Throws on error, returns nothing on success
   markChannelClosed: (
     channelId: string,
     locktime: number,
@@ -181,6 +216,10 @@ export const spilmanHooks = {
     receiverSum: number,
     senderSum: number
   ): void => {
+    // Check if channel is already closed (shouldn't happen, but be defensive)
+    if (channelClosed.isClosed(channelId)) {
+      throw new Error("channel already closed");
+    }
     const locktimeNum = Number(locktime);
     const balanceNum = Number(balance);
     const receiverSumNum = Number(receiverSum);
