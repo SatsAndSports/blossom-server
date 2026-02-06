@@ -1745,7 +1745,7 @@
 
     <script type="module">
         import * as secp from 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm';
-        import initWasm, { channel_parameters_get_channel_id, compute_shared_secret, create_funding_outputs, spilman_channel_sender_create_signed_balance_update } from '/wasm/cdk_wasm.js';
+        import initWasm, { channel_parameters_get_channel_id, compute_shared_secret, compute_funding_token_amount, create_funding_outputs, spilman_channel_sender_create_signed_balance_update } from '/wasm/cdk_wasm.js';
         import { Mint, Wallet, OutputData, hasValidDleq } from 'https://cdn.jsdelivr.net/npm/@cashu/cashu-ts@3.1.1/+esm';
 
         // Helper: bytes to hex
@@ -4760,10 +4760,17 @@
                 // Get maxAmountPerOutput from server pricing (0 = no limit)
                 const maxAmountPerOutput = serverParams?.pricing?.[unit]?.maxAmountPerOutput ?? 0;
                 invoiceLog(`Max amount per output: ${maxAmountPerOutput === 0 ? 'no limit' : maxAmountPerOutput}`);
+                // Compute the minimum funding_token_amount for the desired capacity
+                const fundingTokenAmount = Number(compute_funding_token_amount(
+                    BigInt(capacity),
+                    JSON.stringify(ksInfo),
+                    BigInt(maxAmountPerOutput),
+                ));
                 const paramsJson = JSON.stringify({
                     mint: selectedMint,
                     unit: unit,
                     capacity: capacity,
+                    funding_token_amount: fundingTokenAmount,
                     keyset_id: keysetId,
                     input_fee_ppk: ksInfo.inputFeePpk,
                     maximum_amount: maxAmountPerOutput,

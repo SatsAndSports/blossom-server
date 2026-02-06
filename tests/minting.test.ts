@@ -5,6 +5,7 @@ import * as secp from '@noble/secp256k1';
 // Import WASM functions
 import {
   compute_shared_secret,
+  compute_funding_token_amount,
   channel_parameters_get_channel_id,
   create_funding_outputs,
   construct_proofs,
@@ -76,11 +77,15 @@ describe.concurrent('Minting flow', () => {
     const locktime = setupTimestamp + 7 * 24 * 60 * 60; // 1 week
     const senderNonce = randomBytes(32).toString('hex');
     const capacity = 100; // 100 sats
+    const fundingTokenAmount = Number(compute_funding_token_amount(
+      BigInt(capacity), JSON.stringify(keysetInfo), BigInt(64),
+    ));
 
     const channelParamsJson = JSON.stringify({
       mint: mintUrl,
       unit: unit,
       capacity: capacity,
+      funding_token_amount: fundingTokenAmount,
       keyset_id: keysetId,
       input_fee_ppk: keysetInfo.inputFeePpk,
       maximum_amount: 64,
@@ -237,11 +242,15 @@ describe.concurrent('Channel verification', () => {
     const locktime = setupTimestamp + 7 * 24 * 60 * 60; // 1 week
     const senderNonce = randomBytes(32).toString('hex');
     const capacity = 100; // 100 sats
+    const fundingTokenAmount = Number(compute_funding_token_amount(
+      BigInt(capacity), JSON.stringify(keysetInfo), BigInt(64),
+    ));
 
     const channelParamsJson = JSON.stringify({
       mint: mintUrl,
       unit: unit,
       capacity: capacity,
+      funding_token_amount: fundingTokenAmount,
       keyset_id: keysetId,
       input_fee_ppk: keysetInfo.inputFeePpk,
       maximum_amount: 64,
@@ -429,11 +438,15 @@ describe.concurrent('Channel verification', () => {
     const locktime = setupTimestamp + 7 * 24 * 60 * 60; // 1 week
     const senderNonce = randomBytes(32).toString('hex');
     const capacity = 100; // 100 sats
+    const fundingTokenAmount = Number(compute_funding_token_amount(
+      BigInt(capacity), JSON.stringify(keysetInfo), BigInt(64),
+    ));
 
     const channelParamsJson = JSON.stringify({
       mint: mintUrl,
       unit: unit,
       capacity: capacity,
+      funding_token_amount: fundingTokenAmount,
       keyset_id: keysetId,
       input_fee_ppk: keysetInfo.inputFeePpk,
       maximum_amount: 64,
@@ -613,11 +626,15 @@ describe.concurrent('Channel verification', () => {
     const locktime = setupTimestamp + 7 * 24 * 60 * 60;
     const senderNonce = randomBytes(32).toString('hex');
     const capacity = 100;
+    const fundingTokenAmount = Number(compute_funding_token_amount(
+      BigInt(capacity), JSON.stringify(keysetInfo), BigInt(64),
+    ));
 
     const channelParamsJson = JSON.stringify({
       mint: mintUrl,
       unit: unit,
       capacity: capacity,
+      funding_token_amount: fundingTokenAmount,
       keyset_id: keysetId,
       input_fee_ppk: keysetInfo.inputFeePpk,
       maximum_amount: 64,

@@ -5,6 +5,7 @@ import * as secp from '@noble/secp256k1';
 // Import WASM functions
 import {
   compute_shared_secret,
+  compute_funding_token_amount,
   channel_parameters_get_channel_id,
   create_funding_outputs,
   construct_proofs,
@@ -95,10 +96,14 @@ async function mintFundedChannel(server: Server, unit: string) {
   const senderNonce = randomBytes(32).toString('hex');
   const capacity = 100;
 
+  const fundingTokenAmount = Number(compute_funding_token_amount(
+    BigInt(capacity), JSON.stringify(keysetInfo), BigInt(64),
+  ));
   const channelParams = {
     mint: mintUrl,
     unit: unit,
     capacity: capacity,
+    funding_token_amount: fundingTokenAmount,
     keyset_id: keysetId,
     input_fee_ppk: keysetInfo.inputFeePpk,
     maximum_amount: 64,

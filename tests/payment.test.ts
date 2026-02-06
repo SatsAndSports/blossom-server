@@ -5,6 +5,7 @@ import * as secp from '@noble/secp256k1';
 // Import WASM functions
 import {
   compute_shared_secret,
+  compute_funding_token_amount,
   channel_parameters_get_channel_id,
   create_funding_outputs,
   construct_proofs,
@@ -105,10 +106,14 @@ async function mintFundedChannel(server: Server, unit: string, maximumAmount: nu
   const senderNonce = randomBytes(32).toString('hex');
   const capacity = 100;
 
+  const fundingTokenAmount = Number(compute_funding_token_amount(
+    BigInt(capacity), JSON.stringify(keysetInfo), BigInt(maximumAmount),
+  ));
   const channelParams = {
     mint: mintUrl,
     unit: unit,
     capacity: capacity,
+    funding_token_amount: fundingTokenAmount,
     keyset_id: keysetId,
     input_fee_ppk: keysetInfo.inputFeePpk,
     maximum_amount: maximumAmount,
@@ -862,10 +867,14 @@ describe.concurrent('Channel validation errors', () => {
     const locktime = setupTimestamp + 7 * 24 * 60 * 60;
     const senderNonce = randomBytes(32).toString('hex');
 
+    const fundingTokenAmount = Number(compute_funding_token_amount(
+      BigInt(tooSmallCapacity), JSON.stringify(keysetInfo), BigInt(64),
+    ));
     const channelParams = {
       mint: mintUrl,
       unit: 'sat',
       capacity: tooSmallCapacity,  // Below min_capacity!
+      funding_token_amount: fundingTokenAmount,
       keyset_id: keysetId,
       input_fee_ppk: keysetInfo.inputFeePpk,
       maximum_amount: 64,
@@ -995,10 +1004,14 @@ describe.concurrent('Channel validation errors', () => {
     const setupTimestamp = Math.floor(Date.now() / 1000);
     const senderNonce = randomBytes(32).toString('hex');
 
+    const fundingTokenAmount = Number(compute_funding_token_amount(
+      BigInt(100), JSON.stringify(keysetInfo), BigInt(64),
+    ));
     const channelParams = {
       mint: mintUrl,
       unit: 'sat',
       capacity: 100,
+      funding_token_amount: fundingTokenAmount,
       keyset_id: keysetId,
       input_fee_ppk: keysetInfo.inputFeePpk,
       maximum_amount: 64,
