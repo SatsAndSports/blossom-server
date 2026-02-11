@@ -1,3 +1,4 @@
+import * as self from "./channel.js";
 import * as secp from "@noble/secp256k1";
 import { koaBody } from "koa-body";
 import { config } from "../config.js";
@@ -27,6 +28,14 @@ interface MintKeyset {
   unit: string;
   active: boolean;
   input_fee_ppk?: number;
+}
+
+interface MintKeysetWithKeys {
+  id: string;
+  unit: string;
+  active: boolean;
+  input_fee_ppk: number;
+  keys: Record<string, string>;
 }
 
 // Derive compressed public key (33 bytes) from secret key
@@ -67,8 +76,8 @@ async function fetchKeysForKeyset(mintUrl: string, keysetId: string): Promise<Re
   }
 }
 
-// Fetch keysets from a mint for specific units (including full keys)
-async function fetchKeysetsFromMint(mintUrl: string, units: string[]): Promise<Record<string, KeysetWithKeys[]>> {
+// Fetch all keysets from a mint (including full keys)
+export let fetchAllKeysetsFromMint = async (mintUrl: string): Promise<MintKeysetWithKeys[]> => {
   const url = `${mintUrl}/v1/keysets`;
   log(`GET ${url}`);
 
@@ -76,48 +85,53 @@ async function fetchKeysetsFromMint(mintUrl: string, units: string[]): Promise<R
     const response = await fetch(url);
     if (!response.ok) {
       log(`Failed: ${response.status}`);
-      return {};
+      return [];
     }
 
-    const data = await response.json() as { keysets: MintKeyset[] };
+    const data = (await response.json()) as { keysets: MintKeyset[] };
     log(`Mint returned ${data.keysets?.length ?? 0} keysets`);
 
     for (const k of data.keysets || []) {
       log(`  keyset: id=${k.id} unit=${k.unit} active=${k.active}`);
     }
 
-    const result: Record<string, KeysetWithKeys[]> = {};
-
-    for (const unit of units) {
-      const keysetInfos = data.keysets.filter(k => k.unit === unit);
-      log(`Filtering for unit="${unit}": found ${keysetInfos.length} keysets`);
-
-      if (keysetInfos.length > 0) {
-        const unitKeysets: KeysetWithKeys[] = [];
-
-        for (const keysetInfo of keysetInfos) {
-          const keys = await fetchKeysForKeyset(mintUrl, keysetInfo.id);
-          if (keys) {
-            unitKeysets.push({
-              id: keysetInfo.id,
-              keys,
-              active: keysetInfo.active,
-              input_fee_ppk: keysetInfo.input_fee_ppk ?? 0,
-            });
-          }
-        }
-
-        if (unitKeysets.length > 0) {
-          result[unit] = unitKeysets;
-        }
+    const result: MintKeysetWithKeys[] = [];
+    for (const keysetInfo of data.keysets || []) {
+      const keys = await fetchKeysForKeyset(mintUrl, keysetInfo.id);
+      if (keys) {
+        result.push({
+          id: keysetInfo.id,
+          unit: keysetInfo.unit,
+          active: keysetInfo.active,
+          input_fee_ppk: keysetInfo.input_fee_ppk ?? 0,
+          keys,
+        });
       }
     }
 
     return result;
   } catch (e) {
     log(`Error fetching from ${mintUrl}: ${e}`);
-    return {};
+    return [];
   }
+};
+
+// Fetch keysets from a mint for specific units (including full keys)
+async function fetchKeysetsFromMint(mintUrl: string, units: string[]): Promise<Record<string, KeysetWithKeys[]>> {
+  const allKeysets = await self.fetchAllKeysetsFromMint(mintUrl);
+  const result: Record<string, KeysetWithKeys[]> = {};
+
+  for (const unit of units) {
+    const unitKeysets = allKeysets
+      .filter(k => k.unit === unit)
+      .map(({ unit: _unit, ...entry }) => entry);
+
+    if (unitKeysets.length > 0) {
+      result[unit] = unitKeysets;
+    }
+  }
+
+  return result;
 }
 
 // Initialize keysets from all configured mints
@@ -148,6 +162,29 @@ export async function initializeChannelKeysets(): Promise<void> {
   log("Keyset initialization complete");
 }
 
+function mergeKeysetsForMint(mintUrl: string, keysets: MintKeysetWithKeys[]): void {
+  if (!mintsUnitsKeysets[mintUrl]) {
+    mintsUnitsKeysets[mintUrl] = {};
+  }
+  const mintData = mintsUnitsKeysets[mintUrl];
+
+  for (const keyset of keysets) {
+    const { unit, ...entry } = keyset;
+    if (!mintData[unit]) {
+      mintData[unit] = [];
+    }
+    const unitKeysets = mintData[unit];
+    const existing = unitKeysets.find((k) => k.id === entry.id);
+
+    if (existing) {
+      // Update in-place to ensure anyone holding a reference sees the change (e.g. active status)
+      Object.assign(existing, entry);
+    } else {
+      unitKeysets.push(entry);
+    }
+  }
+}
+
 // Refresh keysets for a specific mint (called when a swap fails, possibly due to stale keyset data)
 export async function refreshKeysetsForMint(mintUrl: string): Promise<void> {
   const approvedMintsAndUnits = config.channel.approvedMintsAndUnits || {};
@@ -159,14 +196,18 @@ export async function refreshKeysetsForMint(mintUrl: string): Promise<void> {
   }
 
   log(`Refreshing keysets from ${mintUrl} for units: ${units.join(", ")}`);
-  const keysets = await fetchKeysetsFromMint(mintUrl, units);
+  const allKeysets = await self.fetchAllKeysetsFromMint(mintUrl);
+  const filteredKeysets = allKeysets.filter((k) => units.includes(k.unit));
 
-  if (Object.keys(keysets).length > 0) {
-    mintsUnitsKeysets[mintUrl] = keysets;
-    for (const [unit, keysetsForUnit] of Object.entries(keysets)) {
+  if (filteredKeysets.length > 0) {
+    mergeKeysetsForMint(mintUrl, filteredKeysets);
+    for (const unit of units) {
+      const keysetsForUnit = mintsUnitsKeysets[mintUrl][unit] ?? [];
       const ids = keysetsForUnit.map(k => k.id);
       const keyCount = keysetsForUnit.reduce((sum, k) => sum + Object.keys(k.keys).length, 0);
-      log(`  ${unit}: ${ids.join(", ")} (${keyCount} keys total)`);
+      if (ids.length > 0) {
+        log(`  ${unit}: ${ids.join(", ")} (${keyCount} keys total)`);
+      }
     }
   } else {
     log(`  No keysets found during refresh`);

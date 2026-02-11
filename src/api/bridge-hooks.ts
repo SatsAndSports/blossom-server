@@ -13,6 +13,7 @@ import {
 } from "./stores.js";
 import { getKeysetInfoJson } from "./fetch.js";
 import { refreshKeysetsForMint } from "./channel.js";
+import { compute_channel_secret, sign_with_tweaked_key } from "../wasm/cdk_wasm.js";
 
 let cachedServerPubkey: string | null = null;
 
@@ -36,7 +37,7 @@ export const spilmanHooks = {
     return [
       funding.paramsJson,
       funding.fundingProofsJson,
-      funding.sharedSecret,
+      funding.channelSecret,
       funding.keysetInfoJson,
     ];
   },
@@ -59,7 +60,7 @@ export const spilmanHooks = {
     channelId: string,
     paramsJson: string,
     fundingProofsJson: string,
-    sharedSecret: string,
+    channelSecret: string,
     keysetInfoJson: string,
     initialBalance: number,
     initialSignature: string
@@ -67,7 +68,7 @@ export const spilmanHooks = {
     channelFunding.insert(channelId, {
       paramsJson,
       fundingProofsJson,
-      sharedSecret,
+      channelSecret,
       secretKey: config.channel.secretKey!,
       keysetInfoJson,
     });
@@ -236,7 +237,15 @@ export const spilmanHooks = {
     );
   },
 
-  refreshActiveKeysets: async (mint: string): Promise<void> => {
+  refreshAllKeysets: async (mint: string): Promise<void> => {
     await refreshKeysetsForMint(mint);
+  },
+
+  computeChannelSecret: (charliePubkeyHex: string, alicePubkeyHex: string): string => {
+    return compute_channel_secret(config.channel.secretKey!, alicePubkeyHex);
+  },
+
+  signWithTweakedKey: (signerPubkeyHex: string, messageHex: string, tweakScalarHex: string): string => {
+    return sign_with_tweaked_key(config.channel.secretKey!, messageHex, tweakScalarHex);
   },
 };

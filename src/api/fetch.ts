@@ -41,7 +41,7 @@ function decodePaymentHeader(header: string): string {
   return Buffer.from(header, 'base64').toString('utf-8');
 }
 
-export const bridge = new WasmSpilmanBridge(spilmanHooks, config.channel.secretKey);
+export const bridge = new WasmSpilmanBridge(spilmanHooks);
 
 // ============================================================================
 // Exported getters for channel status endpoint

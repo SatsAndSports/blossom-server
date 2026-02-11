@@ -4,7 +4,7 @@ import * as secp from '@noble/secp256k1';
 
 // Import WASM functions
 import {
-  compute_shared_secret,
+  compute_channel_secret,
   compute_funding_token_amount,
   channel_parameters_get_channel_id,
   create_funding_outputs,
@@ -189,9 +189,9 @@ describe.concurrent('Minting flow', () => {
     expect(total).toBe(fundingOutputs.funding_token_nominal);
 
     // Step 10: Compute shared secret and channel ID
-    const sharedSecret = compute_shared_secret(alice.secretHex, charliePubkey);
+    const channelSecret = compute_channel_secret(alice.secretHex, charliePubkey);
     const keysetInfoJson = JSON.stringify(keysetInfo);
-    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret, keysetInfoJson);
+    const channelId = channel_parameters_get_channel_id(channelParamsJson, channelSecret, keysetInfoJson);
     console.log(`Channel ID: ${channelId.substring(0, 16)}...`);
     expect(channelId).toMatch(/^[0-9a-f]{64}$/);
 
@@ -199,7 +199,7 @@ describe.concurrent('Minting flow', () => {
     // This verifies DLEQ proofs and other channel validity checks
     const verificationResultJson = verify_channel(
       channelParamsJson,
-      sharedSecret,
+      channelSecret,
       JSON.stringify(proofs),
       JSON.stringify(keysetInfo)
     );
@@ -353,16 +353,16 @@ describe.concurrent('Channel verification', () => {
     expect(total).toBe(fundingOutputs.funding_token_nominal);
 
     // Step 10: Compute shared secret and channel ID
-    const sharedSecret = compute_shared_secret(alice.secretHex, charliePubkey);
+    const channelSecret = compute_channel_secret(alice.secretHex, charliePubkey);
     const keysetInfoJson = JSON.stringify(keysetInfo);
-    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret, keysetInfoJson);
+    const channelId = channel_parameters_get_channel_id(channelParamsJson, channelSecret, keysetInfoJson);
     console.log(`Channel ID: ${channelId.substring(0, 16)}...`);
     expect(channelId).toMatch(/^[0-9a-f]{64}$/);
 
     // Step 11: Verify the channel with original keyset (should pass)
     const verificationResultJson = verify_channel(
       channelParamsJson,
-      sharedSecret,
+      channelSecret,
       JSON.stringify(proofs),
       JSON.stringify(keysetInfo)
     );
@@ -385,7 +385,7 @@ describe.concurrent('Channel verification', () => {
 
     const tamperedResultJson = verify_channel(
       channelParamsJson,
-      sharedSecret,
+      channelSecret,
       JSON.stringify(proofs),
       JSON.stringify(tamperedKeysetInfo)
     );
@@ -400,7 +400,7 @@ describe.concurrent('Channel verification', () => {
     // Step 13: Restore the key and verify it passes again
     const restoredResultJson = verify_channel(
       channelParamsJson,
-      sharedSecret,
+      channelSecret,
       JSON.stringify(proofs),
       JSON.stringify(keysetInfo)  // Use original keysetInfo
     );
@@ -549,16 +549,16 @@ describe.concurrent('Channel verification', () => {
     expect(total).toBe(fundingOutputs.funding_token_nominal);
 
     // Step 10: Compute shared secret and channel ID
-    const sharedSecret = compute_shared_secret(alice.secretHex, charliePubkey);
+    const channelSecret = compute_channel_secret(alice.secretHex, charliePubkey);
     const keysetInfoJson = JSON.stringify(keysetInfo);
-    const channelId = channel_parameters_get_channel_id(channelParamsJson, sharedSecret, keysetInfoJson);
+    const channelId = channel_parameters_get_channel_id(channelParamsJson, channelSecret, keysetInfoJson);
     console.log(`Channel ID: ${channelId.substring(0, 16)}...`);
     expect(channelId).toMatch(/^[0-9a-f]{64}$/);
 
     // Step 11: Verify the channel with original proofs (should pass)
     const verificationResultJson = verify_channel(
       channelParamsJson,
-      sharedSecret,
+      channelSecret,
       JSON.stringify(proofs),
       JSON.stringify(keysetInfo)
     );
@@ -578,7 +578,7 @@ describe.concurrent('Channel verification', () => {
 
     const tamperedResultJson = verify_channel(
       channelParamsJson,
-      sharedSecret,
+      channelSecret,
       JSON.stringify(tamperedProofs),
       JSON.stringify(keysetInfo)
     );
@@ -593,7 +593,7 @@ describe.concurrent('Channel verification', () => {
     // Step 13: Restore the proof and verify it passes again
     const restoredResultJson = verify_channel(
       channelParamsJson,
-      sharedSecret,
+      channelSecret,
       JSON.stringify(proofs),  // Use original proofs
       JSON.stringify(keysetInfo)
     );
@@ -703,12 +703,12 @@ describe.concurrent('Channel verification', () => {
     const proofs = JSON.parse(proofsJson);
 
     // Step 10: Compute shared secret
-    const sharedSecret = compute_shared_secret(alice.secretHex, charliePubkey);
+    const channelSecret = compute_channel_secret(alice.secretHex, charliePubkey);
 
     // Step 11: Verify baseline passes
     const baselineResultJson = verify_channel(
       channelParamsJson,
-      sharedSecret,
+      channelSecret,
       JSON.stringify(proofs),
       JSON.stringify(keysetInfo)
     );
@@ -758,7 +758,7 @@ describe.concurrent('Channel verification', () => {
     // Step 13: Verify with multiple tamperings - should collect ALL errors
     const tamperedResultJson = verify_channel(
       channelParamsJson,
-      sharedSecret,
+      channelSecret,
       JSON.stringify(tamperedProofs),
       JSON.stringify(tamperedKeysetInfo)
     );

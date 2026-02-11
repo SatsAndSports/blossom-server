@@ -7,7 +7,7 @@ const paymentLog = logger.extend("payments");
 export interface ChannelFundingData {
   paramsJson: string;
   fundingProofsJson: string;
-  sharedSecret: string;
+  channelSecret: string;
   secretKey: string;  // Server's secret key used for this channel
   keysetInfoJson: string;  // Complete keyset info (keysetId, unit, keys, inputFeePpk, amounts)
 }

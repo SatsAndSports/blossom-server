@@ -1745,7 +1745,7 @@
 
     <script type="module">
         import * as secp from 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm';
-        import initWasm, { channel_parameters_get_channel_id, compute_shared_secret, compute_funding_token_amount, create_funding_outputs, spilman_channel_sender_create_signed_balance_update } from '/wasm/cdk_wasm.js';
+        import initWasm, { channel_parameters_get_channel_id, compute_channel_secret, compute_funding_token_amount, create_funding_outputs, spilman_channel_sender_create_signed_balance_update } from '/wasm/cdk_wasm.js';
         import { Mint, Wallet, OutputData, hasValidDleq } from 'https://cdn.jsdelivr.net/npm/@cashu/cashu-ts@3.1.1/+esm';
 
         // Helper: bytes to hex
@@ -1941,9 +1941,9 @@
         // ============================================
         // Mirrors the Rust ChannelParameters struct (without secret key)
         class ChannelParameters {
-            constructor(paramsJson, sharedSecretHex, keysetInfo) {
+            constructor(paramsJson, channelSecretHex, keysetInfo) {
                 this.paramsJson = paramsJson;           // JSON string with basic params
-                this.sharedSecretHex = sharedSecretHex; // 32-byte shared secret (hex)
+                this.channelSecretHex = channelSecretHex; // 32-byte shared secret (hex)
                 this.keysetInfo = keysetInfo;           // KeysetInfo object {keysetId, keys, inputFeePpk, amounts}
             }
 
@@ -1951,7 +1951,7 @@
             toJSON() {
                 return {
                     params_json: this.paramsJson,
-                    shared_secret_hex: this.sharedSecretHex,
+                    channel_secret_hex: this.channelSecretHex,
                     keyset_info: this.keysetInfo
                 };
             }
@@ -1960,7 +1960,7 @@
             static fromJSON(json) {
                 return new ChannelParameters(
                     json.params_json,
-                    json.shared_secret_hex,
+                    json.channel_secret_hex,
                     json.keyset_info
                 );
             }
@@ -1968,13 +1968,13 @@
             // Create from components (computes shared secret via WASM)
             static create(paramsJson, aliceSecretHex, keysetInfo) {
                 const params = JSON.parse(paramsJson);
-                const sharedSecretHex = compute_shared_secret(aliceSecretHex, params.charlie_pubkey);
-                return new ChannelParameters(paramsJson, sharedSecretHex, keysetInfo);
+                const channelSecretHex = compute_channel_secret(aliceSecretHex, params.charlie_pubkey);
+                return new ChannelParameters(paramsJson, channelSecretHex, keysetInfo);
             }
 
             // Get channel ID (computed from params + shared secret + keyset info)
             getChannelId() {
-                return channel_parameters_get_channel_id(this.paramsJson, this.sharedSecretHex, JSON.stringify(this.keysetInfo));
+                return channel_parameters_get_channel_id(this.paramsJson, this.channelSecretHex, JSON.stringify(this.keysetInfo));
             }
 
             // Get parsed params
@@ -2022,8 +2022,8 @@
 
             // Create from components
             static create(paramsJson, keysetInfo, aliceSecretHex, fundingProofs) {
-                const sharedSecretHex = compute_shared_secret(aliceSecretHex, JSON.parse(paramsJson).charlie_pubkey);
-                const channelParams = new ChannelParameters(paramsJson, sharedSecretHex, keysetInfo);
+                const channelSecretHex = compute_channel_secret(aliceSecretHex, JSON.parse(paramsJson).charlie_pubkey);
+                const channelParams = new ChannelParameters(paramsJson, channelSecretHex, keysetInfo);
                 const channelId = channelParams.getChannelId();
                 log(`ChannelParameters created - Channel ID: ${channelId}`);
                 return new SpilmanChannelSender(channelParams, aliceSecretHex, fundingProofs);
@@ -4129,8 +4129,8 @@
 
             // Compute shared secret now that we have both pubkeys
             if (charlie) {
-                const sharedSecretHex = compute_shared_secret(alice.secretHex, charlie.pubkeyHex);
-                log(`Shared secret:  ${sharedSecretHex.substring(0, 16)}...`);
+                const channelSecretHex = compute_channel_secret(alice.secretHex, charlie.pubkeyHex);
+                log(`Shared secret:  ${channelSecretHex.substring(0, 16)}...`);
             }
 
             // Check for a saved channel selection
