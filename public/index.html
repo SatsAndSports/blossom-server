@@ -5059,8 +5059,23 @@
             const speedSelect = document.getElementById('speed-select');
             const qualitySelectEl = document.getElementById('quality-select');
             const container = document.getElementById('video-container');
+            const VOLUME_STORAGE_KEY = 'cashutube_volume';
+            const MUTED_STORAGE_KEY = 'cashutube_muted';
             let controlsEnabled = false;
             let isSeeking = false;
+
+            // Initialize volume and muted state from storage
+            const storedVolume = localStorage.getItem(VOLUME_STORAGE_KEY);
+            const storedMuted = localStorage.getItem(MUTED_STORAGE_KEY);
+
+            if (storedVolume !== null) {
+                video.volume = parseFloat(storedVolume);
+                if (volumeSlider) volumeSlider.value = video.volume;
+            }
+            if (storedMuted !== null) {
+                video.muted = storedMuted === 'true';
+                muteBtn.textContent = (video.muted || video.volume == 0) ? '🔇' : '🔊';
+            }
 
             const setControlsEnabled = (enabled) => {
                 controlsEnabled = enabled;
@@ -5319,8 +5334,12 @@
             });
 
             video.addEventListener('volumechange', () => {
-                volumeSlider.value = video.muted ? 0 : video.volume;
+                if (volumeSlider) volumeSlider.value = video.muted ? 0 : video.volume;
                 muteBtn.textContent = (video.muted || video.volume == 0) ? '🔇' : '🔊';
+                
+                // Save to localStorage
+                localStorage.setItem(VOLUME_STORAGE_KEY, video.volume.toString());
+                localStorage.setItem(MUTED_STORAGE_KEY, video.muted.toString());
             });
 
             // Playback speed
