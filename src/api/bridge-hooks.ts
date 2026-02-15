@@ -152,11 +152,14 @@ export const spilmanHooks = {
     };
   },
 
-  getChannelPolicy: () => {
-    return JSON.stringify({
+  getChannelPolicy: (unit: string) => {
+    const pricing = config.channel.pricing[unit];
+    if (!pricing) return null;
+    return {
       min_expiry_in_seconds: config.channel.minExpiryInSeconds,
-      pricing: config.channel.pricing,
-    });
+      min_capacity: pricing.minCapacity ?? 0,
+      max_amount_per_output: pricing.maxAmountPerOutput ?? undefined,
+    };
   },
 
   nowSeconds: () => {
