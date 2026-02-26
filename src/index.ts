@@ -12,6 +12,7 @@ import router from "./api/index.js";
 import logger from "./logger.js";
 import { config } from "./config.js";
 import { initializeChannelKeysets } from "./api/channel.js";
+import { initWasm } from "./api/bridge-hooks.js";
 import { isHttpError } from "./helpers/error.js";
 import db from "./db/db.js";
 import { pruneStorage } from "./storage/index.js";
@@ -77,6 +78,9 @@ try {
   const www = path.resolve(__dirname, "../public");
   app.use(serve(www));
 }
+
+// Initialize WASM
+await initWasm();
 
 // Initialize channel keysets from configured mints
 await initializeChannelKeysets();

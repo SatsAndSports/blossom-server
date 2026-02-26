@@ -1,8 +1,13 @@
-import { test as base } from 'vitest';
+import { test as base, beforeAll } from 'vitest';
+import { initWasm } from '../src/api/bridge-hooks.js';
 
 // Test configuration
 const TEST_PORT = 3099;
 const MINT_URL = process.env.MINT_URL || 'http://localhost:3338';
+
+beforeAll(async () => {
+  await initWasm();
+});
 
 // Types
 interface Pricing {

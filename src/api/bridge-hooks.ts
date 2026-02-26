@@ -14,6 +14,21 @@ import {
 import { getKeysetInfoJson } from "./fetch.js";
 import { refreshKeysetsForMint } from "./channel.js";
 import { compute_channel_secret, sign_with_tweaked_key } from "../wasm/cdk_wasm.js";
+import wasmInit from "../wasm/cdk_wasm.js";
+import { readFileSync } from "fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Initializes the WASM module for the Blossom server.
+ */
+export async function initWasm() {
+  const wasmPath = path.join(__dirname, "../wasm/cdk_wasm_bg.wasm");
+  const wasmBytes = readFileSync(wasmPath);
+  return await wasmInit({ module_or_path: wasmBytes });
+}
 
 let cachedServerPubkey: string | null = null;
 

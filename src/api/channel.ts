@@ -6,7 +6,7 @@ import { router } from "./router.js";
 import logger from "../logger.js";
 import {
   getChannelStatus,
-  bridge,
+  getBridge,
   getKeysetInfoJson,
 } from "./fetch.js";
 import {
@@ -337,7 +337,7 @@ router.post("/channel/:channel_id/close", koaBody(), async (ctx) => {
   // Returns CloseSuccess on success, throws CloseError on failure
   let result: { channel_id: string; total_value: number; receiver_sum: number; sender_sum: number; sender_proofs: string; already_closed: boolean };
   try {
-    result = await bridge.executeCooperativeClose(JSON.stringify(body)) as any;
+    result = await getBridge().executeCooperativeClose(JSON.stringify(body)) as any;
   } catch (e: any) {
     // CloseError is thrown as a JS object (not a string), so access its properties directly
     let closeError: any;
@@ -427,7 +427,7 @@ router.post("/channel/:channel_id/unilateral-close", async (ctx) => {
   // Returns CloseSuccess on success, throws CloseError on failure
   let result: { channel_id: string; total_value: number; receiver_sum: number; sender_sum: number; sender_proofs: string; already_closed: boolean };
   try {
-    result = await bridge.executeUnilateralClose(channelId) as any;
+    result = await getBridge().executeUnilateralClose(channelId) as any;
   } catch (e: any) {
     // CloseError is thrown as a JS object (not a string), so access its properties directly
     let closeError: any;
@@ -511,7 +511,7 @@ router.post("/channel/register", koaBody(), async (ctx) => {
 
   try {
     // fundChannel now returns FundChannelResult directly and throws on error
-    const result = bridge.fundChannel(JSON.stringify(registerBody));
+    const result = getBridge().fundChannel(JSON.stringify(registerBody));
 
     registerLog("Register SUCCESS: channel=%s capacity=%d already_known=%s",
       result.channel_id.substring(0, 8), result.capacity, result.already_known);

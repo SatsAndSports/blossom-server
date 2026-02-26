@@ -41,7 +41,13 @@ function decodePaymentHeader(header: string): string {
   return Buffer.from(header, 'base64').toString('utf-8');
 }
 
-export const bridge = new WasmSpilmanBridge(spilmanHooks);
+let cachedBridge: WasmSpilmanBridge | null = null;
+export function getBridge(): WasmSpilmanBridge {
+  if (!cachedBridge) {
+    cachedBridge = new WasmSpilmanBridge(spilmanHooks);
+  }
+  return cachedBridge;
+}
 
 // ============================================================================
 // Exported getters for channel status endpoint
@@ -153,7 +159,7 @@ router.get("/:hash", range, async (ctx, next) => {
 
       try {
         // processPayment now returns PaymentSuccess directly and throws on error
-        const result = bridge.processPayment(
+        const result = getBridge().processPayment(
           paymentJson,
           JSON.stringify({ type: "blob", size: storageResult.size })
         );
