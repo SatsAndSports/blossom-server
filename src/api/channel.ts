@@ -8,6 +8,7 @@ import {
   getChannelStatus,
   getBridge,
   getKeysetInfoJson,
+  extractBridgeError,
 } from "./fetch.js";
 import {
   calculateAmountDue,
@@ -522,25 +523,27 @@ router.post("/channel/register", koaBody(), async (ctx) => {
       already_known: result.already_known,
     };
   } catch (e) {
-    const errorMsg = (e as Error).message || String(e);
+    const { errorMsg, status: bridgeStatus } = extractBridgeError(e);
     const lowerMsg = errorMsg.toLowerCase();
 
     // Determine HTTP status from error type
     // Most payment/validation errors are 402 (Payment Required)
     // Only structural/format errors are 400 (Bad Request)
-    let status = 402;
-    if (lowerMsg.includes("unknown channel")) {
-      status = 404;
-    } else if (lowerMsg.includes("invalid base64") ||
-               lowerMsg.includes("invalid utf8") ||
-               lowerMsg.includes("invalid json") ||
-               lowerMsg.includes("missing channel_id") ||
-               lowerMsg.includes("missing signature") ||
-               lowerMsg.includes("missing params") ||
-               lowerMsg.includes("missing funding_proofs")) {
-      status = 400; // Bad Request for malformed request
-    } else if (lowerMsg.includes("internal") || lowerMsg.includes("misconfigured")) {
-      status = 500;
+    let status = typeof bridgeStatus === "number" ? bridgeStatus : 402;
+    if (bridgeStatus === undefined) {
+      if (lowerMsg.includes("unknown channel")) {
+        status = 404;
+      } else if (lowerMsg.includes("invalid base64") ||
+                 lowerMsg.includes("invalid utf8") ||
+                 lowerMsg.includes("invalid json") ||
+                 lowerMsg.includes("missing channel_id") ||
+                 lowerMsg.includes("missing signature") ||
+                 lowerMsg.includes("missing params") ||
+                 lowerMsg.includes("missing funding_proofs")) {
+        status = 400; // Bad Request for malformed request
+      } else if (lowerMsg.includes("internal") || lowerMsg.includes("misconfigured")) {
+        status = 500;
+      }
     }
 
     registerLog("Register REJECTED: %s", errorMsg);

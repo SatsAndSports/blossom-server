@@ -41,6 +41,67 @@ function decodePaymentHeader(header: string): string {
   return Buffer.from(header, 'base64').toString('utf-8');
 }
 
+type BridgeErrorPayload = {
+  error?: string;
+  reason?: string;
+  status?: number;
+  code?: string;
+  extra?: Record<string, unknown>;
+};
+
+function parseBridgeErrorPayload(err: unknown): BridgeErrorPayload | null {
+  if (!err || typeof err !== "object") return null;
+  const obj = err as BridgeErrorPayload;
+  if (
+    typeof obj.reason === "string" ||
+    typeof obj.error === "string" ||
+    typeof obj.status === "number" ||
+    typeof obj.code === "string" ||
+    (obj.extra && typeof obj.extra === "object")
+  ) {
+    return obj;
+  }
+  return null;
+}
+
+export function extractBridgeError(err: unknown): { errorMsg: string; status?: number; code?: string; extra?: Record<string, unknown> } {
+  if (err == null) return { errorMsg: "Unknown error" };
+
+  if (typeof err === "string") {
+    try {
+      const parsed = JSON.parse(err);
+      const payload = parseBridgeErrorPayload(parsed);
+      if (payload) {
+        return {
+          errorMsg: payload.reason || payload.error || "Unknown error",
+          status: typeof payload.status === "number" ? payload.status : undefined,
+          code: typeof payload.code === "string" ? payload.code : undefined,
+          extra: payload.extra && typeof payload.extra === "object" ? payload.extra : undefined,
+        };
+      }
+    } catch {
+      // Not JSON
+    }
+    return { errorMsg: err };
+  }
+
+  const payload = parseBridgeErrorPayload(err);
+  if (payload) {
+    return {
+      errorMsg: payload.reason || payload.error || "Unknown error",
+      status: typeof payload.status === "number" ? payload.status : undefined,
+      code: typeof payload.code === "string" ? payload.code : undefined,
+      extra: payload.extra && typeof payload.extra === "object" ? payload.extra : undefined,
+    };
+  }
+
+  if (typeof (err as any).message === "string") {
+    return extractBridgeError((err as any).message);
+  }
+
+  return { errorMsg: String(err) };
+}
+
 let cachedBridge: WasmSpilmanBridge | null = null;
 export function getBridge(): WasmSpilmanBridge {
   if (!cachedBridge) {
@@ -175,31 +236,51 @@ router.get("/:hash", range, async (ctx, next) => {
         ctx.set("X-Cashu-Channel", JSON.stringify(header));
       } catch (e) {
         // Error is thrown - determine status from error message
-        const errorMsg = (e as Error).message || String(e);
+        const { errorMsg, status: bridgeStatus, code, extra } = extractBridgeError(e);
         const lowerMsg = errorMsg.toLowerCase();
 
         // Determine HTTP status from error type
         // Most payment/validation errors are 402 (Payment Required)
         // Only structural/format errors are 400 (Bad Request)
-        let status = 402; // Default to Payment Required
-        if (lowerMsg.includes("invalid base64") ||
-            lowerMsg.includes("invalid utf8") ||
-            lowerMsg.includes("invalid json") ||
-            lowerMsg.includes("missing channel_id") ||
-            lowerMsg.includes("missing signature") ||
-            lowerMsg.includes("missing balance") ||
-            // Serde deserialization errors for missing fields: "missing field `channel_id`"
-            lowerMsg.includes("missing field") ||
-            // Serde deserialization errors for wrong types
-            lowerMsg.includes("invalid type") ||
-            (lowerMsg.includes("expected") && (lowerMsg.includes("string") || lowerMsg.includes("integer") || lowerMsg.includes("u64")))) {
-          status = 400; // Bad Request for malformed request
-        } else if (lowerMsg.includes("internal") || lowerMsg.includes("misconfigured")) {
-          status = 500; // Server Error
+        let status = typeof bridgeStatus === "number" ? bridgeStatus : 402; // Default to Payment Required
+        if (bridgeStatus === undefined) {
+          if (lowerMsg.includes("invalid base64") ||
+              lowerMsg.includes("invalid utf8") ||
+              lowerMsg.includes("invalid json") ||
+              lowerMsg.includes("missing channel_id") ||
+              lowerMsg.includes("missing signature") ||
+              lowerMsg.includes("missing balance") ||
+              // Serde deserialization errors for missing fields: "missing field `channel_id`"
+              lowerMsg.includes("missing field") ||
+              // Serde deserialization errors for wrong types
+              lowerMsg.includes("invalid type") ||
+              (lowerMsg.includes("expected") && (lowerMsg.includes("string") || lowerMsg.includes("integer") || lowerMsg.includes("u64")))) {
+            status = 400; // Bad Request for malformed request
+          } else if (lowerMsg.includes("internal") || lowerMsg.includes("misconfigured")) {
+            status = 500; // Server Error
+          }
+        } else if (code) {
+          const paymentRequiredCodes = new Set(["unknown_channel", "channel_closed", "channel_closing"]);
+          if (paymentRequiredCodes.has(code)) {
+            status = 402;
+          }
+        }
+
+        if (
+          status !== 402 &&
+          (lowerMsg.includes("unknown channel") || lowerMsg.includes("channel closed") || lowerMsg.includes("channel closing"))
+        ) {
+          status = 402;
         }
 
         // Parse extra fields from error message for client use
         const headerData: Record<string, any> = { error: errorMsg, size: storageResult.size };
+        if (code) headerData.code = code;
+        if (extra && typeof extra === "object") {
+          for (const [key, value] of Object.entries(extra)) {
+            if (headerData[key] === undefined) headerData[key] = value;
+          }
+        }
 
         // Extract balance/capacity from "balance exceeds capacity: X > Y"
         const balanceCapacityMatch = errorMsg.match(/balance exceeds capacity: (\d+) > (\d+)/);
