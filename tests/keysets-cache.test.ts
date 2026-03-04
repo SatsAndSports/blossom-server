@@ -1,56 +1,83 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { config } from "../src/config.js";
-import { mintsUnitsKeysets } from "../src/api/stores.js";
-import * as channel from "../src/api/channel.js";
+import { channelConfig } from "../src/config.js";
+import { spilmanStores } from "../src/api/stores.js";
 
 const MINT_URL = "http://mint.test";
 
-function resetKeysetCache() {
-  for (const key of Object.keys(mintsUnitsKeysets)) {
-    delete mintsUnitsKeysets[key];
-  }
-}
-
 beforeEach(() => {
-  resetKeysetCache();
-  config.channel.approvedMintsAndUnits = { [MINT_URL]: ["sat"] };
+  // Clear cache for the test mint
+  spilmanStores.keysetCache.clearForMint(MINT_URL);
+  channelConfig.mints = { [MINT_URL]: ["sat"] };
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("keyset cache refresh", () => {
-  it("retains inactive keysets on refresh", async () => {
-    mintsUnitsKeysets[MINT_URL] = {
-      sat: [{ id: "A", keys: { "1": "keyA" }, active: true, input_fee_ppk: 0 }],
-    };
+describe("keyset cache via kit KeysetCache", () => {
+  it("stores and retrieves keyset entries", () => {
+    spilmanStores.keysetCache.set(MINT_URL, "A", {
+      infoJson: JSON.stringify({ keysetId: "A", unit: "sat", keys: { "1": "keyA" }, inputFeePpk: 0, amounts: [1] }),
+      active: true,
+      unit: "sat",
+    });
 
-    vi.spyOn(channel, "fetchAllKeysetsFromMint").mockResolvedValue([
-      { id: "A", unit: "sat", active: false, input_fee_ppk: 0, keys: { "1": "keyA" } },
-      { id: "B", unit: "sat", active: true, input_fee_ppk: 0, keys: { "1": "keyB" } },
-    ]);
+    const entry = spilmanStores.keysetCache.get(MINT_URL, "A");
+    expect(entry).not.toBeNull();
+    expect(entry!.active).toBe(true);
+    expect(entry!.unit).toBe("sat");
 
-    await channel.refreshKeysetsForMint(MINT_URL);
-
-    const satKeysets = mintsUnitsKeysets[MINT_URL].sat;
-    expect(satKeysets.find(k => k.id === "A")?.active).toBe(false);
-    expect(satKeysets.find(k => k.id === "B")).toBeTruthy();
+    const info = JSON.parse(entry!.infoJson);
+    expect(info.keysetId).toBe("A");
+    expect(info.keys["1"]).toBe("keyA");
   });
 
-  it("does not drop missing keysets", async () => {
-    mintsUnitsKeysets[MINT_URL] = {
-      sat: [{ id: "A", keys: { "1": "keyA" }, active: true, input_fee_ppk: 0 }],
-    };
+  it("getActiveIds returns only active keysets for a unit", () => {
+    spilmanStores.keysetCache.set(MINT_URL, "A", {
+      infoJson: "{}",
+      active: false,
+      unit: "sat",
+    });
+    spilmanStores.keysetCache.set(MINT_URL, "B", {
+      infoJson: "{}",
+      active: true,
+      unit: "sat",
+    });
 
-    vi.spyOn(channel, "fetchAllKeysetsFromMint").mockResolvedValue([
-      { id: "B", unit: "sat", active: true, input_fee_ppk: 0, keys: { "1": "keyB" } },
-    ]);
+    const activeIds = spilmanStores.keysetCache.getActiveIds(MINT_URL, "sat");
+    expect(activeIds).not.toContain("A");
+    expect(activeIds).toContain("B");
+  });
 
-    await channel.refreshKeysetsForMint(MINT_URL);
+  it("getMintsUnitsKeysets returns keyset IDs grouped by mint and unit", () => {
+    spilmanStores.keysetCache.set(MINT_URL, "A", {
+      infoJson: "{}",
+      active: true,
+      unit: "sat",
+    });
+    spilmanStores.keysetCache.set(MINT_URL, "B", {
+      infoJson: "{}",
+      active: true,
+      unit: "usd",
+    });
 
-    const satKeysets = mintsUnitsKeysets[MINT_URL].sat;
-    expect(satKeysets.map(k => k.id)).toContain("A");
-    expect(satKeysets.map(k => k.id)).toContain("B");
+    const muk = spilmanStores.keysetCache.getMintsUnitsKeysets();
+    expect(muk[MINT_URL]).toBeDefined();
+    expect(muk[MINT_URL].sat).toContain("A");
+    expect(muk[MINT_URL].usd).toContain("B");
+  });
+
+  it("clearForMint removes all entries for a mint", () => {
+    spilmanStores.keysetCache.set(MINT_URL, "A", {
+      infoJson: "{}",
+      active: true,
+      unit: "sat",
+    });
+
+    expect(spilmanStores.keysetCache.has(MINT_URL, "A")).toBe(true);
+
+    spilmanStores.keysetCache.clearForMint(MINT_URL);
+
+    expect(spilmanStores.keysetCache.has(MINT_URL, "A")).toBe(false);
   });
 });

@@ -7,6 +7,7 @@ import logger from "./logger.js";
 import { mergeDeep } from "./helpers/object.js";
 import { VideoOptions } from "./optimize/video.js";
 import { ImageOptions } from "./optimize/image.js";
+import { SpilmanConfig } from "cdk-spilman-kit";
 
 const log = logger.extend("config");
 
@@ -66,11 +67,28 @@ export type Config = {
   };
   channel: {
     enabled: boolean;
-    secretKey: string;
-    approvedMintsAndUnits: Record<string, string[]>;  // mint URL -> list of units
-    pricing: Record<string, { perRequestPpk: number; perMegabytePpk: number; minCapacity?: number; maxAmountPerOutput?: number }>;  // unit -> pricing
-    minExpiryInSeconds: number;  // minimum locktime in seconds
   };
+};
+
+export type ChannelConfig = SpilmanConfig & {
+  enabled: boolean;
+  secretKey: string;
+};
+
+const defaultChannelConfig: ChannelConfig = {
+  enabled: false,
+  secretKey: "",
+  mints: {},
+  min_expiry_seconds: 3600,
+  pricing_scale: 1000,
+  storage: {
+    type: "sqlite",
+    path: "data/channels.db",
+  },
+  pricing: { 
+    sat: { min_capacity: 1, variables: { blobs: 500, bytes: 10 } }, 
+    usd: { min_capacity: 1, variables: { blobs: 100, bytes: 2 } } 
+  },
 };
 
 /**
@@ -124,7 +142,7 @@ const defaultConfig: Config = {
   media: { enabled: false, requireAuth: true, requirePubkeyInRule: false },
   list: { requireAuth: false, allowListOthers: false },
   tor: { enabled: false, proxy: "" },
-  channel: { enabled: false, secretKey: "", approvedMintsAndUnits: {}, pricing: { sat: { perRequestPpk: 500, perMegabytePpk: 1000, minCapacity: 1 }, usd: { perRequestPpk: 100, perMegabytePpk: 200, minCapacity: 1 } }, minExpiryInSeconds: 3600 },
+  channel: { enabled: false },
 };
 
 const searchPlaces = ["config.yaml", "config.yml", "config.json"];
@@ -143,6 +161,22 @@ if (result) logger(`Found config at ${result.filepath}`);
 
 const config = mergeDeep(defaultConfig, result?.config ?? {}) as Config;
 
+// Load channel-config.yml
+const channelSearchPlaces = ["channel-config.yaml", "channel-config.yml", "channel-config.json"];
+if (process.env.CHANNEL_CONFIG) channelSearchPlaces.unshift(process.env.CHANNEL_CONFIG);
+
+const channelResult = await lilconfig("channel", {
+  searchPlaces: channelSearchPlaces,
+  loaders: {
+    ".yaml": loadYaml,
+    ".yml": loadYaml,
+    ".json": loadJson,
+  },
+}).search();
+
+if (channelResult) logger(`Found channel config at ${channelResult.filepath}`);
+const channelConfig = mergeDeep(defaultChannelConfig, channelResult?.config ?? {}) as ChannelConfig;
+
 function saveConfig() {
   if (result) {
     if (result.filepath.includes(".json")) {
@@ -157,4 +191,4 @@ function saveConfig() {
   }
 }
 
-export { config, saveConfig };
+export { config, channelConfig, saveConfig };

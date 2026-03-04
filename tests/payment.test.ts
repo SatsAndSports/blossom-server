@@ -2,7 +2,7 @@ import { test, describe, expect } from './fixtures';
 import { createHash, randomBytes } from 'crypto';
 import * as secp from '@noble/secp256k1';
 
-// Import WASM functions
+// Import WASM functions from the integration kit (single WASM instance)
 import {
   compute_channel_secret,
   compute_funding_token_amount,
@@ -11,7 +11,7 @@ import {
   construct_proofs,
   spilman_channel_sender_create_signed_balance_update,
   get_sender_blinded_secret_key_for_stage2_output,
-} from '../src/wasm/cdk_wasm.js';
+} from 'cdk-spilman-kit';
 
 
 
@@ -74,10 +74,14 @@ interface Server {
   mintUrl: string;
   channelParams: {
     receiver_pubkey: string;
-    pricing: Record<string, { perRequestPpk: number; perMegabytePpk: number }>;
+    pricing: Record<string, { min_capacity: number; variables: Record<string, number> }>;
     mints_units_keysets: Record<string, Record<string, string[]>>;
+    min_expiry_in_seconds: number;
+    pricing_scale: number;
   };
-  getPricing(unit: string): { perRequestPpk: number; perMegabytePpk: number } | undefined;
+  getPricing(unit: string): { min_capacity: number; variables: Record<string, number> } | undefined;
+  getAmountDue(unit: string, blobsServed: number, bytesServed: number): number;
+  getMinCapacity(unit: string): number;
 }
 
 // Helper to mint a funded channel - returns everything needed to make payments

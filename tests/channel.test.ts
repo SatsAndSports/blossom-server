@@ -2,7 +2,7 @@ import { test, describe, expect } from './fixtures';
 import { createHash, randomBytes } from 'crypto';
 import * as secp from '@noble/secp256k1';
 
-// Import WASM functions
+// Import WASM functions from the integration kit (single WASM instance)
 import {
   compute_channel_secret,
   compute_funding_token_amount,
@@ -10,7 +10,7 @@ import {
   create_funding_outputs,
   construct_proofs,
   spilman_channel_sender_create_signed_balance_update,
-} from '../src/wasm/cdk_wasm.js';
+} from 'cdk-spilman-kit';
 
 // Generate a random keypair for Alice
 function generateKeypair(): { secretHex: string; pubkeyHex: string } {
@@ -64,10 +64,12 @@ interface Server {
   mintUrl: string;
   channelParams: {
     receiver_pubkey: string;
-    pricing: Record<string, { perRequestPpk: number; perMegabytePpk: number }>;
+    pricing: Record<string, { min_capacity: number; variables: Record<string, number> }>;
     mints_units_keysets: Record<string, Record<string, string[]>>;
+    min_expiry_in_seconds?: number;
+    pricing_scale?: number;
   };
-  getPricing(unit: string): { perRequestPpk: number; perMegabytePpk: number } | undefined;
+  getPricing(unit: string): { min_capacity: number; variables: Record<string, number> } | undefined;
   getAmountDue(unit: string, blobsServed: number, bytesServed: number): number;
 }
 
@@ -194,11 +196,11 @@ describe.concurrent('GET /channel/params', () => {
   test('returns pricing for configured units', async ({ server }) => {
     expect(server.channelParams.pricing).toBeDefined();
     expect(server.channelParams.pricing.sat).toBeDefined();
-    expect(typeof server.channelParams.pricing.sat.perRequestPpk).toBe('number');
-    expect(typeof server.channelParams.pricing.sat.perMegabytePpk).toBe('number');
+    expect(typeof server.channelParams.pricing.sat.variables.blobs).toBe('number');
+    expect(typeof server.channelParams.pricing.sat.variables.bytes).toBe('number');
     expect(server.channelParams.pricing.usd).toBeDefined();
-    expect(typeof server.channelParams.pricing.usd.perRequestPpk).toBe('number');
-    expect(typeof server.channelParams.pricing.usd.perMegabytePpk).toBe('number');
+    expect(typeof server.channelParams.pricing.usd.variables.blobs).toBe('number');
+    expect(typeof server.channelParams.pricing.usd.variables.bytes).toBe('number');
   });
 
   test('returns mints_units_keysets with approved mints', async ({ server }) => {

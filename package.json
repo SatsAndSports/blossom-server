@@ -28,6 +28,7 @@
     "@noble/secp256k1": "^3.0.0",
     "@nostr-dev-kit/ndk": "^2.10.7",
     "better-sqlite3": "^11.7.0",
+    "cdk-spilman-kit": "file:../../integration-kits/ts",
     "blossom-server-sdk": "^0.8.0",
     "dayjs": "^1.11.13",
     "debug": "^4.4.0",

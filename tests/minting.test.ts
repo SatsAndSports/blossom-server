@@ -2,7 +2,7 @@ import { test, describe, expect } from './fixtures';
 import { randomBytes } from 'crypto';
 import * as secp from '@noble/secp256k1';
 
-// Import WASM functions
+// Import WASM functions from the integration kit (single WASM instance)
 import {
   compute_channel_secret,
   compute_funding_token_amount,
@@ -11,7 +11,7 @@ import {
   construct_proofs,
   verify_proof_dleq,
   verify_channel,
-} from '../src/wasm/cdk_wasm.js';
+} from 'cdk-spilman-kit';
 
 // Generate a random keypair for Alice
 function generateKeypair(): { secretHex: string; pubkeyHex: string } {

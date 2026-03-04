@@ -6,6 +6,7 @@ import path from 'path';
 const TEST_PORT = 3099;
 const TEST_DATA_DIR = 'data-test';
 const TEST_CONFIG_PATH = 'config.test.yml';
+const TEST_CHANNEL_CONFIG_PATH = 'channel-config.test.yml';
 const MINT_URL = process.env.MINT_URL || 'http://localhost:3338';
 
 let serverProcess: ChildProcess | null = null;
@@ -83,30 +84,39 @@ list:
 tor:
   enabled: false
   proxy: ""
+`;
 
-channel:
-  enabled: true
-  secretKey: "0102030405060708091011121314151617181920212223242526272829303132"
-  approvedMintsAndUnits:
-    ${MINT_URL}:
-      - sat
-      - usd
-      - msat
-  pricing:
-    sat:
-      perRequestPpk: 500
-      perMegabytePpk: 1000
-      minCapacity: 100
-      maxAmountPerOutput: 0
-    usd:
-      perRequestPpk: 100
-      perMegabytePpk: 200
-      minCapacity: 10
-      maxAmountPerOutput: 1048576
-    msat:
-      perRequestPpk: 500
-      perMegabytePpk: 100
-      maxAmountPerOutput: 0
+// Test channel config
+const testChannelConfig = `
+enabled: true
+secretKey: "0102030405060708091011121314151617181920212223242526272829303132"
+storage:
+  type: sqlite
+  path: ${TEST_DATA_DIR}/channels.db
+mints:
+  ${MINT_URL}:
+    - sat
+    - usd
+    - msat
+min_expiry_seconds: 3600
+pricing_scale: 1000
+pricing:
+  sat:
+    min_capacity: 100
+    variables:
+      blobs: 500
+      bytes: 10
+  usd:
+    min_capacity: 10
+    max_amount_per_output: 1048576
+    variables:
+      blobs: 100
+      bytes: 2
+  msat:
+    min_capacity: 1
+    variables:
+      blobs: 500
+      bytes: 1
 `;
 
 async function waitForServer(port: number, timeoutMs: number = 10000): Promise<void> {
@@ -142,6 +152,7 @@ export async function setup() {
 
   // Write test config
   writeFileSync(TEST_CONFIG_PATH, testConfig);
+  writeFileSync(TEST_CHANNEL_CONFIG_PATH, testChannelConfig);
 
   // Start the server
   console.log(`Starting blossom-server on port ${TEST_PORT}...`);
@@ -151,6 +162,7 @@ export async function setup() {
       ...process.env,
       PORT: String(TEST_PORT),
       BLOSSOM_CONFIG: TEST_CONFIG_PATH,
+      CHANNEL_CONFIG: TEST_CHANNEL_CONFIG_PATH,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
     cwd: process.cwd(),
@@ -195,4 +207,5 @@ export async function teardown() {
 
   // Clean up test config
   rmSync(TEST_CONFIG_PATH, { force: true });
+  rmSync(TEST_CHANNEL_CONFIG_PATH, { force: true });
 }

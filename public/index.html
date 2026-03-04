@@ -1836,17 +1836,15 @@
                 return;
             }
 
-            const { active } = await getChannelsForServer(alice.secretHex, currentServer, currentUnit);
-            const pricing = serverInfo[currentServer]?.pricing?.[currentUnit] || {};
+                const { active } = await getChannelsForServer(alice.secretHex, currentServer, currentUnit);
+            const pricing = serverInfo[currentServer]?.pricing?.[currentUnit] || null;
 
             for (const record of active) {
                 if (record.channel_id === currentChannel.channelId) continue;
 
                 // Calculate remaining capacity
                 const requestData = channelRequestCounts.get(record.channel_id) || { count: 0, bytes: 0 };
-                const requestCost = requestData.count * (pricing.perRequestPpk || 0);
-                const sizeCost = (requestData.bytes / 1_000_000) * (pricing.perMegabytePpk || 0);
-                const balance = Math.ceil((requestCost + sizeCost) / 1000);
+                const balance = computeAmountDueFromUsage(requestData.count, requestData.bytes, pricing);
 
                 const senderData = JSON.parse(record.sender_json);
                 const params = JSON.parse(senderData.channel_params.params_json);
@@ -2860,20 +2858,15 @@
             }
 
             // Balance owed based on request count and tracked bytes
-            get balance() {
-                const data = channelRequestCounts.get(this.channelId) || { count: 0, bytes: 0 };
-                const pricing = getCurrentPricing();
-                if (!pricing || !pricing.perRequestPpk) {
+                get balance() {
+                    const data = channelRequestCounts.get(this.channelId) || { count: 0, bytes: 0 };
+                    const pricing = getCurrentPricing();
+                if (!pricing) {
                     // Fallback: assume 1 unit per request if pricing unknown
                     return data.count;
                 }
-                // Calculate per-request cost
-                const requestCost = data.count * pricing.perRequestPpk;
-                // Calculate per-megabyte cost from tracked bytes
-                const sizeCost = (data.bytes / 1_000_000) * (pricing.perMegabytePpk || 0);
-                // Total in ppk, convert to units: ceil((requestCost + sizeCost) / 1000)
-                return Math.ceil((requestCost + sizeCost) / 1000);
-            }
+                return computeAmountDueFromUsage(data.count, data.bytes, pricing);
+                }
 
             // Create payment header for a segment (sync for HLS.js xhrSetup)
             // Throws ChannelExhaustedError if balance exceeds capacity
@@ -2940,6 +2933,7 @@
         // Alice's key management
         // ============================================
         const APP_VERSION = 'cashutube-v20260118c';
+        const PRICING_SCALE = 1000;
         const ALICE_KEY_STORAGE = 'cashu_alice_secret';
         const BANDWIDTH_STORAGE_KEY = 'cashutube_last_bandwidth';
         const PREFERRED_QUALITY_KEY = 'cashutube_preferred_quality';
@@ -3014,7 +3008,7 @@
         // Current list of known servers
         let KNOWN_SERVERS = getKnownServers();
 
-        // Server info cache: { url: { pubkeyHex, pricing: { unit: { perRequestPpk, perMegabytePpk } }, units: [...] } }
+        // Server info cache: { url: { pubkeyHex, pricing: { unit: { min_capacity, variables } }, pricing_scale, units: [...] } }
         const serverInfo = {};
 
         // Current selection (server + unit)
@@ -3654,13 +3648,21 @@
                 serverInfo[serverUrl] = {
                     pubkeyHex: data.receiver_pubkey,
                     mintsUnitsKeysets: data.mints_units_keysets,
-                    pricing: data.pricing || {},  // { unit: { perRequestPpk, perMegabytePpk } }
+                    pricing: data.pricing || {},
+                    pricing_scale: data.pricing_scale ?? PRICING_SCALE,
+                    min_expiry_in_seconds: data.min_expiry_in_seconds ?? 0,
                     units: Array.from(units)
                 };
 
                 // Log pricing for each unit
                 const pricingStr = Object.entries(data.pricing || {})
-                    .map(([u, p]) => `${u}: ${p.perRequestPpk} ppk/req, ${p.perMegabytePpk} ppk/MB`)
+                    .map(([u, p]) => {
+                        const vars = p.variables || {};
+                        const reqPrice = (vars.blobs || 0) / PRICING_SCALE;
+                        const gbPrice = ((vars.bytes || 0) * 1_000_000_000) / PRICING_SCALE;
+                        const unitLabel = getUnitLabel(u);
+                        return `${u}: ${formatPriceValue(reqPrice)} ${unitLabel}/req, ${formatPriceValue(gbPrice)} ${unitLabel}/GB`;
+                    })
                     .join('; ');
                 log(`${serverUrl}: pubkey=${data.receiver_pubkey.substring(0, 8)}..., units=[${Array.from(units).join(', ')}]`);
                 log(`  pricing: ${pricingStr || 'none'}`);
@@ -3788,13 +3790,36 @@
             return charlie.pricing[currentUnit] || null;
         }
 
+        function getPricingVariables(pricing) {
+            const vars = pricing?.variables || {};
+            return {
+                blobPrice: typeof vars.blobs === 'number' ? vars.blobs : 0,
+                bytePrice: typeof vars.bytes === 'number' ? vars.bytes : 0,
+            };
+        }
+
+        function computeAmountDueFromUsage(count, bytes, pricing) {
+            const { blobPrice, bytePrice } = getPricingVariables(pricing);
+            return Math.ceil((count * blobPrice + bytes * bytePrice) / PRICING_SCALE);
+        }
+
+        function estimateCostFromUsage(count, bytes, pricing) {
+            const { blobPrice, bytePrice } = getPricingVariables(pricing);
+            return (count * blobPrice + bytes * bytePrice) / PRICING_SCALE;
+        }
+
+        function formatPriceValue(value) {
+            if (!Number.isFinite(value) || value === 0) return '0';
+            if (value >= 1000) return Math.round(value).toString();
+            if (value >= 1) return value.toFixed(3).replace(/\.0+$|0+$/, '').replace(/\.$/, '');
+            return value.toFixed(6).replace(/\.0+$|0+$/, '').replace(/\.$/, '');
+        }
+
         // Calculate estimated cost to watch a video (in current unit)
         function estimateCost(video) {
             const pricing = getCurrentPricing();
             if (!pricing || !video.blob_count || !video.total_size) return null;
-            const requestCost = video.blob_count * (pricing.perRequestPpk || 0) / 1000;
-            const sizeCostMB = (video.total_size / 1000000) * (pricing.perMegabytePpk || 0) / 1000;
-            return requestCost + sizeCostMB;
+            return estimateCostFromUsage(video.blob_count, video.total_size, pricing);
         }
 
         // Calculate estimated cost for a specific quality (in current unit)
@@ -3808,9 +3833,7 @@
 
             const count = quality.count + meta.count;
             const size = quality.size + meta.size;
-            const requestCost = count * (pricing.perRequestPpk || 0) / 1000;
-            const sizeCost = (size / 1000000) * (pricing.perMegabytePpk || 0) / 1000;
-            return requestCost + sizeCost;
+            return estimateCostFromUsage(count, size, pricing);
         }
 
         // Format cost with appropriate unit label
@@ -4448,7 +4471,7 @@
         // Update capacity input UI based on selected server/unit
         function updateCapacityUI(server, unit) {
             const info = serverInfo[server];
-            const minCapacity = info?.pricing?.[unit]?.minCapacity ?? 0;
+            const minCapacity = info?.pricing?.[unit]?.min_capacity ?? 0;
             
             document.getElementById('modal-capacity-unit').textContent = unit;
             document.getElementById('modal-capacity-hint').textContent = `(min: ${minCapacity})`;
@@ -4497,10 +4520,11 @@
             const pricing = info?.pricing?.[unit];
 
             if (pricing) {
-                const reqPrice = pricing.perRequestPpk / 1000;
-                const mbPrice = pricing.perMegabytePpk / 1000;
+                const { blobPrice, bytePrice } = getPricingVariables(pricing);
+                const reqPrice = blobPrice / PRICING_SCALE;
+                const gbPrice = (bytePrice * 1_000_000_000) / PRICING_SCALE;
                 const unitLabel = getUnitLabel(unit);
-                pricingEl.innerHTML = `${reqPrice}&nbsp;${unitLabel}/req + ${mbPrice}&nbsp;${unitLabel}/MB`;
+                pricingEl.innerHTML = `${formatPriceValue(reqPrice)}&nbsp;${unitLabel}/req + ${formatPriceValue(gbPrice)}&nbsp;${unitLabel}/GB`;
             } else {
                 pricingEl.innerHTML = '';
             }
@@ -4541,10 +4565,8 @@
                         balance = channel.closing_amount_due;
                     } else {
                         const requestData = channelRequestCounts.get(channel.channel_id) || { count: 0, bytes: 0 };
-                        const pricing = serverInfo[server]?.pricing?.[unit] || {};
-                        const requestCost = requestData.count * (pricing.perRequestPpk || 0);
-                        const sizeCost = (requestData.bytes / 1_000_000) * (pricing.perMegabytePpk || 0);
-                        balance = Math.ceil((requestCost + sizeCost) / 1000);
+                        const pricing = serverInfo[server]?.pricing?.[unit] || null;
+                        balance = computeAmountDueFromUsage(requestData.count, requestData.bytes, pricing);
                     }
                     
                     const setupUtc = new Date(params.setup_timestamp * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
@@ -4701,7 +4723,7 @@
 
             // Get server constraints
             const serverParams = serverInfo[server];
-            const minCapacity = serverParams?.pricing?.[unit]?.minCapacity ?? 0;
+            const minCapacity = serverParams?.pricing?.[unit]?.min_capacity ?? 0;
             const minExpiryInSeconds = serverParams?.min_expiry_in_seconds ?? 0;
 
             // Validate capacity against server minimum
@@ -4757,8 +4779,8 @@
                 const locktime = setupTimestamp + expirySeconds;
                 const senderNonce = FundedChannel.generateNonce();
                 invoiceLog(`Channel capacity: ${capacity} ${unit}, expiry: ${expirySeconds}s`);
-                // Get maxAmountPerOutput from server pricing (0 = no limit)
-                const maxAmountPerOutput = serverParams?.pricing?.[unit]?.maxAmountPerOutput ?? 0;
+                // Get max_amount_per_output from server pricing (0 = no limit)
+                const maxAmountPerOutput = serverParams?.pricing?.[unit]?.max_amount_per_output ?? 0;
                 invoiceLog(`Max amount per output: ${maxAmountPerOutput === 0 ? 'no limit' : maxAmountPerOutput}`);
                 // Compute the minimum funding_token_amount for the desired capacity
                 const fundingTokenAmount = Number(compute_funding_token_amount(

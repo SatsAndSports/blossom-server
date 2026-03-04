@@ -1,5 +1,5 @@
 import { test as base, beforeAll } from 'vitest';
-import { initWasm } from '../src/api/bridge-hooks.js';
+import { init as initWasm } from 'cdk-spilman-kit';
 
 // Test configuration
 const TEST_PORT = 3099;
@@ -11,9 +11,8 @@ beforeAll(async () => {
 
 // Types
 interface Pricing {
-  perRequestPpk: number;
-  perMegabytePpk: number;
-  minCapacity: number;
+  min_capacity: number;
+  variables: Record<string, number>;
 }
 
 interface ChannelParams {
@@ -21,6 +20,7 @@ interface ChannelParams {
   pricing: Record<string, Pricing>;
   mints_units_keysets: Record<string, Record<string, string[]>>;
   min_expiry_in_seconds: number;
+  pricing_scale: number;
 }
 
 interface Server {
@@ -53,13 +53,14 @@ export const test = base.extend<{
         getAmountDue(unit: string, blobsServed: number, bytesServed: number): number {
           const pricing = this.getPricing(unit);
           if (!pricing) throw new Error(`No pricing configured for unit "${unit}"`);
-          const megabytes = bytesServed / 1_000_000;
+          const variables = pricing.variables || {};
+          const scale = this.channelParams.pricing_scale || 1;
           return Math.ceil(
-            (blobsServed * pricing.perRequestPpk + megabytes * pricing.perMegabytePpk) / 1000
+            (blobsServed * (variables.blobs || 0) + bytesServed * (variables.bytes || 0)) / scale
           );
         },
         getMinCapacity(unit: string): number {
-          return this.channelParams.pricing[unit]?.minCapacity ?? 0;
+          return this.channelParams.pricing[unit]?.min_capacity ?? 0;
         },
       };
 

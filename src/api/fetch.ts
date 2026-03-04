@@ -5,7 +5,7 @@ import mime from "mime";
 import HttpErrors from "http-errors";
 import range from "koa-range";
 
-import { config } from "../config.js";
+import { config, channelConfig } from "../config.js";
 import { BlobPointer, BlobSearch } from "../types.js";
 import * as upstreamDiscovery from "../discover/upstream.js";
 import * as nostrDiscovery from "../discover/nostr.js";
@@ -17,89 +17,19 @@ import { updateBlobAccess } from "../db/methods.js";
 import { blobDB, masterHashCache, incrementVideoViews } from "../db/db.js";
 import logger from "../logger.js";
 import { log, router } from "./router.js";
-import { WasmSpilmanBridge } from "../wasm/cdk_wasm.js";
-import { getKeysetKeys } from "./channel.js";
+import { WasmSpilmanBridge, decodePaymentHeader, mapErrorStatus, getBridgeErrorReason } from "cdk-spilman-kit";
 import { spilmanHooks } from "./bridge-hooks.js";
-import { 
-  channelFunding, 
-  channelBalance, 
-  channelUsage, 
-  channelActivity, 
-  channelClosed, 
-  calculateAmountDue,
-  ChannelStatus
-} from "./stores.js";
+import { getChannelStatus } from "./stores.js";
+export { getChannelStatus } from "./stores.js";
 
 const paymentLog = logger.extend("payments");
 
-// Decode base64-encoded payment header to JSON string
-function decodePaymentHeader(header: string): string {
-  // Validate base64 format (standard base64 alphabet + padding)
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(header)) {
-    throw new Error("invalid base64 encoding");
-  }
-  return Buffer.from(header, 'base64').toString('utf-8');
-}
-
-type BridgeErrorPayload = {
-  error?: string;
-  reason?: string;
-  status?: number;
-  code?: string;
-  extra?: Record<string, unknown>;
-};
-
-function parseBridgeErrorPayload(err: unknown): BridgeErrorPayload | null {
-  if (!err || typeof err !== "object") return null;
-  const obj = err as BridgeErrorPayload;
-  if (
-    typeof obj.reason === "string" ||
-    typeof obj.error === "string" ||
-    typeof obj.status === "number" ||
-    typeof obj.code === "string" ||
-    (obj.extra && typeof obj.extra === "object")
-  ) {
-    return obj;
-  }
-  return null;
-}
-
+// Blossom-specific error extraction: enriches the kit's error parsing
+// with regex-based extraction of numeric values from WASM bridge error messages
 export function extractBridgeError(err: unknown): { errorMsg: string; status?: number; code?: string; extra?: Record<string, unknown> } {
-  if (err == null) return { errorMsg: "Unknown error" };
-
-  if (typeof err === "string") {
-    try {
-      const parsed = JSON.parse(err);
-      const payload = parseBridgeErrorPayload(parsed);
-      if (payload) {
-        return {
-          errorMsg: payload.reason || payload.error || "Unknown error",
-          status: typeof payload.status === "number" ? payload.status : undefined,
-          code: typeof payload.code === "string" ? payload.code : undefined,
-          extra: payload.extra && typeof payload.extra === "object" ? payload.extra : undefined,
-        };
-      }
-    } catch {
-      // Not JSON
-    }
-    return { errorMsg: err };
-  }
-
-  const payload = parseBridgeErrorPayload(err);
-  if (payload) {
-    return {
-      errorMsg: payload.reason || payload.error || "Unknown error",
-      status: typeof payload.status === "number" ? payload.status : undefined,
-      code: typeof payload.code === "string" ? payload.code : undefined,
-      extra: payload.extra && typeof payload.extra === "object" ? payload.extra : undefined,
-    };
-  }
-
-  if (typeof (err as any).message === "string") {
-    return extractBridgeError((err as any).message);
-  }
-
-  return { errorMsg: String(err) };
+  const reason = getBridgeErrorReason(err);
+  const status = mapErrorStatus(err);
+  return { errorMsg: reason, status };
 }
 
 let cachedBridge: WasmSpilmanBridge | null = null;
@@ -108,68 +38,6 @@ export function getBridge(): WasmSpilmanBridge {
     cachedBridge = new WasmSpilmanBridge(spilmanHooks);
   }
   return cachedBridge;
-}
-
-// ============================================================================
-// Exported getters for channel status endpoint
-// ============================================================================
-
-export function getChannelStatus(channelId: string): ChannelStatus {
-  const funding = channelFunding.get(channelId);
-  if (!funding) {
-    throw new Error("unknown channel");
-  }
-
-  const params = JSON.parse(funding.paramsJson);
-  const balance = channelBalance.get(channelId);
-  const usage = channelUsage.get(channelId);
-
-  const blobsServed = usage?.blobsServed ?? 0;
-  const bytesServed = usage?.bytesServed ?? 0;
-
-  // Get pricing for this channel's unit
-  const unit = params.unit;
-  const pricing = config.channel.pricing[unit];
-  if (!pricing) {
-    throw new Error(`No pricing configured for unit: ${unit}`);
-  }
-
-  const amountDue = calculateAmountDue(blobsServed, bytesServed, pricing);
-
-  const closedData = channelClosed.get(channelId);
-
-  return {
-    channel_id: channelId,
-    capacity: params.capacity,
-    balance: balance?.balance ?? 0,
-    blobs_served: blobsServed,
-    bytes_served: bytesServed,
-    amount_due: amountDue,
-    closed: closedData !== null,
-    ...(closedData && { closed_amount: closedData.closedAmount }),
-  };
-}
-
-// Resolve full keysetInfo from startup cache
-export function getKeysetInfoJson(
-  mintUrl: string,
-  keysetId: string,
-  unit: string,
-  inputFeePpk: number
-): string | null {
-  const cachedKeys = getKeysetKeys(mintUrl, keysetId);
-
-  if (cachedKeys) {
-    return JSON.stringify({
-      keysetId,
-      unit,
-      keys: cachedKeys,
-      inputFeePpk,
-      amounts: Object.keys(cachedKeys).map(Number).sort((a, b) => b - a),
-    });
-  }
-
-  return null;
 }
 
 router.get("/:hash", range, async (ctx, next) => {
@@ -199,7 +67,7 @@ router.get("/:hash", range, async (ctx, next) => {
     }
 
     // Validate payment via Bridge
-    if (config.channel?.enabled) {
+    if (channelConfig?.enabled) {
       if (!paymentHeader) {
         ctx.status = 402;
         ctx.set("X-Cashu-Channel", JSON.stringify({ error: "missing", size: storageResult.size }));
@@ -222,7 +90,7 @@ router.get("/:hash", range, async (ctx, next) => {
         // processPayment now returns PaymentSuccess directly and throws on error
         const result = getBridge().processPayment(
           paymentJson,
-          JSON.stringify({ type: "blob", size: storageResult.size })
+          JSON.stringify({ blobs: 1, bytes: storageResult.size })
         );
 
         // Success - result IS the payment data: { channel_id, balance, amount_due, capacity }

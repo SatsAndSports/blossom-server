@@ -143,30 +143,6 @@ tor:
 
 # Cashu payment channel config for pay-per-view video streaming
 channel:
-  # enable or disable payment channels
   enabled: false
-  # server's secret key (hex) for deriving receiver pubkey
-  # secretKey: "your-64-char-hex-secret-key-here"
-  # You can also use environment variables:
-  # secretKey: "${CHANNEL_SECRET_KEY}"
-  # approved mints and their units (mint URL -> list of units)
-  # at startup, active keysets are fetched from each mint
-  approvedMintsAndUnits:
-    http://localhost:3338:
-      - sat
-      - usd
-  # per-unit pricing (ppk = parts per thousand)
-  # cost = (requests * perRequestPpk + megabytes * perMegabytePpk) / 1000
-  pricing:
-    sat:
-      perRequestPpk: 500      # 0.5 sats per request
-      perMegabytePpk: 1000    # 1 sat per MB
-      minCapacity: 100        # minimum channel capacity in sats
-      maxAmountPerOutput: 0   # max denomination for funding token (0 = no limit)
-    usd:
-      perRequestPpk: 100      # 0.1 cents per request
-      perMegabytePpk: 200     # 0.2 cents per MB
-      minCapacity: 10         # minimum channel capacity in cents
-      maxAmountPerOutput: 0   # max denomination for funding token (0 = no limit)
-  # minimum locktime in seconds (1 hour = 3600)
-  minExpiryInSeconds: 3600
+  # Pricing, mints, storage, and secretKey are configured in channel-config.yml
+  # Override the config path with CHANNEL_CONFIG
