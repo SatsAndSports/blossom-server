@@ -2699,7 +2699,24 @@
                     return true;
                 } else {
                     const errorBody = await response.json().catch(() => ({}));
-                    console.log(`[Register] Failed (${response.status}): ${errorBody.reason || errorBody.error || 'unknown'}`);
+                    const reason = (errorBody.reason || errorBody.error || '').toLowerCase();
+                    console.log(`[Register] Failed (${response.status}): ${reason || 'unknown'}`);
+
+                    // Server says channel is closing or already closed — mark it locally
+                    if (reason.includes('closing') || reason.includes('closed')) {
+                        console.log(`[Register] Channel ${channelId.substring(0,8)}... is ${reason.includes('closing') ? 'closing' : 'closed'} on server, marking locally`);
+                        const record = await getChannel(channelId);
+                        if (record) {
+                            record.status = 'closed';
+                            await saveChannel(record);
+                        }
+                        if (currentChannel && currentChannel.channelId === channelId) {
+                            await setCurrentChannel(null);
+                        }
+                        showToast('Channel closed by server', 'info');
+                        return false;
+                    }
+
                     log(`Channel registration failed: ${response.status}`, 'error');
                     if (invoiceLog) invoiceLog(`Registration warning: ${errorBody.reason || 'will re-register on 402'}`, 'warn');
                     return false;
@@ -3217,6 +3234,23 @@
                 document.getElementById('video').pause();
                 try {
                     const errorBody = await response.json();
+
+                    // Server says channel is closing or already closed — mark locally and switch
+                    const errorReason = (errorBody.reason || errorBody.error || '').toLowerCase();
+                    if (errorReason.includes('closing') || errorReason.includes('closed')) {
+                        console.log(`[Payment] Channel ${channelId.substring(0,8)}... is closing/closed on server`);
+                        const record = await getChannel(channelId);
+                        if (record) {
+                            record.status = 'closed';
+                            await saveChannel(record);
+                        }
+                        if (currentChannel && currentChannel.channelId === channelId) {
+                            await setCurrentChannel(null);
+                        }
+                        showToast('Channel closed by server, switching...', 'info');
+                        throw new Error('Channel closed by server');
+                    }
+
                     const channelHeader = response.headers.get('X-Cashu-Channel');
                     showPaymentErrorModal({
                         reason: errorBody.reason,
@@ -3226,6 +3260,7 @@
                         channelHeader: channelHeader
                     });
                 } catch (parseErr) {
+                    if (parseErr.message === 'Channel closed by server') throw parseErr;
                     showPaymentErrorModal({ reason: 'Failed to parse 402 response' });
                 }
                 throw new Error('Payment required (402)');
@@ -3477,21 +3512,34 @@
                                 if (xhr.status >= 200 && xhr.status < 300) {
                                     // Success - already handled by handlePaymentResponse
                                 } else if (xhr.status === 402) {
-                                    // Payment error - pause and show modal
-                                    document.getElementById('video').pause();
+                                    // Check if channel is closing/closed before showing error modal
+                                    let errorText = '';
+                                    try { errorText = xhr.responseText || ''; } catch (_) {}
                                     const channelHeader = xhr.getResponseHeader('X-Cashu-Channel');
-                                    try {
-                                        const headerData = JSON.parse(channelHeader || '{}');
-                                        log(`402 Payment Required: ${headerData.error}`, 'error');
-                                        showPaymentErrorModal({
-                                            reason: headerData.error,
-                                            amount_due: headerData.amount_due,
-                                            balance: currentChannel?.balance,
-                                            channelId: channelId
-                                        });
-                                    } catch (e) {
-                                        log(`402 Payment Required`, 'error');
-                                        showPaymentErrorModal({ reason: 'Payment required' });
+                                    const combinedError = (errorText + (channelHeader || '')).toLowerCase();
+
+                                    if (combinedError.includes('closing') || combinedError.includes('closed')) {
+                                        console.log(`[HLS] Channel ${channelId.substring(0,8)}... is closing/closed on server`);
+                                        // registerChannel (fired by handlePaymentResponse above) will mark it closed
+                                        // Just show a toast — don't show the error modal
+                                        document.getElementById('video').pause();
+                                        showToast('Channel closed by server, switching...', 'info');
+                                    } else {
+                                        // Normal payment error - pause and show modal
+                                        document.getElementById('video').pause();
+                                        try {
+                                            const headerData = JSON.parse(channelHeader || '{}');
+                                            log(`402 Payment Required: ${headerData.error}`, 'error');
+                                            showPaymentErrorModal({
+                                                reason: headerData.error,
+                                                amount_due: headerData.amount_due,
+                                                balance: currentChannel?.balance,
+                                                channelId: channelId
+                                            });
+                                        } catch (e) {
+                                            log(`402 Payment Required`, 'error');
+                                            showPaymentErrorModal({ reason: 'Payment required' });
+                                        }
                                     }
                                 } else {
                                     // Other error - pause and show modal
