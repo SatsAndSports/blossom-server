@@ -85,7 +85,7 @@ interface Server {
 }
 
 // Helper to mint a funded channel - returns everything needed to make payments
-// maximumAmount defaults to 64 for backwards compatibility with existing tests
+// maximumAmount defaults to 64 to keep test fixtures small
 async function mintFundedChannel(server: Server, unit: string, maximumAmount: number = 64) {
   // Use cached channel params from server fixture
   const charliePubkey = server.channelParams.receiver_pubkey;
@@ -1437,7 +1437,7 @@ describe.concurrent('Channel closing', () => {
     console.log(`Status before close: amount_due=${amountDue} balance=${status.balance}`);
     expect(amountDue).toBeGreaterThan(0);
 
-    // Close with amount_due - this triggers unblind_and_verify_dleq which logs receiver proof verification
+    // Close with amount_due - this triggers receiver proof verification
     const closeBalanceUpdateJson = spilman_channel_sender_create_signed_balance_update(
       channel.channelParamsJson,
       JSON.stringify(channel.keysetInfo),

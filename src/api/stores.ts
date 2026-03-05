@@ -62,7 +62,7 @@ export const channelActivity = {
 };
 
 // ============================================================================
-// Channel Status (extends kit's ChannelStatus with backward-compat fields)
+// Channel Status (extends kit's ChannelStatus with usage fields)
 // ============================================================================
 
 export interface BlossomChannelStatus extends KitChannelStatus {
